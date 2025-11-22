@@ -45,10 +45,22 @@
               originalCall: args
             };
             
-            // Store captured transaction
+            // Store captured transaction in memory
             capturedTransactions.unshift(transactionData);
             if (capturedTransactions.length > 20) {
               capturedTransactions = capturedTransactions.slice(0, 20);
+            }
+            
+            // Send to communication script for storage
+            try {
+              window.postMessage({
+                source: 'kaisign-main',
+                type: 'SAVE_TRANSACTION',
+                payload: transactionData
+              }, '*');
+              console.log('[KaiSign] ✅ Transaction sent to communication script for storage');
+            } catch (msgError) {
+              console.error('[KaiSign] ❌ Communication failed, transaction NOT saved:', msgError);
             }
             
             // Show KaiSign popup BEFORE MetaMask popup
@@ -88,9 +100,39 @@
     }, 30000);
   }
 
+  // Load existing transactions via communication script
+  function loadExistingTransactions() {
+    try {
+      // Request transaction history via communication script
+      window.postMessage({
+        source: 'kaisign-main',
+        type: 'GET_TRANSACTIONS',
+        payload: null
+      }, '*');
+      console.log('[KaiSign] Requested existing transactions via communication script');
+    } catch (error) {
+      console.log('[KaiSign] Could not request existing transactions:', error);
+    }
+  }
+  
+  // Listen for responses from communication script
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || !event.data.source || event.data.source !== 'kaisign-comm') {
+      return;
+    }
+    
+    const { type, success, data } = event.data;
+    
+    if (type === 'GET_TRANSACTIONS_RESPONSE' && success && data && data.transactions) {
+      capturedTransactions = data.transactions;
+      console.log('[KaiSign] ✅ Loaded', capturedTransactions.length, 'existing transactions from storage');
+    }
+  });
+
   // Initialize interception
-  function initializeInterception() {
+  async function initializeInterception() {
     console.log('[KaiSign] Initializing...');
+    await loadExistingTransactions();
     hookEthereum();
   }
 
@@ -99,14 +141,15 @@
     console.log('[KaiSign] OPENING POPUP for transaction:', transactionData);
     
     try {
-      // Send message to background script to open popup
-      chrome.runtime.sendMessage({
-        type: 'OPEN_TRANSACTION_POPUP',
-        data: transactionData
-      });
-      console.log('[KaiSign] Popup request sent to background script');
+      // Send popup request via communication script
+      window.postMessage({
+        source: 'kaisign-main',
+        type: 'OPEN_POPUP',
+        payload: transactionData
+      }, '*');
+      console.log('[KaiSign] Popup request sent via communication script');
     } catch (error) {
-      console.log('[KaiSign] Background not available, using fallback');
+      console.log('[KaiSign] Communication failed, using fallback');
       showInlineTransactionDetails(transactionData);
     }
   }
@@ -204,7 +247,7 @@
     }, 30000);
   }
 
-  // Expose functions for testing
+  // Expose functions for testing and popup access
   window.KaiSign = {
     detector: detector,
     capturedTransactions: capturedTransactions,
@@ -213,13 +256,25 @@
         isActive: !!originalEthereumRequest,
         hasMetaMask: !!window.ethereum,
         transactionCount: capturedTransactions.length,
-        version: 'RESTORED'
+        version: 'FIXED_STORAGE'
       };
+    },
+    getTransactions: () => {
+      // Return transactions from memory (content script can't access storage directly)
+      console.log('[KaiSign] Returning', capturedTransactions.length, 'transactions from memory');
+      return capturedTransactions;
+    },
+    clearTransactions: () => {
+      // Clear from memory
+      capturedTransactions = [];
+      console.log('[KaiSign] Transactions cleared from memory');
+      // Note: Storage clearing would need to be handled via communication script if needed
     },
     test: () => {
       console.log('[KaiSign] TESTING...');
       console.log('[KaiSign] window.ethereum exists:', !!window.ethereum);
       console.log('[KaiSign] originalEthereumRequest exists:', !!originalEthereumRequest);
+      console.log('[KaiSign] Captured transactions:', capturedTransactions.length);
       
       if (window.ethereum && window.ethereum.request) {
         console.log('[KaiSign] Testing manual call...');
@@ -228,6 +283,19 @@
         }).catch(err => {
           console.log('[KaiSign] Test call failed:', err);
         });
+      }
+    },
+    testCommunication: () => {
+      console.log('[KaiSign] 🧪 TESTING COMMUNICATION...');
+      try {
+        window.postMessage({
+          source: 'kaisign-main',
+          type: 'GET_TRANSACTIONS',
+          payload: null
+        }, '*');
+        console.log('[KaiSign] ✅ Message sent via communication script');
+      } catch (error) {
+        console.error('[KaiSign] ❌ Communication test failed:', error);
       }
     },
     forcePopup: () => {
