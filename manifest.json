@@ -1,17 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "KaiSign - MetaMask Payload Inspector",
+  "name": "KaiSign Simple",
   "version": "1.0.0",
-  "description": "Intercept and display MetaMask transaction payloads with EIP-7702 support",
+  "description": "Simple MetaMask transaction display",
   "permissions": [
     "activeTab",
     "storage"
   ],
+  "host_permissions": [
+    "https://api.studio.thegraph.com/*",
+    "https://api.sepolia.blobscan.com/*",
+    "https://api.gateway.ethswarm.org/*",
+    "https://storage.googleapis.com/*"
+  ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["eip7702-detector.js", "content-script.js"],
-      "run_at": "document_start",
+      "js": ["metadata.js", "decode.js", "content-script.js"],
+      "run_at": "document_end",
       "world": "MAIN"
     }
   ],
@@ -19,13 +25,6 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "KaiSign Payload Inspector"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["transaction-popup.html"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+    "default_popup": "popup.html"
+  }
 }
