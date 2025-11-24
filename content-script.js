@@ -1,259 +1,221 @@
-/**
- * KaiSign Extension - Content Script  
- * Intercepts MetaMask ethereum.request() calls to capture transaction payloads
- */
+console.log('[KaiSign] Content script loading...');
 
-(function() {
-  'use strict';
+// Wallet detection and hooking
+const hookedWallets = new Set();
 
-  console.log('[KaiSign] Content script loaded - ' + Date.now());
-
-  // Initialize EIP-7702 detector
-  const detector = new EIP7702Detector();
+// Wait for any wallet
+function waitForWallets() {
+  // Check for different wallet providers
+  detectAndHookWallets();
   
-  // Store for captured transactions  
-  let capturedTransactions = [];
-  let originalEthereumRequest = null;
+  // Keep checking for new wallets (some load late)
+  setTimeout(waitForWallets, 500);
+}
 
-  // Hook into ethereum object
-  function hookEthereum() {
-    function attemptHook() {
-      if (!window.ethereum || !window.ethereum.request) {
-        return false;
+// Detect and hook various wallets
+function detectAndHookWallets() {
+  // 1. MetaMask (window.ethereum)
+  if (window.ethereum && window.ethereum.request && !hookedWallets.has('ethereum')) {
+    console.log('[KaiSign] Ethereum provider found (MetaMask/others), hooking...');
+    hookWalletProvider(window.ethereum, 'ethereum');
+    hookedWallets.add('ethereum');
+  }
+  
+  // 2. Rabby (window.rabby)
+  if (window.rabby && window.rabby.request && !hookedWallets.has('rabby')) {
+    console.log('[KaiSign] Rabby wallet found, hooking...');
+    hookWalletProvider(window.rabby, 'rabby');
+    hookedWallets.add('rabby');
+  }
+  
+  // 3. Coinbase Wallet (window.coinbaseWalletExtension)
+  if (window.coinbaseWalletExtension && window.coinbaseWalletExtension.request && !hookedWallets.has('coinbase')) {
+    console.log('[KaiSign] Coinbase Wallet found, hooking...');
+    hookWalletProvider(window.coinbaseWalletExtension, 'coinbase');
+    hookedWallets.add('coinbase');
+  }
+  
+  // 4. Trust Wallet (window.trustWallet)
+  if (window.trustWallet && window.trustWallet.request && !hookedWallets.has('trust')) {
+    console.log('[KaiSign] Trust Wallet found, hooking...');
+    hookWalletProvider(window.trustWallet, 'trust');
+    hookedWallets.add('trust');
+  }
+  
+  // 5. Phantom (window.phantom?.ethereum)
+  if (window.phantom?.ethereum && window.phantom.ethereum.request && !hookedWallets.has('phantom')) {
+    console.log('[KaiSign] Phantom Wallet found, hooking...');
+    hookWalletProvider(window.phantom.ethereum, 'phantom');
+    hookedWallets.add('phantom');
+  }
+  
+  // 6. Check for multiple providers (some wallets inject arrays)
+  if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+    window.ethereum.providers.forEach((provider, index) => {
+      const walletKey = `provider-${index}`;
+      if (provider.request && !hookedWallets.has(walletKey)) {
+        const walletName = getWalletName(provider);
+        console.log(`[KaiSign] Provider ${index} found (${walletName}), hooking...`);
+        hookWalletProvider(provider, walletKey, walletName);
+        hookedWallets.add(walletKey);
       }
+    });
+  }
+}
 
-      console.log('[KaiSign] Hooking into MetaMask ethereum object');
-      
-      // Store original request method
-      originalEthereumRequest = window.ethereum.request.bind(window.ethereum);
+// Get wallet name from provider
+function getWalletName(provider) {
+  if (provider.isMetaMask) return 'MetaMask';
+  if (provider.isRabby) return 'Rabby';
+  if (provider.isCoinbaseWallet) return 'Coinbase';
+  if (provider.isTrust) return 'Trust';
+  if (provider.isPhantom) return 'Phantom';
+  if (provider.isBraveWallet) return 'Brave';
+  if (provider.isExodus) return 'Exodus';
+  return 'Unknown Wallet';
+}
 
-      // Override ethereum.request
-      window.ethereum.request = async function(args) {
-        console.log('[KaiSign] INTERCEPTED ethereum.request:', args.method, args);
-
-        try {
-          // Check if this is a transaction call
-          if (args.method === 'eth_sendTransaction' || args.method === 'wallet_sendCalls') {
-            console.log('[KaiSign] Transaction detected, capturing data...');
-            
-            // Capture transaction data
-            const transactionData = {
-              id: 'tx_' + Date.now(),
-              method: args.method,
-              timestamp: new Date().toISOString(),
-              transaction: detector.formatTransaction(args.params?.[0] || {}),
-              originalCall: args
-            };
-            
-            // Store captured transaction
-            capturedTransactions.unshift(transactionData);
-            if (capturedTransactions.length > 20) {
-              capturedTransactions = capturedTransactions.slice(0, 20);
-            }
-            
-            // Show KaiSign popup BEFORE MetaMask popup
-            console.log('[KaiSign] Showing KaiSign popup BEFORE MetaMask');
-            openTransactionPopup(transactionData);
-            
-            // Now call original MetaMask request (this will show MetaMask popup)
-            return await originalEthereumRequest(args);
-          } else {
-            // For non-transaction calls, proceed normally
-            return await originalEthereumRequest(args);
-          }
-
-        } catch (error) {
-          console.error('[KaiSign] Error in intercepted call:', error);
-          throw error;
-        }
-      };
-
-      console.log('[KaiSign] Successfully hooked MetaMask ethereum.request');
-      return true;
-    }
-
-    // Try immediate hook
-    if (attemptHook()) return;
-
-    // Poll for ethereum object
-    const pollInterval = setInterval(() => {
-      if (attemptHook()) {
-        clearInterval(pollInterval);
-      }
-    }, 100);
+// Generic wallet provider hooker
+function hookWalletProvider(provider, walletKey, walletName = walletKey) {
+  if (!provider.request) return;
+  
+  const originalRequest = provider.request.bind(provider);
+  
+  provider.request = async function(args) {
+    console.log(`[KaiSign] ${walletName} Request:`, args.method);
     
-    // Give up after 30 seconds
-    setTimeout(() => {
-      clearInterval(pollInterval);
-    }, 30000);
-  }
-
-  // Initialize interception
-  function initializeInterception() {
-    console.log('[KaiSign] Initializing...');
-    hookEthereum();
-  }
-
-  // Open transaction popup window
-  function openTransactionPopup(transactionData) {
-    console.log('[KaiSign] OPENING POPUP for transaction:', transactionData);
-    
-    try {
-      // Send message to background script to open popup
-      chrome.runtime.sendMessage({
-        type: 'OPEN_TRANSACTION_POPUP',
-        data: transactionData
-      });
-      console.log('[KaiSign] Popup request sent to background script');
-    } catch (error) {
-      console.log('[KaiSign] Background not available, using fallback');
-      showInlineTransactionDetails(transactionData);
-    }
-  }
-
-  // Fallback: Show transaction details inline
-  function showInlineTransactionDetails(transactionData) {
-    console.log('[KaiSign] SHOWING INLINE DETAILS for transaction:', transactionData);
-    
-    // Create floating panel
-    const panel = document.createElement('div');
-    panel.style.cssText = `
-      position: fixed;
-      top: 50px;
-      right: 50px;
-      width: 400px;
-      max-height: 600px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      border-radius: 12px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-      z-index: 10000;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      overflow-y: auto;
-      border: 2px solid rgba(255,255,255,0.2);
-    `;
-
-    const isEIP7702 = transactionData.transaction?.isEIP7702;
-    const tx = transactionData.transaction || {};
-
-    panel.innerHTML = `
-      <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2);">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-size: 24px; margin-bottom: 5px;">🔍</div>
-            <div style="font-size: 18px; font-weight: 600;">KaiSign</div>
-            <div style="font-size: 14px; opacity: 0.8;">Transaction Inspector</div>
-          </div>
-          <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 15px; cursor: pointer; font-size: 18px;">×</button>
-        </div>
-      </div>
+    // Check if it's a transaction
+    if (args.method === 'eth_sendTransaction' || args.method === 'eth_signTransaction') {
+      const tx = args.params?.[0] || {};
+      console.log(`[KaiSign] ${walletName} TRANSACTION:`, tx);
       
-      <div style="padding: 20px;">
-        <div style="background: ${isEIP7702 ? 'rgba(255,183,77,0.2)' : 'rgba(255,255,255,0.1)'}; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 20px; ${isEIP7702 ? 'border: 2px solid rgba(255,183,77,0.5);' : ''}">
-          <div style="font-size: 24px; margin-bottom: 5px;">${isEIP7702 ? '🚀' : '📝'}</div>
-          <div style="font-weight: 600;">${isEIP7702 ? 'EIP-7702 Transaction' : 'Transaction Detected'}</div>
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-          <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">Basic Information</div>
-          <div style="font-size: 12px; line-height: 1.8; font-family: monospace;">
-            <div><span style="opacity: 0.7;">Method:</span> ${transactionData.method || 'eth_sendTransaction'}</div>
-            <div><span style="opacity: 0.7;">To:</span> ${tx.to || '-'}</div>
-            <div><span style="opacity: 0.7;">From:</span> ${tx.from || '-'}</div>
-            <div><span style="opacity: 0.7;">Value:</span> ${tx.value || '0x0'}</div>
-            <div><span style="opacity: 0.7;">Gas:</span> ${tx.gas || tx.gasLimit || '-'}</div>
-          </div>
-        </div>
-        
-        ${isEIP7702 && tx.authorizationList ? `
-          <div style="margin-bottom: 20px;">
-            <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">🚀 Authorization List</div>
-            <div style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; font-size: 11px; font-family: monospace;">
-              ${tx.authorizationList.map((auth, i) => `
-                <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                  <div style="font-weight: bold;">Authorization ${i + 1}</div>
-                  <div>Address: ${auth.address || '-'}</div>
-                  <div>Chain ID: ${auth.chainId || '-'}</div>
-                  <div>Nonce: ${auth.nonce || '-'}</div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        ` : ''}
-        
-        <div style="margin-bottom: 15px;">
-          <div style="font-size: 14px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">Raw Data</div>
-          <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; font-size: 10px; font-family: monospace; max-height: 150px; overflow-y: auto; word-break: break-all;">
-            ${JSON.stringify(transactionData, null, 2)}
-          </div>
-        </div>
-        
-        <div style="text-align: center;">
-          <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">Close</button>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(panel);
-
-    // Auto-remove after 30 seconds
-    setTimeout(() => {
-      if (panel.parentNode) {
-        panel.remove();
-      }
-    }, 30000);
-  }
-
-  // Expose functions for testing
-  window.KaiSign = {
-    detector: detector,
-    capturedTransactions: capturedTransactions,
-    status: () => {
-      return {
-        isActive: !!originalEthereumRequest,
-        hasMetaMask: !!window.ethereum,
-        transactionCount: capturedTransactions.length,
-        version: 'RESTORED'
-      };
-    },
-    test: () => {
-      console.log('[KaiSign] TESTING...');
-      console.log('[KaiSign] window.ethereum exists:', !!window.ethereum);
-      console.log('[KaiSign] originalEthereumRequest exists:', !!originalEthereumRequest);
-      
-      if (window.ethereum && window.ethereum.request) {
-        console.log('[KaiSign] Testing manual call...');
-        window.ethereum.request({ method: 'eth_accounts' }).then(result => {
-          console.log('[KaiSign] Test call worked:', result);
-        }).catch(err => {
-          console.log('[KaiSign] Test call failed:', err);
-        });
-      }
-    },
-    forcePopup: () => {
-      console.log('[KaiSign] FORCING TEST POPUP...');
-      const testData = {
-        id: 'test_' + Date.now(),
-        method: 'eth_sendTransaction',
-        timestamp: new Date().toISOString(),
-        transaction: detector.formatTransaction({
-          type: '0x2',
-          to: '0x742d35Cc6481C8B4b5F90d4F6e5c3b8dA0c8C7B5',
-          from: '0x123...',
-          value: '0x1000000000000000',
-          gas: '0x5208'
-        })
-      };
-      openTransactionPopup(testData);
-      return testData;
+      // Get intent and show popup
+      getIntentAndShow(tx, args.method, walletName);
     }
+    
+    // Call original wallet request
+    return await originalRequest(args);
   };
+  
+  console.log(`[KaiSign] ${walletName} hooked successfully`);
+}
 
-  // Initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeInterception);
+// Get intent and show transaction
+async function getIntentAndShow(tx, method, walletName = 'Wallet') {
+  let intent = 'Loading intent...';
+  
+  // Show popup immediately with loading state
+  showTransactionInfo(tx, method, intent, walletName);
+  
+  // Use EXACT decoder from Snaps repo
+  console.log('[KaiSign] ===== CONTENT SCRIPT DECODE =====');
+  console.log('[KaiSign] TX data:', tx.data?.slice(0, 20) + '...');
+  console.log('[KaiSign] TX to:', tx.to);
+  console.log('[KaiSign] Has decodeCalldata:', !!window.decodeCalldata);
+  
+  if (window.decodeCalldata && tx.data && tx.to) {
+    try {
+      // Use Sepolia chain ID for KaiSign contract
+      const chainId = tx.to.toLowerCase() === '0x4dfea0c2b472a14cd052a8f9df9f19fa5cf03719' ? 11155111 : 1;
+      console.log('[KaiSign] Using chain ID:', chainId);
+      
+      const decoded = await window.decodeCalldata(tx.data, tx.to, chainId);
+      console.log('[KaiSign] Decode result:', decoded);
+      
+      if (decoded.success) {
+        intent = decoded.intent || 'Contract interaction';
+        console.log('[KaiSign] ✅ SUCCESS - Intent:', intent);
+      } else {
+        intent = 'Contract interaction';
+        console.log('[KaiSign] ❌ FAILED - Error:', decoded.error);
+      }
+      // Update popup with real intent
+      showTransactionInfo(tx, method, intent, walletName);
+    } catch (error) {
+      console.log('[KaiSign] ❌ EXCEPTION:', error.message);
+      intent = 'Contract interaction';
+      showTransactionInfo(tx, method, intent, walletName);
+    }
   } else {
-    initializeInterception();
+    console.log('[KaiSign] ❌ Missing decoder or transaction data');
   }
+  
+  // Save transaction with intent
+  try {
+    chrome.runtime.sendMessage({
+      type: 'SAVE_TRANSACTION',
+      data: {
+        id: Date.now().toString(),
+        method: method,
+        time: new Date().toISOString(),
+        to: tx.to,
+        value: tx.value,
+        data: tx.data,
+        intent: intent
+      }
+    });
+  } catch (error) {
+    console.log('[KaiSign] Save failed:', error.message);
+  }
+}
 
-})();
+// Show transaction info
+function showTransactionInfo(tx, method, intent, walletName = 'Wallet') {
+  // Remove old popup if exists
+  const old = document.getElementById('kaisign-popup');
+  if (old) old.remove();
+  
+  // Create simple popup
+  const popup = document.createElement('div');
+  popup.id = 'kaisign-popup';
+  popup.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 300px;
+    background: #333;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    z-index: 999999;
+    font-family: monospace;
+    font-size: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  `;
+  
+  popup.innerHTML = `
+    <div style="font-size: 12px; color: #ff6b6b; font-weight: bold; margin-bottom: 8px; text-align: center; border: 1px solid #ff6b6b; padding: 4px; border-radius: 4px;">
+      ⚠️ THIS IS A DEMONSTRATION OF THE REAL PRODUCT. USE AT YOUR OWN RISK
+    </div>
+    <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px;">
+      🔍 KaiSign - Transaction Detected (${walletName})
+    </div>
+    <div style="font-size: 16px; color: #4CAF50; margin-bottom: 8px; font-weight: bold;">
+      🎯 ${intent || 'Loading intent...'}
+    </div>
+    <div><strong>To:</strong> ${tx.to || 'N/A'}</div>
+    <div><strong>Value:</strong> ${tx.value || '0x0'}</div>
+    ${tx.data ? `<div><strong>Data:</strong> ${tx.data.slice(0, 20)}...</div>` : ''}
+    <button onclick="this.parentElement.remove()" style="
+      background: #555;
+      color: white;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-top: 8px;
+      cursor: pointer;
+    ">Close</button>
+  `;
+  
+  document.body.appendChild(popup);
+  
+  // Auto-remove after 10 seconds
+  setTimeout(() => {
+    if (popup.parentNode) popup.remove();
+  }, 10000);
+}
+
+// Start wallet detection
+waitForWallets();
+
+console.log('[KaiSign] Content script ready - Multi-wallet support enabled');
