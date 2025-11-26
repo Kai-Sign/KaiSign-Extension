@@ -1,0 +1,36 @@
+{
+  "$schema": "../../specs/erc7730-v1.schema.json",
+  "context": {
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9"
+        },
+        {
+          "chainId": 137,
+          "address": "0xd6df932a45c0f255f85145f286ea0b292b21c90b"
+        },
+        {
+          "chainId": 42161,
+          "address": "0xba5ddd1f9d7f570dc94a51479a000e3bce967196"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "token": {
+        "symbol": "AAVE",
+        "decimals": 18,
+        "name": "Aave Token"
+      }
+    }
+  },
+  "metadata": {
+    "owner": "Aave",
+    "symbol": "AAVE",
+    "decimals": 18,
+    "name": "Aave Token"
+  }
+}

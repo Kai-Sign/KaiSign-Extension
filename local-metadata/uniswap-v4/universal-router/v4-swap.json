@@ -1,0 +1,119 @@
+{
+  "$schema": "../../../specs/erc7730-v1.schema.json",
+  "context": {
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "virtual:v4-swap"
+        }
+      ],
+      "abi": [
+        {
+          "type": "function",
+          "name": "v4Swap",
+          "inputs": [
+            {
+              "name": "poolKey",
+              "type": "tuple",
+              "components": [
+                {
+                  "name": "currency0",
+                  "type": "address",
+                  "description": "First token in the pool"
+                },
+                {
+                  "name": "currency1", 
+                  "type": "address",
+                  "description": "Second token in the pool"
+                },
+                {
+                  "name": "fee",
+                  "type": "uint24",
+                  "description": "Pool fee tier"
+                },
+                {
+                  "name": "tickSpacing",
+                  "type": "int24", 
+                  "description": "Tick spacing for the pool"
+                },
+                {
+                  "name": "hooks",
+                  "type": "address",
+                  "description": "Hook contract address"
+                }
+              ],
+              "description": "Pool key identifying the Uniswap V4 pool"
+            },
+            {
+              "name": "zeroForOne",
+              "type": "bool",
+              "description": "Direction of swap (true = token0 to token1)"
+            },
+            {
+              "name": "amountSpecified",
+              "type": "int256",
+              "description": "Amount to swap (negative for exact input, positive for exact output)"
+            },
+            {
+              "name": "sqrtPriceLimitX96",
+              "type": "uint160",
+              "description": "Price limit for the swap"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "payable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "v4Swap((address,address,uint24,int24,address),bool,int256,uint160)": {
+        "intent": "Exact input swap with price limit protection",
+        "fields": [
+          {
+            "path": "poolKey.currency0",
+            "label": "Token In",
+            "format": "tokenSymbol",
+            "description": "Token being swapped from"
+          },
+          {
+            "path": "poolKey.currency1",
+            "label": "Token Out", 
+            "format": "tokenSymbol",
+            "description": "Token being swapped to"
+          },
+          {
+            "path": "poolKey.fee",
+            "label": "Pool Fee",
+            "format": "feeTier",
+            "description": "Pool fee percentage"
+          },
+          {
+            "path": "$transactionValue",
+            "label": "Input Amount",
+            "format": "inputAmount",
+            "description": "Amount being swapped from transaction value"
+          },
+          {
+            "path": "sqrtPriceLimitX96",
+            "label": "Price Limit",
+            "format": "priceLimit", 
+            "description": "Price limit for slippage protection"
+          },
+          {
+            "path": "zeroForOne",
+            "label": "Swap Direction",
+            "format": "boolean",
+            "description": "Swap direction (token0 to token1)"
+          }
+        ]
+      }
+    }
+  },
+  "metadata": {
+    "owner": "Uniswap Labs",
+    "commandByte": "0x10"
+  }
+}

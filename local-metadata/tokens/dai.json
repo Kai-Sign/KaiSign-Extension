@@ -1,0 +1,40 @@
+{
+  "$schema": "../../specs/erc7730-v1.schema.json",
+  "context": {
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "0x6b175474e89094c44da98b954eedeac495271d0f"
+        },
+        {
+          "chainId": 137,
+          "address": "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063"
+        },
+        {
+          "chainId": 42161,
+          "address": "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1"
+        },
+        {
+          "chainId": 8453,
+          "address": "0x50c5725949a6f0c72e6c4a641f24049a917db0cb"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "token": {
+        "symbol": "DAI",
+        "decimals": 18,
+        "name": "Dai Stablecoin"
+      }
+    }
+  },
+  "metadata": {
+    "owner": "MakerDAO",
+    "symbol": "DAI",
+    "decimals": 18,
+    "name": "Dai Stablecoin"
+  }
+}

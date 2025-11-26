@@ -1,0 +1,32 @@
+{
+  "$schema": "../../specs/erc7730-v1.schema.json",
+  "context": {
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0"
+        },
+        {
+          "chainId": 137,
+          "address": "0x0000000000000000000000000000000000001010"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "token": {
+        "symbol": "MATIC",
+        "decimals": 18,
+        "name": "Polygon"
+      }
+    }
+  },
+  "metadata": {
+    "owner": "Polygon",
+    "symbol": "MATIC",
+    "decimals": 18,
+    "name": "Polygon"
+  }
+}

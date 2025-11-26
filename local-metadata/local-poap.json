@@ -1,0 +1,54 @@
+{
+  "$schema": null,
+  "context": {
+    "$id": null,
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "0x0bb4D3e88243F4A057Db77341e6916B0e449b158"
+        }
+      ],
+      "abi": []
+    }
+  },
+  "display": {
+    "name": "POAP Bridge",
+    "description": "Protocol for Proof of Attendance Protocol (POAP) bridging",
+    "tags": ["nft", "poap", "attendance"],
+    "formats": {
+      "": {
+        "intent": "Claim a POAP token",
+        "fields": [
+          {
+            "path": "#._eventId",
+            "label": "Event ID",
+            "description": "The ID of the POAP event"
+          },
+          {
+            "path": "#._tokenId",
+            "label": "Token ID",
+            "description": "The ID of the token to mint"
+          },
+          {
+            "path": "#._receiver",
+            "label": "Receiver",
+            "description": "The address that will receive the POAP"
+          },
+          {
+            "path": "#._expirationTime",
+            "label": "Expiration Time",
+            "description": "The time when this claim expires",
+            "format": "timestamp"
+          },
+          {
+            "path": "#._signature",
+            "label": "Signature",
+            "description": "The signature authorizing the claim"
+          }
+        ]
+      }
+    }
+  },
+  "poaps": []
+}

@@ -1,0 +1,200 @@
+{
+  "$schema": "../../../specs/erc7730-v1.schema.json",
+  "context": {
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "0x7Ee7Cc2Fd4c1BB55F5E8Afb894E6F4A6eE1F58F8"
+        }
+      ],
+      "abi": [
+        {
+          "type": "function",
+          "name": "getSlot0",
+          "inputs": [
+            {
+              "name": "poolKey",
+              "type": "tuple",
+              "components": [
+                {"name": "currency0", "type": "address"},
+                {"name": "currency1", "type": "address"},
+                {"name": "fee", "type": "uint24"},
+                {"name": "tickSpacing", "type": "int24"},
+                {"name": "hooks", "type": "address"}
+              ]
+            }
+          ],
+          "outputs": [
+            {
+              "name": "sqrtPriceX96",
+              "type": "uint160"
+            },
+            {
+              "name": "tick",
+              "type": "int24"
+            },
+            {
+              "name": "protocolFee",
+              "type": "uint8"
+            },
+            {
+              "name": "lpFee",
+              "type": "uint8"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "getLiquidity",
+          "inputs": [
+            {
+              "name": "poolKey",
+              "type": "tuple",
+              "components": [
+                {"name": "currency0", "type": "address"},
+                {"name": "currency1", "type": "address"},
+                {"name": "fee", "type": "uint24"},
+                {"name": "tickSpacing", "type": "int24"},
+                {"name": "hooks", "type": "address"}
+              ]
+            }
+          ],
+          "outputs": [
+            {
+              "name": "liquidity",
+              "type": "uint128"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "getPosition",
+          "inputs": [
+            {
+              "name": "poolKey",
+              "type": "tuple",
+              "components": [
+                {"name": "currency0", "type": "address"},
+                {"name": "currency1", "type": "address"},
+                {"name": "fee", "type": "uint24"},
+                {"name": "tickSpacing", "type": "int24"},
+                {"name": "hooks", "type": "address"}
+              ]
+            },
+            {
+              "name": "owner",
+              "type": "address"
+            },
+            {
+              "name": "tickLower",
+              "type": "int24"
+            },
+            {
+              "name": "tickUpper",
+              "type": "int24"
+            },
+            {
+              "name": "salt",
+              "type": "bytes32"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "liquidity",
+              "type": "uint128"
+            },
+            {
+              "name": "feeGrowthInside0LastX128",
+              "type": "uint256"
+            },
+            {
+              "name": "feeGrowthInside1LastX128",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "getSlot0((address,address,uint24,int24,address))": {
+        "intent": "Get Pool Price and Fee Data",
+        "fields": [
+          {
+            "path": "poolKey.currency0",
+            "label": "Token 0",
+            "format": "addressName"
+          },
+          {
+            "path": "poolKey.currency1",
+            "label": "Token 1",
+            "format": "addressName"
+          },
+          {
+            "path": "poolKey.fee",
+            "label": "Pool Fee",
+            "format": "percentage"
+          }
+        ]
+      },
+      "getLiquidity((address,address,uint24,int24,address))": {
+        "intent": "Get Pool Total Liquidity",
+        "fields": [
+          {
+            "path": "poolKey.currency0",
+            "label": "Token 0", 
+            "format": "addressName"
+          },
+          {
+            "path": "poolKey.currency1",
+            "label": "Token 1",
+            "format": "addressName"
+          },
+          {
+            "path": "poolKey.fee",
+            "label": "Pool Fee",
+            "format": "percentage"
+          }
+        ]
+      },
+      "getPosition((address,address,uint24,int24,address),address,int24,int24,bytes32)": {
+        "intent": "Get Position Information",
+        "fields": [
+          {
+            "path": "poolKey.currency0",
+            "label": "Token 0",
+            "format": "addressName"
+          },
+          {
+            "path": "poolKey.currency1",
+            "label": "Token 1",
+            "format": "addressName"
+          },
+          {
+            "path": "owner",
+            "label": "Position Owner",
+            "format": "address"
+          },
+          {
+            "path": "tickLower",
+            "label": "Lower Tick",
+            "format": "raw"
+          },
+          {
+            "path": "tickUpper",
+            "label": "Upper Tick",
+            "format": "raw"
+          }
+        ]
+      }
+    }
+  },
+  "metadata": {
+    "owner": "Uniswap Labs"
+  }
+}

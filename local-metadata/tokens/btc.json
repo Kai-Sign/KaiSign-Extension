@@ -1,0 +1,36 @@
+{
+  "$schema": "../../specs/erc7730-v1.schema.json",
+  "context": {
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
+        },
+        {
+          "chainId": 137,
+          "address": "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6"
+        },
+        {
+          "chainId": 42161,
+          "address": "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "token": {
+        "symbol": "WBTC",
+        "decimals": 8,
+        "name": "Wrapped BTC"
+      }
+    }
+  },
+  "metadata": {
+    "owner": "BitGo",
+    "symbol": "WBTC",
+    "decimals": 8,
+    "name": "Wrapped BTC"
+  }
+}

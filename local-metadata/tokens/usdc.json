@@ -1,0 +1,40 @@
+{
+  "$schema": "../../specs/erc7730-v1.schema.json",
+  "context": {
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+        },
+        {
+          "chainId": 137,
+          "address": "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"
+        },
+        {
+          "chainId": 42161,
+          "address": "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8"
+        },
+        {
+          "chainId": 8453,
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "token": {
+        "symbol": "USDC",
+        "decimals": 6,
+        "name": "USD Coin"
+      }
+    }
+  },
+  "metadata": {
+    "owner": "Centre",
+    "symbol": "USDC",
+    "decimals": 6,
+    "name": "USD Coin"
+  }
+}

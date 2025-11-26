@@ -1,0 +1,214 @@
+{
+  "$schema": "../../../specs/erc7730-v1.schema.json",
+  "context": {
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 1,
+          "address": "0x1B72D65bEd0e3f6b0CAC82d6E5f87a5fcA8b5F8D"
+        }
+      ],
+      "abi": [
+        {
+          "type": "function",
+          "name": "mint",
+          "inputs": [
+            {
+              "name": "poolKey",
+              "type": "tuple",
+              "components": [
+                {"name": "currency0", "type": "address"},
+                {"name": "currency1", "type": "address"},
+                {"name": "fee", "type": "uint24"},
+                {"name": "tickSpacing", "type": "int24"},
+                {"name": "hooks", "type": "address"}
+              ]
+            },
+            {
+              "name": "tickLower",
+              "type": "int24"
+            },
+            {
+              "name": "tickUpper",
+              "type": "int24"
+            },
+            {
+              "name": "liquidity",
+              "type": "uint128"
+            },
+            {
+              "name": "amount0Max",
+              "type": "uint128"
+            },
+            {
+              "name": "amount1Max", 
+              "type": "uint128"
+            },
+            {
+              "name": "owner",
+              "type": "address"
+            },
+            {
+              "name": "hookData",
+              "type": "bytes"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "tokenId",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "burn",
+          "inputs": [
+            {
+              "name": "tokenId",
+              "type": "uint256"
+            },
+            {
+              "name": "amount0Min",
+              "type": "uint128"
+            },
+            {
+              "name": "amount1Min",
+              "type": "uint128"
+            },
+            {
+              "name": "hookData",
+              "type": "bytes"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "increaseLiquidity",
+          "inputs": [
+            {
+              "name": "tokenId",
+              "type": "uint256"
+            },
+            {
+              "name": "liquidityDelta",
+              "type": "uint256"
+            },
+            {
+              "name": "amount0Max",
+              "type": "uint128"
+            },
+            {
+              "name": "amount1Max",
+              "type": "uint128"
+            },
+            {
+              "name": "hookData",
+              "type": "bytes"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "decreaseLiquidity",
+          "inputs": [
+            {
+              "name": "tokenId",
+              "type": "uint256"
+            },
+            {
+              "name": "liquidityDelta",
+              "type": "uint256"
+            },
+            {
+              "name": "amount0Min",
+              "type": "uint128"
+            },
+            {
+              "name": "amount1Min",
+              "type": "uint128"
+            },
+            {
+              "name": "hookData",
+              "type": "bytes"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "mint((address,address,uint24,int24,address),int24,int24,uint128,uint128,uint128,address,bytes)": {
+        "intent": "Mint Liquidity Position NFT",
+        "fields": [
+          {
+            "path": "poolKey.currency0",
+            "label": "Token 0",
+            "format": "addressName"
+          },
+          {
+            "path": "poolKey.currency1",
+            "label": "Token 1",
+            "format": "addressName"
+          },
+          {
+            "path": "poolKey.fee",
+            "label": "Pool Fee",
+            "format": "percentage"
+          },
+          {
+            "path": "tickLower",
+            "label": "Lower Tick",
+            "format": "raw"
+          },
+          {
+            "path": "tickUpper",
+            "label": "Upper Tick",
+            "format": "raw"
+          },
+          {
+            "path": "liquidity",
+            "label": "Liquidity Amount",
+            "format": "amount"
+          },
+          {
+            "path": "owner",
+            "label": "Position Owner",
+            "format": "address"
+          }
+        ]
+      },
+      "burn(uint256,uint128,uint128,bytes)": {
+        "intent": "Burn Liquidity Position",
+        "fields": [
+          {
+            "path": "tokenId",
+            "label": "Position Token ID",
+            "format": "raw"
+          },
+          {
+            "path": "amount0Min",
+            "label": "Min Amount Token 0",
+            "format": "amount"
+          },
+          {
+            "path": "amount1Min",
+            "label": "Min Amount Token 1", 
+            "format": "amount"
+          }
+        ]
+      }
+    }
+  },
+  "metadata": {
+    "owner": "Uniswap Labs"
+  }
+}
