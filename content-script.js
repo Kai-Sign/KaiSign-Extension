@@ -200,8 +200,6 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
             }
           }
           
-          currentInputOffset += 64;
-          
         } catch (inputError) {
           console.log('[UR-Parser] Error parsing input', i / 2, ':', inputError.message);
         }
@@ -297,8 +295,14 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
           if (chunk.length === 64 && chunk.slice(0, 24) === '000000000000000000000000') {
             const addr = '0x' + chunk.slice(24);
             if (addr !== '0x0000000000000000000000000000000000000000' && addr.length === 42) {
-              addresses.push(addr);
-              console.log('[Token-Parser] Found address:', addr);
+              // Filter out obvious ABI offset addresses (small numbers, mostly zeros)
+              const isAbiOffset = addr.match(/^0x00000000000000000000000000000000000[0-9a-f]{1,5}$/i);
+              if (!isAbiOffset && addr !== '0x0000000000000000000000000000000000000000') {
+                addresses.push(addr);
+                console.log('[Token-Parser] ✅ Found real address:', addr);
+              } else {
+                console.log('[Token-Parser] ❌ Skipping ABI offset:', addr);
+              }
             }
           }
         }
@@ -310,8 +314,8 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
         for (const tokenAddr of knownTokenAddresses) {
           const searchAddr = tokenAddr.slice(2).toLowerCase(); // Remove 0x
           if (data.toLowerCase().includes(searchAddr)) {
-            foundTokens.push('0x' + tokenAddr);
-            console.log('[Token-Parser] Found token in hex:', '0x' + tokenAddr);
+            foundTokens.push(tokenAddr); // Don't add 0x prefix since tokenAddr already has it
+            console.log('[Token-Parser] Found token in hex:', tokenAddr);
           }
         }
         
@@ -344,26 +348,48 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
         
       case 'transfer':
       case 'cleanup':
-        // Similar enhancement for transfers
+        // Enhanced token detection for transfer/sweep commands
         const transferAddresses = [];
         for (let i = 0; i < data.length; i += 64) {
           const chunk = data.slice(i, i + 64);
           if (chunk.length === 64 && chunk.slice(0, 24) === '000000000000000000000000') {
             const addr = '0x' + chunk.slice(24);
             if (addr !== '0x0000000000000000000000000000000000000000' && addr.length === 42) {
-              transferAddresses.push(addr);
+              // Filter out ABI offset addresses
+              const isAbiOffset = addr.match(/^0x00000000000000000000000000000000000[0-9a-f]{1,5}$/i);
+              if (!isAbiOffset && addr !== '0x0000000000000000000000000000000000000000') {
+                transferAddresses.push(addr);
+                console.log('[Token-Parser] ✅ Found real transfer address:', addr);
+              } else {
+                console.log('[Token-Parser] ❌ Skipping transfer ABI offset:', addr);
+              }
             }
           }
         }
         
-        if (transferAddresses.length >= 1) {
-          const token = transferAddresses[0];
+        // Also search for known tokens in the hex data for cleanup commands
+        const cleanupTokenAddresses = Object.keys(TOKEN_REGISTRY);
+        const foundCleanupTokens = [];
+        
+        for (const tokenAddr of cleanupTokenAddresses) {
+          const searchAddr = tokenAddr.slice(2).toLowerCase(); // Remove 0x
+          if (data.toLowerCase().includes(searchAddr)) {
+            foundCleanupTokens.push(tokenAddr);
+            console.log('[Token-Parser] Found cleanup token:', tokenAddr);
+          }
+        }
+        
+        // Combine both methods
+        const allTransferTokens = [...new Set([...transferAddresses, ...foundCleanupTokens])];
+        
+        if (allTransferTokens.length >= 1) {
+          const token = allTransferTokens[0];
           const tokenSymbol = resolveTokenSymbol(token) || token;
           
           return {
             token: token,
             tokenSymbol: tokenSymbol,
-            recipient: transferAddresses[1] || null,
+            recipient: allTransferTokens[1] || null,
             type: 'transfer'
           };
         }
@@ -625,9 +651,24 @@ function getMainTransactionIntent(calls, transactionValue) {
   const allTokens = new Set();
   const foundTokenSymbols = new Set();
   
-  calls.forEach(call => {
+  calls.forEach((call, index) => {
     if (call.parsedParams) {
-      if (call.parsedParams.token) allTokens.add(call.parsedParams.token);
+      console.log(`[Intent] Call ${index} parsedParams:`, call.parsedParams);
+      
+      // Handle enhanced parser token format
+      if (call.parsedParams.fromToken) {
+        allTokens.add(call.parsedParams.fromToken);
+        if (call.parsedParams.fromSymbol) foundTokenSymbols.add(call.parsedParams.fromSymbol);
+      }
+      if (call.parsedParams.toToken) {
+        allTokens.add(call.parsedParams.toToken);
+        if (call.parsedParams.toSymbol) foundTokenSymbols.add(call.parsedParams.toSymbol);
+      }
+      // Handle legacy parser token format
+      if (call.parsedParams.token) {
+        allTokens.add(call.parsedParams.token);
+        if (call.parsedParams.tokenSymbol) foundTokenSymbols.add(call.parsedParams.tokenSymbol);
+      }
       if (call.parsedParams.addresses) {
         call.parsedParams.addresses.forEach(addr => allTokens.add(addr));
       }
@@ -648,15 +689,29 @@ function getMainTransactionIntent(calls, transactionValue) {
   
   console.log('[Intent] All tokens found:', Array.from(allTokens));
   console.log('[Intent] Non-WETH tokens:', nonWethTokens);
+  console.log('[Intent] Found token symbols:', Array.from(foundTokenSymbols));
   
   let fromToken = 'ETH';
   let toToken = null;
   
-  // If we found any non-WETH tokens, that's likely our target
+  // If we found any non-WETH tokens, prioritize known tokens (USDC, DAI, etc) over unknown ones
   if (nonWethTokens.length > 0) {
-    const targetTokenAddress = nonWethTokens[0];
-    const targetTokenSymbol = getTokenSymbol(targetTokenAddress);
+    // Prioritize tokens we can resolve to symbols (like USDC)
+    let targetTokenAddress = nonWethTokens[0];
+    
+    // Find a token we can actually resolve to a symbol
+    for (const token of nonWethTokens) {
+      const symbol = resolveTokenSymbol(token);
+      if (symbol && symbol !== token) { // Found a real symbol, not just the address
+        targetTokenAddress = token;
+        break;
+      }
+    }
+    
+    // Try enhanced token resolution first, fallback to legacy
+    const targetTokenSymbol = resolveTokenSymbol(targetTokenAddress) || getTokenSymbol(targetTokenAddress);
     console.log('[Intent] Target token:', targetTokenAddress, '->', targetTokenSymbol);
+    console.log('[Intent] Prioritized known token:', targetTokenSymbol !== targetTokenAddress ? 'YES' : 'NO');
     
     if (hasWrapEth && !hasUnwrapWeth) {
       // ETH → Token
@@ -674,10 +729,39 @@ function getMainTransactionIntent(calls, transactionValue) {
       // Direct token operation
       toToken = targetTokenSymbol;
     }
+  } else if (foundTokenSymbols.size > 0) {
+    // Fallback: if we have token symbols but no clear target address
+    const symbolArray = Array.from(foundTokenSymbols);
+    const targetSymbol = symbolArray.find(s => s !== 'ETH' && s !== 'WETH') || symbolArray[0];
+    console.log('[Intent] Using fallback token symbol:', targetSymbol);
+    
+    if (hasWrapEth && !hasUnwrapWeth) {
+      fromToken = 'ETH';
+      toToken = targetSymbol;
+    } else if (!hasWrapEth && hasUnwrapWeth) {
+      fromToken = targetSymbol;
+      toToken = 'ETH';
+    } else {
+      toToken = targetSymbol;
+    }
   } else {
     // Fallback: search for known tokens in the raw transaction data
     console.log('[Intent] No tokens found in parsed params, searching raw transaction...');
     const rawTx = calls[0]?.bytecode || '';
+    
+    // Check for USDC specifically in the transaction data
+    if (rawTx.toLowerCase().includes('a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48')) {
+      console.log('[Intent] Found USDC in raw transaction data!');
+      if (hasWrapEth && !hasUnwrapWeth) {
+        fromToken = 'ETH';
+        toToken = 'USDC';
+      } else if (!hasWrapEth && hasUnwrapWeth) {
+        fromToken = 'USDC';
+        toToken = 'ETH';
+      } else {
+        toToken = 'USDC';
+      }
+    }
     
     // Search for known token addresses in the raw transaction
     const tokenSearchMap = {
