@@ -96,17 +96,54 @@ async function decodeCalldata(data, contractAddress, chainId) {
           const types = (item.inputs || []).map(input => input.type).join(',');
           const signature = `${item.name}(${types})`;
           
-          // Calculate selector manually using keccak256 (Ethereum standard)
-          // For now, just use stored selector and log what we have
-          const storedSelector = item.selector;
+          // Calculate selector using keccak256 (Ethereum standard)
+          let calculatedSelector = null;
           
-          console.log(`[Decode] Function: ${signature} -> stored: ${storedSelector}`);
+          // Try multiple methods to get keccak256
+          if (typeof window !== 'undefined') {
+            // Method 1: Try ethereum provider
+            if (window.ethereum && window.ethereum.utils && window.ethereum.utils.keccak256) {
+              try {
+                calculatedSelector = window.ethereum.utils.keccak256(signature).slice(0, 10);
+                console.log(`[Decode] Calculated selector via ethereum.utils: ${calculatedSelector}`);
+              } catch (e) {
+                console.log(`[Decode] ethereum.utils.keccak256 failed: ${e.message}`);
+              }
+            }
+            
+            // Method 2: Try web3 if available
+            if (!calculatedSelector && typeof window.web3 !== 'undefined' && window.web3.utils) {
+              try {
+                calculatedSelector = window.web3.utils.keccak256(signature).slice(0, 10);
+                console.log(`[Decode] Calculated selector via web3.utils: ${calculatedSelector}`);
+              } catch (e) {
+                console.log(`[Decode] web3.utils.keccak256 failed: ${e.message}`);
+              }
+            }
+            
+            // Method 3: Try ethers if available
+            if (!calculatedSelector && typeof window.ethers !== 'undefined' && window.ethers.utils) {
+              try {
+                calculatedSelector = window.ethers.utils.keccak256(window.ethers.utils.toUtf8Bytes(signature)).slice(0, 10);
+                console.log(`[Decode] Calculated selector via ethers.utils: ${calculatedSelector}`);
+              } catch (e) {
+                console.log(`[Decode] ethers.utils.keccak256 failed: ${e.message}`);
+              }
+            }
+          }
           
-          if (item.selector === selector) {
+          // Use stored selector from metadata first, then fallback to calculated
+          const expectedSelector = item.selector || calculatedSelector;
+          
+          console.log(`[Decode] Function: ${signature} -> expected: ${expectedSelector} (stored: ${item.selector || 'none'})`);
+          
+          if (expectedSelector === selector) {
             functionSignature = signature;
             functionName = item.name;
             abiFunction = item;
             console.log(`[Decode] ✅ MATCHED function: ${functionSignature}`);
+            console.log(`[Decode] Function name for intent lookup: ${functionName}`);
+            console.log(`[Decode] Function signature for intent lookup: ${functionSignature}`);
             break;
           }
         }
@@ -155,10 +192,46 @@ async function decodeCalldata(data, contractAddress, chainId) {
     let fieldInfo = {};
     
     // Try display.formats first (standard ERC-7730)
+    console.log(`[Decode] Starting intent lookup...`);
+    console.log(`[Decode] Available format keys:`, metadata.display?.formats ? Object.keys(metadata.display.formats) : 'none');
+    console.log(`[Decode] Looking for signature: "${functionSignature}"`);
+    console.log(`[Decode] Looking for function name: "${functionName}"`);
+    
+    // Check both function signature and function name
+    let format = null;
     if (metadata.display?.formats?.[functionSignature]) {
-      const format = metadata.display.formats[functionSignature];
-      intent = format.intent || intent;
-      console.log(`[Decode] Found intent from display.formats: ${intent}`);
+      format = metadata.display.formats[functionSignature];
+      console.log(`[Decode] Found format for signature: ${functionSignature}`);
+    } else if (metadata.display?.formats?.[functionName]) {
+      format = metadata.display.formats[functionName];
+      console.log(`[Decode] Found format for function name: ${functionName}`);
+    } else {
+      console.log(`[Decode] No format found for "${functionSignature}" or "${functionName}"`);
+    }
+    
+    if (format) {
+      
+      // Handle ERC-7730 intent format - check for format.intent.format array with text elements
+      if (format.intent && format.intent.format && Array.isArray(format.intent.format)) {
+        // Look for text elements with value in the format array
+        for (const item of format.intent.format) {
+          if (item.type === 'container' && item.fields) {
+            for (const field of item.fields) {
+              if (field.type === 'text' && field.value && field.format === 'heading2') {
+                intent = field.value;
+                console.log(`[Decode] Found intent from ERC-7730 format: ${intent}`);
+                break;
+              }
+            }
+            if (intent !== 'Contract interaction') break;
+          }
+        }
+      } 
+      // Fallback for simple string intent
+      else if (typeof format.intent === 'string') {
+        intent = format.intent;
+        console.log(`[Decode] Found intent from display.formats: ${intent}`);
+      }
       
       if (format.fields) {
         for (const field of format.fields) {
