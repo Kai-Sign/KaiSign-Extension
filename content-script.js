@@ -83,11 +83,8 @@ const TOKEN_REGISTRY = {
  */
 async function parseUniversalRouterTransaction(txData, transactionValue = null) {
   try {
-    console.log('[UR-Parser-Ethers] Starting ethers.js-based parsing');
-    console.log('[UR-Parser-Ethers] Data length:', txData.length);
     
     // Use simple ABI decoder instead of ethers.js
-    console.log('[UR-Parser-Ethers] Using SimpleABIDecoder...');
     const decoded = SimpleABIDecoder.decodeExecuteFunction(txData);
     
     if (!decoded) {
@@ -95,19 +92,12 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
       return [];
     }
     
-    console.log('[UR-Parser-Ethers] Decoded parameters:');
-    console.log('[UR-Parser-Ethers] Commands:', decoded.commands);
-    console.log('[UR-Parser-Ethers] Inputs length:', decoded.inputs.length);
-    console.log('[UR-Parser-Ethers] Deadline:', decoded.deadline);
     
     // Parse commands bytes and inputs array
     const commandsData = decoded.commands.slice(2); // Remove 0x prefix
     const commandsLength = commandsData.length;
     const inputsArrayLength = decoded.inputs.length;
     
-    console.log('[UR-Parser-Ethers] Commands bytes length:', commandsLength / 2);
-    console.log('[UR-Parser-Ethers] Commands data:', commandsData);
-    console.log('[UR-Parser-Ethers] Inputs array length:', inputsArrayLength);
     
     const extractedCalls = [];
     
@@ -134,8 +124,6 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
       const commandByte = parseInt(commandByteHex, 16);
       const commandInfo = getUniversalRouterCommandInfo(commandByte);
       
-      console.log('[UR-Parser-Ethers] Command', i / 2, ':', commandByteHex, '->', commandInfo.name);
-      console.log('[UR-Parser-Ethers] Intent:', commandInfo.intent);
       
       const commandIndex = i / 2;
       if (commandIndex < inputsArrayLength) {
@@ -143,8 +131,6 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
         try {
           const inputData = decoded.inputs[commandIndex];
           
-          console.log('[UR-Parser-Ethers] Input', commandIndex, 'length:', inputData.length, 'bytes');
-          console.log('[UR-Parser-Ethers] Input', commandIndex, 'data:', inputData.slice(0, 50) + '...');
           
           // Create atomic function call for this command with intent
           extractedCalls.push({
@@ -206,7 +192,6 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
       }
     }
     
-    console.log('[UR-Parser] ✅ Successfully parsed', extractedCalls.length, 'atomic calls');
     return extractedCalls;
     
   } catch (error) {
@@ -264,11 +249,9 @@ function resolveTokenSymbol(address) {
   const token = TOKEN_REGISTRY[normalizedAddress];
   
   if (token) {
-    console.log('[Token-Resolver] Found:', normalizedAddress, '->', token.symbol);
     return token.symbol;
   }
   
-  console.log('[Token-Resolver] Unknown token:', normalizedAddress);
   return null;
 }
 
@@ -282,8 +265,6 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
     const category = commandInfo.category;
     const data = inputData.slice(2); // Remove 0x
     
-    console.log('[Token-Parser] Parsing command category:', category);
-    console.log('[Token-Parser] Input data length:', data.length);
     
     // Parse based on command category with enhanced token detection
     switch (category) {
@@ -299,9 +280,7 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
               const isAbiOffset = addr.match(/^0x00000000000000000000000000000000000[0-9a-f]{1,5}$/i);
               if (!isAbiOffset && addr !== '0x0000000000000000000000000000000000000000') {
                 addresses.push(addr);
-                console.log('[Token-Parser] ✅ Found real address:', addr);
               } else {
-                console.log('[Token-Parser] ❌ Skipping ABI offset:', addr);
               }
             }
           }
@@ -315,7 +294,6 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
           const searchAddr = tokenAddr.slice(2).toLowerCase(); // Remove 0x
           if (data.toLowerCase().includes(searchAddr)) {
             foundTokens.push(tokenAddr); // Don't add 0x prefix since tokenAddr already has it
-            console.log('[Token-Parser] Found token in hex:', tokenAddr);
           }
         }
         
@@ -359,9 +337,7 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
               const isAbiOffset = addr.match(/^0x00000000000000000000000000000000000[0-9a-f]{1,5}$/i);
               if (!isAbiOffset && addr !== '0x0000000000000000000000000000000000000000') {
                 transferAddresses.push(addr);
-                console.log('[Token-Parser] ✅ Found real transfer address:', addr);
               } else {
-                console.log('[Token-Parser] ❌ Skipping transfer ABI offset:', addr);
               }
             }
           }
@@ -375,7 +351,6 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
           const searchAddr = tokenAddr.slice(2).toLowerCase(); // Remove 0x
           if (data.toLowerCase().includes(searchAddr)) {
             foundCleanupTokens.push(tokenAddr);
-            console.log('[Token-Parser] Found cleanup token:', tokenAddr);
           }
         }
         
@@ -507,7 +482,6 @@ function parseUniversalRouterInputData(commandInfo, inputData) {
     for (const [tokenAddr, symbol] of Object.entries(knownTokens)) {
       if (lowerData.includes(tokenAddr)) {
         foundTokens.push({ address: '0x' + tokenAddr, symbol });
-        console.log(`[Parser] Found ${symbol} token in ${commandInfo.name} data`);
       }
     }
     
@@ -537,9 +511,6 @@ function parseUniversalRouterInputData(commandInfo, inputData) {
       }
     }
     
-    console.log('[Parser] Command:', commandInfo.name, 'Category:', commandInfo.category);
-    console.log('[Parser] Found tokens:', foundTokens.map(t => t.symbol));
-    console.log('[Parser] Extracted addresses:', addresses);
     
     return addresses.length > 0 ? { 
       addresses, 
@@ -548,7 +519,6 @@ function parseUniversalRouterInputData(commandInfo, inputData) {
     } : null;
     
   } catch (error) {
-    console.log('[UR-Parser] Parameter parsing failed:', error.message);
     return null;
   }
 }
@@ -636,7 +606,6 @@ function formatEther(hexValue) {
 function getMainTransactionIntent(calls, transactionValue) {
   if (!calls || calls.length === 0) return null;
   
-  console.log('[Intent] Analyzing calls for main intent:', calls.map(c => ({ category: c.category, parsedParams: c.parsedParams })));
   
   // Look for patterns in the calls
   const hasWrapEth = calls.some(call => call.category === 'wrap');
@@ -645,7 +614,6 @@ function getMainTransactionIntent(calls, transactionValue) {
   const hasMarketplace = calls.some(call => call.category === 'marketplace');
   const transferCalls = calls.filter(call => call.category === 'transfer' || call.category === 'cleanup');
   
-  console.log('[Intent] Patterns detected:', { hasWrapEth, hasUnwrapWeth, hasSwap, hasMarketplace, transferCallsCount: transferCalls.length });
   
   // Find all unique token addresses in the transaction
   const allTokens = new Set();
@@ -653,7 +621,6 @@ function getMainTransactionIntent(calls, transactionValue) {
   
   calls.forEach((call, index) => {
     if (call.parsedParams) {
-      console.log(`[Intent] Call ${index} parsedParams:`, call.parsedParams);
       
       // Handle enhanced parser token format
       if (call.parsedParams.fromToken) {
@@ -687,9 +654,6 @@ function getMainTransactionIntent(calls, transactionValue) {
     token.toLowerCase() !== '0x0000000000000000000000000000000000000000'
   );
   
-  console.log('[Intent] All tokens found:', Array.from(allTokens));
-  console.log('[Intent] Non-WETH tokens:', nonWethTokens);
-  console.log('[Intent] Found token symbols:', Array.from(foundTokenSymbols));
   
   let fromToken = 'ETH';
   let toToken = null;
@@ -710,8 +674,6 @@ function getMainTransactionIntent(calls, transactionValue) {
     
     // Try enhanced token resolution first, fallback to legacy
     const targetTokenSymbol = resolveTokenSymbol(targetTokenAddress) || getTokenSymbol(targetTokenAddress);
-    console.log('[Intent] Target token:', targetTokenAddress, '->', targetTokenSymbol);
-    console.log('[Intent] Prioritized known token:', targetTokenSymbol !== targetTokenAddress ? 'YES' : 'NO');
     
     if (hasWrapEth && !hasUnwrapWeth) {
       // ETH → Token
@@ -733,7 +695,6 @@ function getMainTransactionIntent(calls, transactionValue) {
     // Fallback: if we have token symbols but no clear target address
     const symbolArray = Array.from(foundTokenSymbols);
     const targetSymbol = symbolArray.find(s => s !== 'ETH' && s !== 'WETH') || symbolArray[0];
-    console.log('[Intent] Using fallback token symbol:', targetSymbol);
     
     if (hasWrapEth && !hasUnwrapWeth) {
       fromToken = 'ETH';
@@ -746,12 +707,10 @@ function getMainTransactionIntent(calls, transactionValue) {
     }
   } else {
     // Fallback: search for known tokens in the raw transaction data
-    console.log('[Intent] No tokens found in parsed params, searching raw transaction...');
     const rawTx = calls[0]?.bytecode || '';
     
     // Check for USDC specifically in the transaction data
     if (rawTx.toLowerCase().includes('a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48')) {
-      console.log('[Intent] Found USDC in raw transaction data!');
       if (hasWrapEth && !hasUnwrapWeth) {
         fromToken = 'ETH';
         toToken = 'USDC';
@@ -774,7 +733,6 @@ function getMainTransactionIntent(calls, transactionValue) {
     
     for (const [tokenAddr, tokenSymbol] of Object.entries(tokenSearchMap)) {
       if (rawTx.toLowerCase().includes(tokenAddr)) {
-        console.log(`[Intent] Found ${tokenSymbol} in raw transaction`);
         if (hasMarketplace && !hasWrapEth && !hasUnwrapWeth) {
           // Direct marketplace trade
           toToken = tokenSymbol;
@@ -793,7 +751,6 @@ function getMainTransactionIntent(calls, transactionValue) {
     }
   }
   
-  console.log('[Intent] Final tokens:', { fromToken, toToken });
   
   // Format the intent
   if (hasMarketplace && (hasWrapEth || hasUnwrapWeth)) {
@@ -841,35 +798,30 @@ function waitForWallets() {
 function detectAndHookWallets() {
   // 1. MetaMask (window.ethereum)
   if (window.ethereum && window.ethereum.request && !hookedWallets.has('ethereum')) {
-    console.log('[KaiSign] Ethereum provider found (MetaMask/others), hooking...');
     hookWalletProvider(window.ethereum, 'ethereum');
     hookedWallets.add('ethereum');
   }
   
   // 2. Rabby (window.rabby)
   if (window.rabby && window.rabby.request && !hookedWallets.has('rabby')) {
-    console.log('[KaiSign] Rabby wallet found, hooking...');
     hookWalletProvider(window.rabby, 'rabby');
     hookedWallets.add('rabby');
   }
   
   // 3. Coinbase Wallet (window.coinbaseWalletExtension)
   if (window.coinbaseWalletExtension && window.coinbaseWalletExtension.request && !hookedWallets.has('coinbase')) {
-    console.log('[KaiSign] Coinbase Wallet found, hooking...');
     hookWalletProvider(window.coinbaseWalletExtension, 'coinbase');
     hookedWallets.add('coinbase');
   }
   
   // 4. Trust Wallet (window.trustWallet)
   if (window.trustWallet && window.trustWallet.request && !hookedWallets.has('trust')) {
-    console.log('[KaiSign] Trust Wallet found, hooking...');
     hookWalletProvider(window.trustWallet, 'trust');
     hookedWallets.add('trust');
   }
   
   // 5. Phantom (window.phantom?.ethereum)
   if (window.phantom?.ethereum && window.phantom.ethereum.request && !hookedWallets.has('phantom')) {
-    console.log('[KaiSign] Phantom Wallet found, hooking...');
     hookWalletProvider(window.phantom.ethereum, 'phantom');
     hookedWallets.add('phantom');
   }
@@ -880,7 +832,6 @@ function detectAndHookWallets() {
       const walletKey = `provider-${index}`;
       if (provider.request && !hookedWallets.has(walletKey)) {
         const walletName = getWalletName(provider);
-        console.log(`[KaiSign] Provider ${index} found (${walletName}), hooking...`);
         hookWalletProvider(provider, walletKey, walletName);
         hookedWallets.add(walletKey);
       }
@@ -907,12 +858,10 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
   const originalRequest = provider.request.bind(provider);
   
   provider.request = async function(args) {
-    console.log(`[KaiSign] ${walletName} Request:`, args.method);
     
     // Check if it's a transaction
     if (args.method === 'eth_sendTransaction' || args.method === 'eth_signTransaction') {
       const tx = args.params?.[0] || {};
-      console.log(`[KaiSign] ${walletName} TRANSACTION:`, tx);
       
       // Get intent and show popup
       getIntentAndShow(tx, args.method, walletName);
@@ -922,7 +871,6 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
     return await originalRequest(args);
   };
   
-  console.log(`[KaiSign] ${walletName} hooked successfully`);
 }
 
 // Get intent and show transaction
@@ -932,14 +880,8 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet') {
   let extractedBytecodes = [];
   
   // UNIVERSAL ROUTER SPECIFIC PARSING - CHECK FIRST, TAKES PRECEDENCE
-  console.log('[KaiSign] Checking Universal Router - data exists:', !!tx.data);
-  console.log('[KaiSign] Checking Universal Router - data starts with 0x3593564c:', tx.data?.startsWith('0x3593564c'));
   
   if (tx.data && tx.data.startsWith('0x3593564c')) {
-    console.log('[KaiSign] 🌐 UNIVERSAL ROUTER DETECTED!!! - parsing commands FIRST');
-    console.log('[KaiSign] TX data length:', tx.data.length);
-    console.log('[KaiSign] TX data start:', tx.data.slice(0, 50));
-    console.log('[KaiSign] Parser function available:', typeof parseUniversalRouterTransaction);
     
     // Force immediate popup update with Universal Router detection
     intent = 'Universal Router detected - parsing...';
@@ -947,11 +889,8 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet') {
     
     try {
       const universalRouterCalls = await parseUniversalRouterTransaction(tx.data, tx.value);
-      console.log('[KaiSign] Parser returned:', universalRouterCalls);
-      console.log('[KaiSign] Parser returned length:', universalRouterCalls?.length);
       
       if (universalRouterCalls && universalRouterCalls.length > 0) {
-        console.log('[KaiSign] ✅ SUCCESS - Parsed', universalRouterCalls.length, 'Universal Router commands');
         extractedBytecodes = universalRouterCalls;
         
         // Set intent specifically for Universal Router with detected tokens
@@ -968,13 +907,10 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet') {
         
         // Show final popup with Universal Router data
         showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
-        console.log('[KaiSign] ✅ UNIVERSAL ROUTER POPUP DISPLAYED WITH', universalRouterCalls.length, 'CALLS');
         return; // Skip ALL other decoding for Universal Router
       } else {
-        console.log('[KaiSign] ❌ UNIVERSAL ROUTER PARSER RETURNED EMPTY OR NULL');
       }
     } catch (urError) {
-      console.log('[KaiSign] ❌ UNIVERSAL ROUTER PARSING FAILED:', urError.message);
       console.error('[KaiSign] UR Error details:', urError);
     }
   }
@@ -983,49 +919,37 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet') {
   showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
   
   // Use EXACT decoder from Snaps repo
-  console.log('[KaiSign] ===== CONTENT SCRIPT DECODE =====');
-  console.log('[KaiSign] TX data:', tx.data?.slice(0, 20) + '...');
-  console.log('[KaiSign] TX to:', tx.to);
-  console.log('[KaiSign] Has decodeCalldata:', !!window.decodeCalldata);
   
   if (window.decodeCalldata && tx.data && tx.to) {
     try {
       // Use Sepolia chain ID for KaiSign contract
       const chainId = tx.to.toLowerCase() === '0x4dfea0c2b472a14cd052a8f9df9f19fa5cf03719' ? 11155111 : 1;
-      console.log('[KaiSign] Using chain ID:', chainId);
       
       const decoded = await window.decodeCalldata(tx.data, tx.to, chainId);
-      console.log('[KaiSign] Decode result:', decoded);
       
       // Try to extract nested bytecodes using enhanced decoder
       if (window.extractNestedBytecodes) {
         try {
           extractedBytecodes = await window.extractNestedBytecodes(tx.data, tx.to, chainId);
-          console.log('[KaiSign] Extracted bytecodes:', extractedBytecodes.length);
         } catch (error) {
-          console.log('[KaiSign] Bytecode extraction failed:', error.message);
         }
       }
       
       if (decoded.success) {
         intent = decoded.intent || 'Contract interaction';
-        console.log('[KaiSign] ✅ SUCCESS - Intent:', intent);
         decodedResult = decoded;
       } else {
         intent = 'Contract interaction';
-        console.log('[KaiSign] ❌ FAILED - Error:', decoded.error);
         decodedResult = decoded;
       }
       // Update popup with enhanced data
       showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
     } catch (error) {
-      console.log('[KaiSign] ❌ EXCEPTION:', error.message);
       intent = 'Contract interaction';
       decodedResult = { success: false, error: error.message };
       showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
     }
   } else {
-    console.log('[KaiSign] ❌ Missing decoder or transaction data');
     showEnhancedTransactionInfo(tx, method, intent, walletName, null, []);
   }
   
@@ -1053,9 +977,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet') {
     }
     
     localStorage.setItem('kaisign-transactions', JSON.stringify(existingTxs));
-    console.log('[KaiSign] ✅ Transaction saved locally');
   } catch (error) {
-    console.log('[KaiSign] Save failed:', error.message);
   }
 }
 
@@ -1071,22 +993,18 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   
   if (tx.data && tx.data.length > 10 && window.AdvancedTransactionDecoder) {
     try {
-      console.log('[KaiSign] Using advanced decoder for transaction parsing');
       const decoder = new window.AdvancedTransactionDecoder();
       advancedDecodingResult = await decoder.decodeTransaction(tx, tx.to, 1);
       
       if (advancedDecodingResult && advancedDecodingResult.extractedBytecodes) {
         realExtractedBytecodes = advancedDecodingResult.extractedBytecodes;
-        console.log('[KaiSign] Advanced decoding successful, found', realExtractedBytecodes.length, 'atomic calls');
       }
     } catch (error) {
-      console.log('[KaiSign] Advanced decoder failed, using generic approach:', error.message);
       // Use generic approach for ANY bytecode that might contain nested calls
       if (tx.data && tx.data.length > 10) {
         try {
           realExtractedBytecodes = await parseGenericNestedBytecode(tx.data);
         } catch (genericError) {
-          console.log('[KaiSign] Generic parsing also failed:', genericError.message);
         }
       }
     }
@@ -1244,7 +1162,6 @@ async function parseGenericNestedBytecode(data) {
   const extractedCalls = [];
   
   try {
-    console.log('[KaiSign] Scanning for nested bytecodes in transaction data');
     
     // Remove function selector
     const payload = data.slice(10);
@@ -1283,7 +1200,6 @@ async function parseGenericNestedBytecode(data) {
       }
     }
     
-    console.log('[KaiSign] Found', potentialSelectors.length, 'potential nested selectors');
     
     // Add potential nested calls (limit to avoid spam)
     let callIndex = 1;
@@ -1317,7 +1233,6 @@ async function parseGenericNestedBytecode(data) {
     }
     
   } catch (error) {
-    console.log('[KaiSign] Generic parsing error:', error);
   }
   
   return extractedCalls;
@@ -1580,6 +1495,3 @@ window.getIntentAndShow = getIntentAndShow;
 // Start wallet detection
 waitForWallets();
 
-console.log('[KaiSign] Content script ready - Multi-wallet support enabled');
-console.log('[KaiSign] Enhanced features: Complete bytecode display, copy functionality, transaction history');
-console.log('[KaiSign] Universal Router parser available globally');

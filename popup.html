@@ -1,151 +1,50 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KaiSign - MetaMask Payload Inspector</title>
-  <link rel="stylesheet" href="popup.css">
+  <style>
+    body {
+      width: 250px;
+      padding: 15px;
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 10px 0;
+      color: #333;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 5px 0;
+      width: 100%;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .info {
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+  </style>
 </head>
 <body>
-  <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <div class="header-content">
-        <div class="logo">🔍</div>
-        <div class="title">
-          <h1>KaiSign</h1>
-          <p>Payload Inspector</p>
-        </div>
-        <div class="status" id="status">
-          <span class="status-dot active" id="status-dot"></span>
-          <span id="status-text">Active</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Navigation Tabs -->
-    <div class="tabs">
-      <button class="tab-button active" data-tab="transactions">Transactions</button>
-      <button class="tab-button" data-tab="eip7702">EIP-7702</button>
-      <button class="tab-button" data-tab="settings">Settings</button>
-    </div>
-
-    <!-- Transactions Tab -->
-    <div class="tab-content active" id="transactions-tab">
-      <div class="transaction-summary">
-        <div class="summary-item">
-          <span class="summary-number" id="total-transactions">0</span>
-          <span class="summary-label">Total</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-number eip7702" id="eip7702-count">0</span>
-          <span class="summary-label">EIP-7702</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-number" id="recent-count">0</span>
-          <span class="summary-label">Recent</span>
-        </div>
-      </div>
-
-      <div class="actions">
-        <button class="btn-refresh" id="refresh-btn">↻ Refresh</button>
-        <button class="btn-clear" id="clear-btn">🗑 Clear</button>
-      </div>
-
-      <div class="transaction-list" id="transaction-list">
-        <div class="no-transactions" id="no-transactions">
-          <div class="no-transactions-icon">📋</div>
-          <p>No transactions captured yet</p>
-          <small>Visit a dApp and make a transaction to see it here</small>
-        </div>
-      </div>
-    </div>
-
-    <!-- EIP-7702 Tab -->
-    <div class="tab-content" id="eip7702-tab">
-      <div class="eip7702-info">
-        <h3>🚀 EIP-7702 Account Abstraction</h3>
-        <p>Monitor and inspect EIP-7702 transactions with authorization lists for smart contract delegation.</p>
-      </div>
-
-      <div class="eip7702-transactions" id="eip7702-transactions">
-        <div class="no-transactions" id="no-eip7702">
-          <div class="no-transactions-icon">🔐</div>
-          <p>No EIP-7702 transactions detected</p>
-          <small>EIP-7702 transactions will appear here automatically</small>
-        </div>
-      </div>
-    </div>
-
-    <!-- Settings Tab -->
-    <div class="tab-content" id="settings-tab">
-      <div class="settings-section">
-        <h3>Display Settings</h3>
-        
-        <div class="setting-item">
-          <label class="setting-label">
-            <input type="checkbox" id="show-notifications" checked>
-            <span class="checkmark"></span>
-            Show transaction notifications
-          </label>
-          <small>Display in-page notifications for captured transactions</small>
-        </div>
-
-        <div class="setting-item">
-          <label class="setting-label">
-            <input type="checkbox" id="eip7702-only">
-            <span class="checkmark"></span>
-            Show EIP-7702 only
-          </label>
-          <small>Only capture and display EIP-7702 transactions</small>
-        </div>
-
-        <div class="setting-item">
-          <label class="setting-label">
-            Max transaction history:
-            <select id="max-transactions">
-              <option value="20">20 transactions</option>
-              <option value="50" selected>50 transactions</option>
-              <option value="100">100 transactions</option>
-            </select>
-          </label>
-          <small>Maximum number of transactions to keep in history</small>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <h3>Debug Info</h3>
-        <div class="debug-info">
-          <p><strong>Extension Version:</strong> 1.0.0</p>
-          <p><strong>Content Script:</strong> <span id="content-script-status">Checking...</span></p>
-          <p><strong>Storage Used:</strong> <span id="storage-usage">Calculating...</span></p>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <button class="btn-export" id="export-btn">📤 Export Data</button>
-        <button class="btn-clear danger" id="clear-all-btn">🗑 Clear All Data</button>
-      </div>
-    </div>
-
-    <!-- Transaction Detail Modal -->
-    <div class="modal" id="transaction-modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 id="modal-title">Transaction Details</h3>
-          <button class="modal-close" id="modal-close">×</button>
-        </div>
-        <div class="modal-body" id="modal-body">
-          <!-- Transaction details will be inserted here -->
-        </div>
-        <div class="modal-footer">
-          <button class="btn-copy" id="copy-transaction">📋 Copy JSON</button>
-          <button class="btn-close" id="close-modal">Close</button>
-        </div>
-      </div>
-    </div>
+  <h1>🔍 KaiSign</h1>
+  
+  <div class="info">
+    <div>Transactions captured: <span id="count">0</span></div>
   </div>
-
+  
+  <button onclick="showTransactions()">View Transactions</button>
+  <button onclick="clearTransactions()">Clear All</button>
+  
   <script src="popup.js"></script>
 </body>
 </html>
