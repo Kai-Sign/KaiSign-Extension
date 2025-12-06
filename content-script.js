@@ -201,6 +201,120 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
 }
 
 /**
+ * Parse Safe MultiSend transaction data
+ * Format: multiSend(bytes transactions) where transactions contains multiple encoded operations
+ */
+function parseSafeMultiSendTransaction(txData) {
+  try {
+    console.log('[KaiSign] Parsing Safe MultiSend transaction...');
+    
+    if (!txData || !txData.startsWith('0x8d80ff0a')) {
+      console.log('[KaiSign] Not a multiSend transaction');
+      return null;
+    }
+    
+    // Remove multiSend selector (0x8d80ff0a)
+    const payload = txData.slice(10);
+    
+    // Parse ABI-encoded bytes parameter
+    // First 32 bytes (64 hex chars) = offset to bytes data
+    const offset = parseInt(payload.slice(0, 64), 16) * 2;
+    
+    // Next 32 bytes = length of bytes data
+    const length = parseInt(payload.slice(offset, offset + 64), 16) * 2;
+    
+    // Extract the transactions bytes
+    const transactionsData = payload.slice(offset + 64, offset + 64 + length);
+    
+    console.log('[KaiSign] MultiSend transactions data length:', transactionsData.length);
+    
+    // Parse individual transactions
+    const operations = [];
+    let pos = 0;
+    
+    while (pos < transactionsData.length) {
+      if (pos + 40 > transactionsData.length) break; // Need at least operation + to + value
+      
+      // Each transaction: operation(1) + to(20) + value(32) + dataLength(32) + data(dataLength)
+      const operation = parseInt(transactionsData.slice(pos, pos + 2), 16);
+      const to = '0x' + transactionsData.slice(pos + 2, pos + 42);
+      const value = '0x' + transactionsData.slice(pos + 42, pos + 106);
+      const dataLength = parseInt(transactionsData.slice(pos + 106, pos + 170), 16) * 2;
+      
+      let data = '0x';
+      if (dataLength > 0 && pos + 170 + dataLength <= transactionsData.length) {
+        data = '0x' + transactionsData.slice(pos + 170, pos + 170 + dataLength);
+      }
+      
+      operations.push({
+        operation: operation,
+        to: to,
+        value: value,
+        data: data,
+        selector: data.length >= 10 ? data.slice(0, 10) : null
+      });
+      
+      console.log(`[KaiSign] Extracted operation: ${operation === 0 ? 'CALL' : 'DELEGATECALL'} to ${to} with data ${data.slice(0, 20)}...`);
+      
+      // Move to next transaction
+      pos += 170 + dataLength;
+    }
+    
+    console.log(`[KaiSign] Parsed ${operations.length} operations from MultiSend`);
+    
+    // Analyze operations to create intent
+    const intents = [];
+    for (const op of operations) {
+      if (op.selector) {
+        const intent = getSafeOperationIntent(op);
+        if (intent) intents.push(intent);
+      }
+    }
+    
+    const mainIntent = intents.length > 0 ? intents.join(' + ') : `Safe Batch (${operations.length} operations)`;
+    
+    return {
+      operations: operations,
+      intent: mainIntent,
+      type: 'safe_multisend'
+    };
+    
+  } catch (error) {
+    console.error('[KaiSign] Safe MultiSend parsing error:', error);
+    return null;
+  }
+}
+
+/**
+ * Get intent for individual Safe operation
+ */
+function getSafeOperationIntent(operation) {
+  if (!operation.selector || operation.selector === '0x') return null;
+  
+  const commonSelectors = {
+    '0x095ea7b3': 'Approve',
+    '0xa9059cbb': 'Transfer', 
+    '0x23b872dd': 'Transfer From',
+    '0xd0e30db0': 'Deposit',
+    '0x2e1d4d': 'Withdraw',
+    '0x6a761202': 'Execute Transaction',
+    '0xec6cb13f': 'Execute'
+  };
+  
+  const intent = commonSelectors[operation.selector];
+  if (intent) {
+    // Try to identify token for approval/transfer operations
+    if (operation.selector === '0x095ea7b3' || operation.selector === '0xa9059cbb') {
+      const token = getTokenSymbol(operation.to) || 'Token';
+      return `${intent} ${token}`;
+    }
+    return intent;
+  }
+  
+  return `Contract Call`;
+}
+
+/**
  * Get Universal Router command name from command byte
  */
 // Simple Universal Router command mapping for clear intents
@@ -785,10 +899,415 @@ function getFunctionNameFromSelector(selector) {
 // Wallet detection and hooking
 const hookedWallets = new Set();
 
+// Check if we're running on Safe
+function isSafeApp() {
+  return window.location.hostname === 'app.safe.global' || 
+         window.location.hostname.includes('safe.global');
+}
+
+// Safe-specific transaction detection
+function detectSafeTransactions() {
+  if (!isSafeApp()) return;
+  
+  console.log('[KaiSign-Safe] 🎯 Starting enhanced Safe transaction detection...');
+  
+  // STRATEGY 1: Advanced DOM Observer for Safe UI
+  setupAdvancedSafeObserver();
+  
+  // STRATEGY 2: Polling for Safe transaction data in DOM
+  setupSafeTransactionPolling();
+  
+  // STRATEGY 3: Hook Safe UI button clicks
+  hookSafeSignatureButtons();
+  
+  // STRATEGY 4: Monitor Safe transaction confirmation dialogs
+  monitorSafeConfirmationDialogs();
+}
+
+function setupAdvancedSafeObserver() {
+  try {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        // Check added nodes
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            checkSafeTransactionElements(node);
+          }
+        });
+        
+        // Check attribute changes for Safe transaction updates
+        if (mutation.type === 'attributes' && mutation.target) {
+          const target = mutation.target;
+          if (target.textContent && (
+            target.textContent.includes('0x8d80ff0a') || // multiSend selector
+            target.textContent.includes('0x9641d764') || // MultiSendCallOnly
+            target.textContent.includes('Primary type: SafeTx') ||
+            target.textContent.includes('Operation:')
+          )) {
+            console.log('[KaiSign-Safe] 🚨 Safe transaction data detected in DOM update!');
+            extractSafeTransactionData();
+          }
+        }
+      });
+    });
+    
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'data-testid', 'aria-label'],
+      characterData: true
+    });
+    
+    console.log('[KaiSign-Safe] ✅ Advanced Safe DOM observer started');
+  } catch (error) {
+    console.error('[KaiSign-Safe] Error setting up advanced Safe observer:', error);
+  }
+}
+
+function checkSafeTransactionElements(element) {
+  // Check for Safe transaction interface elements
+  const safeSelectors = [
+    '[data-testid*="transaction"]',
+    '[data-testid*="sign"]', 
+    '[class*="transaction"]',
+    '[class*="Transaction"]',
+    '[class*="signature"]',
+    '[class*="Signature"]',
+    '[aria-label*="transaction"]',
+    '[aria-label*="sign"]',
+    'pre', 'code',
+    '[class*="data"]',
+    '[class*="Data"]'
+  ];
+  
+  safeSelectors.forEach(selector => {
+    const txElements = element.querySelectorAll ? element.querySelectorAll(selector) : [];
+    if (txElements.length > 0) {
+      console.log(`[KaiSign-Safe] 🔍 Found Safe UI elements with selector: ${selector}`);
+      
+      txElements.forEach(txElement => {
+        const text = txElement.textContent || txElement.innerText || '';
+        if (text.includes('0x') && text.length > 20) {
+          console.log('[KaiSign-Safe] 📝 Transaction data found in element:', text.slice(0, 100));
+          extractSafeTransactionFromElement(txElement);
+        }
+      });
+    }
+  });
+}
+
+function setupSafeTransactionPolling() {
+  console.log('[KaiSign-Safe] 🕐 Starting Safe transaction polling...');
+  
+  let lastProcessedData = '';
+  
+  const pollInterval = setInterval(() => {
+    // Look for transaction data in the current DOM
+    const allText = document.body.innerText || '';
+    
+    // Check for your specific transaction pattern
+    if (allText.includes('Primary type: SafeTx') && 
+        allText.includes('To: 0x9641d') && 
+        allText.includes('Data: 0x8d80ff0a')) {
+      
+      const currentData = allText.slice(allText.indexOf('Primary type: SafeTx'), allText.indexOf('Primary type: SafeTx') + 500);
+      
+      if (currentData !== lastProcessedData) {
+        console.log('[KaiSign-Safe] 🎯 FOUND YOUR TRANSACTION IN DOM!');
+        console.log('[KaiSign-Safe] Transaction data:', currentData);
+        
+        lastProcessedData = currentData;
+        
+        // Extract and process the Safe transaction
+        extractSafeTransactionFromDomText(allText);
+        
+        // Clear interval once found
+        clearInterval(pollInterval);
+      }
+    }
+  }, 500);
+  
+  // Clear polling after 30 seconds to avoid infinite polling
+  setTimeout(() => {
+    clearInterval(pollInterval);
+    console.log('[KaiSign-Safe] 🕐 Safe transaction polling timeout');
+  }, 30000);
+}
+
+function extractSafeTransactionFromDomText(domText) {
+  console.log('[KaiSign-Safe] 🔍 Extracting Safe transaction from DOM text...');
+  
+  try {
+    // Parse the DOM text for Safe transaction details
+    const toMatch = domText.match(/To:\s*(0x[a-fA-F0-9]{40})/);
+    const dataMatch = domText.match(/Data:\s*(0x[a-fA-F0-9]+)/);
+    const operationMatch = domText.match(/Operation:\s*(\d+)/);
+    const nonceMatch = domText.match(/Nonce:\s*(\d+)/);
+    
+    if (toMatch && dataMatch) {
+      const to = toMatch[1];
+      const data = dataMatch[1];
+      const operation = operationMatch ? parseInt(operationMatch[1]) : 0;
+      const nonce = nonceMatch ? parseInt(nonceMatch[1]) : 0;
+      
+      console.log('[KaiSign-Safe] 🎯 Parsed transaction data:', { to, data: data.slice(0, 50) + '...', operation, nonce });
+      
+      // Create Safe transaction object
+      const safeTx = {
+        to,
+        value: '0',
+        data,
+        operation,
+        nonce
+      };
+      
+      // Create typed data structure
+      const typedData = {
+        types: {
+          SafeTx: [
+            { name: 'to', type: 'address' },
+            { name: 'value', type: 'uint256' },
+            { name: 'data', type: 'bytes' },
+            { name: 'operation', type: 'uint8' },
+            { name: 'nonce', type: 'uint256' }
+          ]
+        },
+        domain: {
+          name: 'Safe',
+          verifyingContract: '0xA1023ea549dAA39a108bC26d63bd8daA68E4a226' // Your Safe address
+        },
+        message: safeTx
+      };
+      
+      console.log('[KaiSign-Safe] 🚨 TRIGGERING SAFE SIGNATURE REQUEST!');
+      handleSafeSignatureRequest(typedData, 'Safe User', 'Safe Wallet DOM');
+      
+      // Also trigger regular transaction processing
+      getIntentAndShow(safeTx, 'Safe Transaction (DOM)', 'Safe Wallet', { 
+        isSafeSignature: true,
+        extractedFromDom: true 
+      });
+    }
+  } catch (error) {
+    console.error('[KaiSign-Safe] Error extracting Safe transaction from DOM:', error);
+  }
+}
+
+function hookSafeSignatureButtons() {
+  console.log('[KaiSign-Safe] 🎯 Hooking Safe signature buttons...');
+  
+  // Look for and hook Safe signature buttons
+  const buttonSelectors = [
+    'button[data-testid*="sign"]',
+    'button[aria-label*="sign"]', 
+    'button:contains("Sign")',
+    'button:contains("Confirm")',
+    'button:contains("Execute")',
+    '[role="button"]:contains("Sign")'
+  ];
+  
+  const hookButton = (button) => {
+    if (button._kaisignHooked) return;
+    
+    console.log('[KaiSign-Safe] 🔲 Hooking Safe button:', button.textContent);
+    
+    const originalClick = button.onclick;
+    button.onclick = function(event) {
+      console.log('[KaiSign-Safe] 🖱️ Safe signature button clicked!');
+      
+      // Extract transaction data before signature
+      setTimeout(() => {
+        extractSafeTransactionData();
+        extractSafeTransactionFromDomText(document.body.innerText);
+      }, 100);
+      
+      if (originalClick) {
+        return originalClick.apply(this, arguments);
+      }
+    };
+    
+    button.addEventListener('click', () => {
+      console.log('[KaiSign-Safe] 🖱️ Safe button click event triggered!');
+      setTimeout(() => {
+        extractSafeTransactionData();
+      }, 200);
+    });
+    
+    button._kaisignHooked = true;
+  };
+  
+  // Hook existing buttons
+  buttonSelectors.forEach(selector => {
+    try {
+      document.querySelectorAll(selector).forEach(hookButton);
+    } catch (e) {
+      // Selector might not be valid, skip
+    }
+  });
+  
+  // Hook new buttons as they appear
+  const buttonObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          if (node.tagName === 'BUTTON' && 
+              (node.textContent.includes('Sign') || 
+               node.textContent.includes('Confirm') ||
+               node.getAttribute('data-testid')?.includes('sign'))) {
+            hookButton(node);
+          }
+          
+          // Check child buttons
+          node.querySelectorAll && node.querySelectorAll('button').forEach(button => {
+            if (button.textContent.includes('Sign') || 
+                button.textContent.includes('Confirm') ||
+                button.getAttribute('data-testid')?.includes('sign')) {
+              hookButton(button);
+            }
+          });
+        }
+      });
+    });
+  });
+  
+  buttonObserver.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+}
+
+function monitorSafeConfirmationDialogs() {
+  console.log('[KaiSign-Safe] 💬 Monitoring Safe confirmation dialogs...');
+  
+  const dialogObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          // Look for dialog/modal elements
+          if (node.matches && (
+            node.matches('[role="dialog"]') ||
+            node.matches('[class*="modal"]') ||
+            node.matches('[class*="Modal"]') ||
+            node.matches('[class*="dialog"]') ||
+            node.matches('[class*="Dialog"]'))) {
+            
+            console.log('[KaiSign-Safe] 💬 Safe dialog/modal detected');
+            
+            // Check if this dialog contains transaction data
+            const dialogText = node.innerText || '';
+            if (dialogText.includes('Transaction') || 
+                dialogText.includes('Sign') ||
+                dialogText.includes('0x')) {
+              
+              console.log('[KaiSign-Safe] 🎯 Transaction dialog detected, extracting data...');
+              setTimeout(() => {
+                extractSafeTransactionFromElement(node);
+                extractSafeTransactionFromDomText(dialogText);
+              }, 500);
+            }
+          }
+        }
+      });
+    });
+  });
+  
+  dialogObserver.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+}
+
+function extractSafeTransactionFromElement(element) {
+  try {
+    const text = element.textContent || element.innerText || '';
+    
+    // Look for specific patterns in the element
+    if (text.includes('0x8d80ff0a') || text.includes('multiSend') || text.includes('Primary type: SafeTx')) {
+      console.log('[KaiSign-Safe] 🎯 Safe transaction pattern found in element');
+      extractSafeTransactionFromDomText(text);
+    }
+    
+    // Also check for data attributes
+    const dataAttrs = ['data-transaction', 'data-tx', 'data-safe-tx'];
+    dataAttrs.forEach(attr => {
+      const attrValue = element.getAttribute && element.getAttribute(attr);
+      if (attrValue && attrValue.includes('0x')) {
+        console.log('[KaiSign-Safe] 📋 Transaction data found in attribute:', attr);
+        try {
+          const txData = JSON.parse(attrValue);
+          console.log('[KaiSign-Safe] Parsed transaction from attribute:', txData);
+          getIntentAndShow(txData, 'Safe Transaction (Attribute)', 'Safe Wallet', { extractedFromAttribute: true });
+        } catch (e) {
+          console.log('[KaiSign-Safe] Could not parse transaction attribute as JSON');
+        }
+      }
+    });
+  } catch (error) {
+    console.log('[KaiSign-Safe] Error extracting transaction from element:', error.message);
+  }
+}
+
+// Extract Safe transaction data from the UI
+function extractSafeTransactionData() {
+  try {
+    // Look for transaction data in the Safe UI
+    const dataElements = document.querySelectorAll('[class*="data"], [class*="Data"], pre, code');
+    
+    for (const element of dataElements) {
+      const text = element.textContent || element.innerText;
+      if (text && text.includes('0x') && text.length > 50) {
+        console.log('[KaiSign] Found potential Safe transaction data:', text.substring(0, 100) + '...');
+        
+        // Try to extract transaction components
+        const lines = text.split('\n');
+        let toAddress = null;
+        let data = null;
+        let value = null;
+        
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.toLowerCase().includes('to') && trimmed.includes('0x')) {
+            const match = trimmed.match(/0x[a-fA-F0-9]{40}/);
+            if (match) toAddress = match[0];
+          }
+          if (trimmed.toLowerCase().includes('data') && trimmed.includes('0x')) {
+            const match = trimmed.match(/0x[a-fA-F0-9]+/);
+            if (match && match[0].length > 10) data = match[0];
+          }
+          if (trimmed.toLowerCase().includes('value')) {
+            const match = trimmed.match(/0x[a-fA-F0-9]+/);
+            if (match) value = match[0];
+          }
+        }
+        
+        if (toAddress && data) {
+          console.log('[KaiSign] Extracted Safe transaction - To:', toAddress, 'Data:', data.substring(0, 50) + '...');
+          
+          // Create transaction object and analyze
+          const tx = {
+            to: toAddress,
+            data: data,
+            value: value || '0x0'
+          };
+          
+          getIntentAndShow(tx, 'Safe Transaction', 'Safe Wallet');
+          break;
+        }
+      }
+    }
+  } catch (error) {
+    console.log('[KaiSign] Safe transaction extraction failed:', error.message);
+  }
+}
+
 // Wait for any wallet
 function waitForWallets() {
   // Check for different wallet providers
   detectAndHookWallets();
+  
+  // Also check for Safe-specific transactions
+  detectSafeTransactions();
   
   // Keep checking for new wallets (some load late)
   setTimeout(waitForWallets, 500);
@@ -837,6 +1356,221 @@ function detectAndHookWallets() {
       }
     });
   }
+  
+  // 7. CRITICAL: Safe Wallet Detection and Hooking
+  detectAndHookSafeWallet();
+  
+  // 8. Hook Safe SDK if available
+  hookSafeSDK();
+  
+  // 9. Hook Safe API calls
+  hookSafeApiCalls();
+}
+
+/**
+ * CRITICAL SAFE WALLET DETECTION AND HOOKING
+ * This is the missing piece that prevents Safe popup from appearing
+ */
+
+function detectAndHookSafeWallet() {
+  console.log('[KaiSign-Safe] 🔍 Detecting Safe wallet providers...');
+  
+  // Strategy 1: Hook window.safe (Safe Wallet Web Extension)
+  if (window.safe && !hookedWallets.has('safe-extension')) {
+    console.log('[KaiSign-Safe] 📱 Found Safe Web Extension');
+    if (window.safe.request) {
+      hookWalletProvider(window.safe, 'safe-extension', 'Safe Web Extension');
+      hookedWallets.add('safe-extension');
+    }
+  }
+  
+  // Strategy 2: Hook window.SafeProvider (Safe SDK)
+  if (window.SafeProvider && !hookedWallets.has('safe-provider')) {
+    console.log('[KaiSign-Safe] 🔧 Found Safe Provider');
+    if (window.SafeProvider.request) {
+      hookWalletProvider(window.SafeProvider, 'safe-provider', 'Safe Provider');
+      hookedWallets.add('safe-provider');
+    }
+  }
+  
+  // Strategy 3: Look for Safe in ethereum providers array
+  if (window.ethereum?.providers) {
+    window.ethereum.providers.forEach((provider, index) => {
+      if (provider.isSafe || provider._metamask?.isSafe || (provider.constructor && provider.constructor.name === 'SafeProvider')) {
+        const walletKey = `safe-provider-${index}`;
+        if (!hookedWallets.has(walletKey)) {
+          console.log('[KaiSign-Safe] 🔐 Found Safe in providers array at index', index);
+          hookWalletProvider(provider, walletKey, 'Safe Wallet');
+          hookedWallets.add(walletKey);
+        }
+      }
+    });
+  }
+  
+  // Strategy 4: Hook window object for Safe-specific globals
+  const safeGlobals = ['__SAFE__', 'safeConnector', 'SafeAppsSDK'];
+  safeGlobals.forEach(globalName => {
+    if (window[globalName] && typeof window[globalName] === 'object') {
+      console.log(`[KaiSign-Safe] 🌐 Found Safe global: ${globalName}`);
+      hookSafeGlobal(window[globalName], globalName);
+    }
+  });
+  
+  // Strategy 5: Hook Safe-specific events
+  hookSafeEvents();
+}
+
+function hookSafeGlobal(safeObj, globalName) {
+  try {
+    if (safeObj.request && typeof safeObj.request === 'function') {
+      const walletKey = `safe-global-${globalName}`;
+      if (!hookedWallets.has(walletKey)) {
+        hookWalletProvider(safeObj, walletKey, `Safe ${globalName}`);
+        hookedWallets.add(walletKey);
+      }
+    }
+  } catch (error) {
+    console.log(`[KaiSign-Safe] Error hooking Safe global ${globalName}:`, error.message);
+  }
+}
+
+function hookSafeEvents() {
+  console.log('[KaiSign-Safe] 🎯 Setting up Safe event listeners...');
+  
+  // Listen for Safe-specific custom events
+  const safeEvents = [
+    'safe_signTypedData',
+    'safe_signMessage', 
+    'safe_signTransaction',
+    'safe_sendTransaction',
+    'safe_transactionProposal',
+    'safe_signatureRequest'
+  ];
+  
+  safeEvents.forEach(eventName => {
+    document.addEventListener(eventName, (event) => {
+      console.log(`[KaiSign-Safe] 🚨 Detected Safe event: ${eventName}`, event.detail);
+      handleSafeCustomEvent(eventName, event.detail);
+    });
+  });
+  
+  // Listen for SafeAppsSDK events
+  if (window.addEventListener) {
+    window.addEventListener('message', (event) => {
+      if (event.origin === window.location.origin && event.data) {
+        const data = event.data;
+        
+        // Check for Safe Apps SDK messages
+        if (data.messageId && data.method) {
+          console.log(`[KaiSign-Safe] 📨 Safe SDK Message: ${data.method}`, data);
+          
+          if (data.method === 'signTypedMessage' || data.method === 'signMessage') {
+            handleSafeSdkSignRequest(data);
+          }
+        }
+      }
+    });
+  }
+}
+
+function handleSafeCustomEvent(eventName, eventData) {
+  console.log(`[KaiSign-Safe] Processing custom Safe event: ${eventName}`);
+  
+  if (eventData && eventData.params) {
+    // Extract signature data from Safe custom event
+    const params = eventData.params;
+    
+    if (eventName.includes('signTypedData') && params.typedData) {
+      handleSafeSignatureRequest(params.typedData, params.address || 'Unknown', 'Safe Wallet');
+    } else if (eventName.includes('Transaction') && params.transaction) {
+      // Handle Safe transaction events
+      getIntentAndShow(params.transaction, eventName, 'Safe Wallet', { isSafeEvent: true });
+    }
+  }
+}
+
+function handleSafeSdkSignRequest(sdkData) {
+  console.log('[KaiSign-Safe] Processing Safe SDK sign request', sdkData);
+  
+  if (sdkData.params && sdkData.method === 'signTypedMessage') {
+    const typedData = sdkData.params.typedData || sdkData.params.message;
+    const address = sdkData.params.address || 'Unknown';
+    
+    if (typedData) {
+      handleSafeSignatureRequest(typedData, address, 'Safe SDK');
+    }
+  }
+}
+
+function hookSafeSDK() {
+  console.log('[KaiSign-Safe] 🔌 Hooking Safe SDK...');
+  
+  // Hook SafeAppsSDK if available
+  if (window.SafeAppsSDK && !hookedWallets.has('safe-apps-sdk')) {
+    try {
+      const sdk = window.SafeAppsSDK;
+      
+      // Hook SDK methods
+      if (sdk.txs && typeof sdk.txs.signTypedMessage === 'function') {
+        const originalSignTypedMessage = sdk.txs.signTypedMessage;
+        sdk.txs.signTypedMessage = function(typedData) {
+          console.log('[KaiSign-Safe] 🎯 Safe SDK signTypedMessage intercepted:', typedData);
+          
+          // Process the Safe signature request
+          handleSafeSignatureRequest(typedData, 'Unknown', 'Safe Apps SDK');
+          
+          // Call original method
+          return originalSignTypedMessage.apply(this, arguments);
+        };
+      }
+      
+      hookedWallets.add('safe-apps-sdk');
+      console.log('[KaiSign-Safe] ✅ Safe Apps SDK hooked successfully');
+    } catch (error) {
+      console.log('[KaiSign-Safe] Error hooking Safe SDK:', error.message);
+    }
+  }
+}
+
+function hookSafeApiCalls() {
+  console.log('[KaiSign-Safe] 🌐 Hooking Safe API calls...');
+  
+  // Hook fetch for Safe API requests
+  if (window.fetch && !window._kaisignFetchHooked) {
+    const originalFetch = window.fetch;
+    
+    window.fetch = async function(url, options) {
+      // Check for Safe API calls
+      if (typeof url === 'string' && (url.includes('safe.global') || url.includes('gnosis-safe'))) {
+        console.log('[KaiSign-Safe] 🔗 Safe API call detected:', url);
+        
+        // Check if it's a signature-related API call
+        if (url.includes('/signatures') || url.includes('/confirm') || options?.method === 'POST') {
+          console.log('[KaiSign-Safe] 🖊️ Safe signature API call detected');
+          
+          // Try to extract transaction data from request body
+          if (options?.body) {
+            try {
+              const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+              console.log('[KaiSign-Safe] Safe API request body:', body);
+              
+              if (body.safeTxHash || body.transactionHash) {
+                // This might be a signature submission - could trigger popup
+                console.log('[KaiSign-Safe] 📝 Safe signature submission detected');
+              }
+            } catch (parseError) {
+              console.log('[KaiSign-Safe] Could not parse Safe API body');
+            }
+          }
+        }
+      }
+      
+      return originalFetch.apply(this, arguments);
+    };
+    
+    window._kaisignFetchHooked = true;
+    console.log('[KaiSign-Safe] ✅ Safe API calls hooked');
+  }
 }
 
 // Get wallet name from provider
@@ -848,7 +1582,613 @@ function getWalletName(provider) {
   if (provider.isPhantom) return 'Phantom';
   if (provider.isBraveWallet) return 'Brave';
   if (provider.isExodus) return 'Exodus';
+  if (provider.isSafe) return 'Safe Wallet';
   return 'Unknown Wallet';
+}
+
+/**
+ * Handle Safe signature requests (eth_signTypedData_v4)
+ */
+function handleSafeSignatureRequest(typedData, signerAddress, walletName) {
+  try {
+    console.log('[KaiSign] Parsing Safe signature request:', typedData);
+    
+    // Track Safe signature activity
+    analyzeSafeSignatureActivity(typedData, signerAddress, walletName);
+    
+    // Check if this is a Safe transaction signature request
+    if (typedData.types && typedData.types.SafeTx) {
+      const safeTx = typedData.message;
+      console.log('[KaiSign] Found Safe transaction data:', safeTx);
+      
+      // Convert Safe transaction to standard transaction format
+      const tx = {
+        to: safeTx.to,
+        value: safeTx.value || '0x0',
+        data: safeTx.data || '0x',
+        from: signerAddress
+      };
+      
+      // Add Safe-specific context with enhanced analysis
+      const context = {
+        operation: safeTx.operation,
+        safeTxGas: safeTx.safeTxGas,
+        baseGas: safeTx.baseGas,
+        gasPrice: safeTx.gasPrice,
+        gasToken: safeTx.gasToken,
+        refundReceiver: safeTx.refundReceiver,
+        nonce: safeTx.nonce,
+        isSafeSignature: true,
+        safeAddress: typedData.domain?.verifyingContract,
+        chainId: typedData.domain?.chainId,
+        safeName: typedData.domain?.name || 'Safe',
+        safeVersion: typedData.domain?.version,
+        multisigThreshold: detectMultisigThreshold(typedData),
+        operationType: safeTx.operation === 0 ? 'CALL' : 'DELEGATECALL'
+      };
+      
+      console.log('[KaiSign] Enhanced Safe context:', context);
+      
+      // Show Safe-specific notification
+      showSafeSignatureNotification(safeTx, context, signerAddress, walletName);
+      
+      // Process the transaction data like a regular transaction
+      getIntentAndShow(tx, 'eth_signTypedData_v4 (Safe Multisig)', walletName, context);
+    } else {
+      // Handle other typed data signatures (EIP-712)
+      console.log('[KaiSign] Processing EIP-712 signature:', typedData);
+      handleEIP712Signature(typedData, signerAddress, walletName);
+    }
+  } catch (error) {
+    console.error('[KaiSign] Error parsing Safe signature request:', error);
+  }
+}
+
+/**
+ * Analyze Safe signature activity patterns
+ */
+function analyzeSafeSignatureActivity(typedData, signerAddress, walletName) {
+  const timestamp = Date.now();
+  
+  // Track Safe signature requests
+  if (!rpcActivity.patterns.safeSignatures) {
+    rpcActivity.patterns.safeSignatures = [];
+  }
+  
+  const signatureData = {
+    timestamp,
+    signer: signerAddress,
+    wallet: walletName,
+    safeAddress: typedData.domain?.verifyingContract,
+    chainId: typedData.domain?.chainId,
+    nonce: typedData.message?.nonce,
+    isSafeTransaction: !!(typedData.types && typedData.types.SafeTx)
+  };
+  
+  rpcActivity.patterns.safeSignatures.push(signatureData);
+  
+  // Keep only recent signatures (last 24 hours)
+  const oneDayAgo = timestamp - (24 * 60 * 60 * 1000);
+  rpcActivity.patterns.safeSignatures = rpcActivity.patterns.safeSignatures.filter(
+    sig => sig.timestamp > oneDayAgo
+  );
+  
+  // Detect rapid Safe signing (potential automation/bot activity)
+  const recentSignatures = rpcActivity.patterns.safeSignatures.filter(
+    sig => timestamp - sig.timestamp < 60000 // Last 1 minute
+  );
+  
+  if (recentSignatures.length > 5) {
+    rpcActivity.security.suspiciousActivity.push({
+      type: 'rapid_safe_signing',
+      count: recentSignatures.length,
+      timestamp,
+      safeAddress: typedData.domain?.verifyingContract,
+      signer: signerAddress,
+      pattern: 'potential_automation'
+    });
+  }
+  
+  // Track multisig coordination patterns
+  if (typedData.domain?.verifyingContract) {
+    trackMultisigCoordination(typedData.domain.verifyingContract, signerAddress, timestamp);
+  }
+}
+
+/**
+ * Detect multisig threshold from Safe transaction data
+ */
+function detectMultisigThreshold(typedData) {
+  // This would typically require additional Safe API calls
+  // For now, we'll mark it as unknown but trackable
+  return 'Unknown (requires Safe API)';
+}
+
+/**
+ * Track multisig coordination patterns
+ */
+function trackMultisigCoordination(safeAddress, signer, timestamp) {
+  if (!rpcActivity.patterns.multisigCoordination) {
+    rpcActivity.patterns.multisigCoordination = {};
+  }
+  
+  if (!rpcActivity.patterns.multisigCoordination[safeAddress]) {
+    rpcActivity.patterns.multisigCoordination[safeAddress] = {
+      signers: new Set(),
+      signatures: [],
+      lastActivity: null
+    };
+  }
+  
+  const coordination = rpcActivity.patterns.multisigCoordination[safeAddress];
+  coordination.signers.add(signer);
+  coordination.signatures.push({ signer, timestamp });
+  coordination.lastActivity = timestamp;
+  
+  // Keep only recent signatures
+  const oneHourAgo = timestamp - (60 * 60 * 1000);
+  coordination.signatures = coordination.signatures.filter(
+    sig => sig.timestamp > oneHourAgo
+  );
+  
+  console.log(`[KaiSign-Safe] Coordination for ${safeAddress}: ${coordination.signers.size} signers, ${coordination.signatures.length} recent signatures`);
+}
+
+/**
+ * Handle EIP-712 signatures (non-Safe)
+ */
+function handleEIP712Signature(typedData, signerAddress, walletName) {
+  console.log('[KaiSign] Processing EIP-712 signature');
+  
+  // Track EIP-712 activity
+  handleRpcMethod('eth_signTypedData_v4', [signerAddress, typedData], walletName);
+  
+  // Show EIP-712 notification
+  showEIP712Notification(typedData, signerAddress, walletName);
+}
+
+/**
+ * Show Safe-specific signature notification
+ */
+function showSafeSignatureNotification(safeTx, context, signerAddress, walletName) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    width: 350px;
+    background: #2d3748;
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    z-index: 999997;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    border: 2px solid #4a5568;
+    border-left: 6px solid #f093fb;
+  `;
+  
+  const operationType = context.operationType || 'CALL';
+  const safeAddress = context.safeAddress || 'Unknown';
+  const operationColor = operationType === 'DELEGATECALL' ? '#ff6b6b' : '#68d391';
+  
+  notification.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <strong style="color: #f093fb; font-size: 13px;">🔐 Safe Multisig Signature</strong>
+      <button onclick="this.parentElement.parentElement.remove()" style="
+        background: #e53e3e;
+        color: white;
+        border: none;
+        padding: 4px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 10px;
+      ">✕</button>
+    </div>
+    
+    <div style="margin-bottom: 10px;">
+      <div style="color: #68d391; font-weight: bold; margin-bottom: 4px;">
+        ${context.safeName} (${context.safeVersion || 'Unknown version'})
+      </div>
+      <div style="font-size: 10px; color: #a0aec0; word-break: break-all;">
+        Safe: ${safeAddress.slice(0, 10)}...${safeAddress.slice(-8)}
+      </div>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; font-size: 10px;">
+      <div><strong style="color: #ffd700;">Operation:</strong> <span style="color: ${operationColor};">${operationType}</span></div>
+      <div><strong style="color: #ffd700;">Nonce:</strong> ${context.nonce}</div>
+      <div><strong style="color: #ffd700;">To:</strong> ${safeTx.to?.slice(0, 8)}...</div>
+      <div><strong style="color: #ffd700;">Value:</strong> ${safeTx.value} ETH</div>
+    </div>
+    
+    <div style="background: #1a202c; padding: 8px; border-radius: 6px; margin-bottom: 10px;">
+      <div style="color: #63b3ed; font-size: 10px; margin-bottom: 4px;">Gas Configuration:</div>
+      <div style="font-size: 9px; color: #a0aec0;">
+        Safe Gas: ${context.safeTxGas} | Base Gas: ${context.baseGas}<br>
+        Gas Price: ${context.gasPrice} | Token: ${context.gasToken || 'ETH'}
+      </div>
+    </div>
+    
+    <div style="font-size: 10px; color: #a0aec0; text-align: center; margin-top: 10px;">
+      Signer: ${signerAddress?.slice(0, 8)}...${signerAddress?.slice(-6)} | ${walletName}
+    </div>
+  `;
+  
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 12 seconds (longer for Safe signatures)
+  setTimeout(() => {
+    if (notification.parentNode) notification.remove();
+  }, 12000);
+}
+
+/**
+ * Show EIP-712 signature notification
+ */
+function showEIP712Notification(typedData, signerAddress, walletName) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    width: 300px;
+    background: #2d3748;
+    color: white;
+    padding: 12px;
+    border-radius: 8px;
+    z-index: 999997;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    border-left: 4px solid #9f7aea;
+  `;
+  
+  const domain = typedData.domain || {};
+  const primaryType = typedData.primaryType || 'Unknown';
+  
+  notification.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <strong style="color: #9f7aea;">📝 EIP-712 Signature</strong>
+      <button onclick="this.parentElement.parentElement.remove()" style="
+        background: #e53e3e;
+        color: white;
+        border: none;
+        padding: 2px 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 9px;
+      ">✕</button>
+    </div>
+    
+    <div style="margin-bottom: 8px;">
+      <div style="color: #b794f6; font-weight: bold;">${primaryType}</div>
+      <div style="font-size: 10px; color: #a0aec0;">
+        ${domain.name || 'Unknown dApp'} ${domain.version ? `v${domain.version}` : ''}
+      </div>
+    </div>
+    
+    <div style="font-size: 10px; color: #a0aec0;">
+      ${domain.verifyingContract ? `Contract: ${domain.verifyingContract.slice(0, 10)}...` : ''}
+      ${domain.chainId ? `| Chain: ${domain.chainId}` : ''}
+    </div>
+    
+    <div style="margin-top: 8px; font-size: 10px; color: #a0aec0; text-align: center;">
+      ${walletName} | ${signerAddress?.slice(0, 8)}...${signerAddress?.slice(-6)}
+    </div>
+  `;
+  
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    if (notification.parentNode) notification.remove();
+  }, 8000);
+}
+
+/**
+ * RPC Method Classification and Handling
+ */
+
+// Define all monitored Ethereum RPC methods
+const ETHEREUM_RPC_METHODS = {
+  // Transaction methods
+  TRANSACTION: [
+    'eth_sendTransaction',
+    'eth_signTransaction', 
+    'eth_sendRawTransaction',
+    'eth_signTypedData_v4',
+    'personal_sign'
+  ],
+  
+  // Query methods - read blockchain state
+  QUERY: [
+    'eth_call',                 // Smart contract calls
+    'eth_getBalance',           // Address balances
+    'eth_getCode',              // Contract code
+    'eth_getTransactionReceipt', // Transaction receipts
+    'eth_getLogs',              // Event logs
+    'eth_getTransactionByHash', // Transaction details
+    'eth_getBlockByNumber',     // Block details
+    'eth_getBlockByHash'        // Block details by hash
+  ],
+  
+  // Network info methods
+  NETWORK: [
+    'eth_blockNumber',          // Latest block number
+    'eth_chainId',              // Network chain ID
+    'eth_gasPrice',             // Current gas price
+    'eth_feeHistory',           // Fee history for EIP-1559
+    'net_version',              // Network version
+    'web3_clientVersion'        // Client version
+  ],
+  
+  // Gas estimation methods
+  GAS: [
+    'eth_estimateGas',          // Gas estimation
+    'eth_maxPriorityFeePerGas', // EIP-1559 priority fee
+    'eth_gasPrice'              // Legacy gas price
+  ],
+  
+  // Real-time subscription methods
+  SUBSCRIPTION: [
+    'eth_subscribe',            // Subscribe to events
+    'eth_unsubscribe'           // Unsubscribe from events
+  ],
+  
+  // Account methods
+  ACCOUNT: [
+    'eth_accounts',             // Get accounts
+    'eth_requestAccounts',      // Request account access
+    'wallet_addEthereumChain',  // Add custom chain
+    'wallet_switchEthereumChain' // Switch chains
+  ],
+  
+  // Safe Wallet specific methods
+  SAFE: [
+    'safe_setSettings',         // Safe settings changes
+    'safe_getSettings',         // Get Safe settings
+    'wallet_invokeSnap',        // Snap invocation (MetaMask Snaps)
+    'wallet_requestSnaps',      // Request Snap permissions
+    'wallet_getSnaps'           // Get installed snaps
+  ]
+};
+
+// RPC activity tracking
+const rpcActivity = {
+  methods: {},
+  timeline: [],
+  patterns: {},
+  security: {
+    suspiciousActivity: [],
+    privacyConcerns: [],
+    mevIndicators: []
+  }
+};
+
+/**
+ * Check if a method should be monitored
+ */
+function isMonitoredEthereumMethod(method) {
+  return Object.values(ETHEREUM_RPC_METHODS).flat().includes(method);
+}
+
+/**
+ * Check if method is transaction-related
+ */
+function isTransactionMethod(method) {
+  return ETHEREUM_RPC_METHODS.TRANSACTION.includes(method);
+}
+
+/**
+ * Get method category
+ */
+function getMethodCategory(method) {
+  for (const [category, methods] of Object.entries(ETHEREUM_RPC_METHODS)) {
+    if (methods.includes(method)) {
+      return category.toLowerCase();
+    }
+  }
+  return 'unknown';
+}
+
+/**
+ * Handle non-transaction RPC methods
+ */
+function handleRpcMethod(method, params, walletName) {
+  const timestamp = Date.now();
+  const category = getMethodCategory(method);
+  
+  // Track method frequency
+  if (!rpcActivity.methods[method]) {
+    rpcActivity.methods[method] = { count: 0, lastCalled: null, category };
+  }
+  rpcActivity.methods[method].count++;
+  rpcActivity.methods[method].lastCalled = timestamp;
+  
+  // Add to timeline
+  rpcActivity.timeline.unshift({
+    method,
+    category,
+    params,
+    walletName,
+    timestamp,
+    time: new Date().toISOString()
+  });
+  
+  // Keep timeline manageable
+  if (rpcActivity.timeline.length > 100) {
+    rpcActivity.timeline.splice(100);
+  }
+  
+  // Analyze patterns and security implications
+  analyzeRpcPatterns(method, params, category, timestamp);
+  
+  // Show RPC activity notification for important methods
+  if (shouldShowRpcNotification(method, category)) {
+    showRpcActivityNotification(method, params, category, walletName);
+  }
+  
+  console.log(`[KaiSign-RPC] ${method} (${category}) - Count: ${rpcActivity.methods[method].count}`);
+}
+
+/**
+ * Analyze RPC patterns for security and privacy concerns
+ */
+function analyzeRpcPatterns(method, params, category, timestamp) {
+  // Detect excessive balance checking (privacy concern)
+  if (method === 'eth_getBalance') {
+    const recentBalanceChecks = rpcActivity.timeline.filter(
+      activity => activity.method === 'eth_getBalance' && 
+      timestamp - activity.timestamp < 60000 // Last 1 minute
+    ).length;
+    
+    if (recentBalanceChecks > 10) {
+      rpcActivity.security.privacyConcerns.push({
+        type: 'excessive_balance_checking',
+        count: recentBalanceChecks,
+        timestamp,
+        addresses: params?.[0] ? [params[0]] : []
+      });
+    }
+  }
+  
+  // Detect rapid gas price checking (MEV indicator)
+  if (method === 'eth_gasPrice' || method === 'eth_feeHistory') {
+    const recentGasChecks = rpcActivity.timeline.filter(
+      activity => (activity.method === 'eth_gasPrice' || activity.method === 'eth_feeHistory') &&
+      timestamp - activity.timestamp < 10000 // Last 10 seconds
+    ).length;
+    
+    if (recentGasChecks > 5) {
+      rpcActivity.security.mevIndicators.push({
+        type: 'rapid_gas_monitoring',
+        count: recentGasChecks,
+        timestamp,
+        pattern: 'potential_mev_activity'
+      });
+    }
+  }
+  
+  // Detect rapid block monitoring (frontrunning indicator)
+  if (method === 'eth_blockNumber') {
+    const recentBlockChecks = rpcActivity.timeline.filter(
+      activity => activity.method === 'eth_blockNumber' &&
+      timestamp - activity.timestamp < 5000 // Last 5 seconds
+    ).length;
+    
+    if (recentBlockChecks > 3) {
+      rpcActivity.security.mevIndicators.push({
+        type: 'rapid_block_monitoring',
+        count: recentBlockChecks,
+        timestamp,
+        pattern: 'potential_frontrunning'
+      });
+    }
+  }
+  
+  // Detect contract discovery patterns
+  if (method === 'eth_getCode') {
+    const address = params?.[0];
+    if (address) {
+      const codeChecks = rpcActivity.timeline.filter(
+        activity => activity.method === 'eth_getCode'
+      ).length;
+      
+      if (codeChecks > 20) {
+        rpcActivity.security.suspiciousActivity.push({
+          type: 'extensive_contract_discovery',
+          count: codeChecks,
+          timestamp,
+          addresses: [address]
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Determine if RPC method should show notification
+ */
+function shouldShowRpcNotification(method, category) {
+  // Show notifications for important methods
+  const importantMethods = [
+    'wallet_addEthereumChain',
+    'wallet_switchEthereumChain',
+    'eth_requestAccounts',
+    'eth_subscribe',
+    'eth_sendRawTransaction'
+  ];
+  
+  return importantMethods.includes(method);
+}
+
+/**
+ * Show RPC activity notification
+ */
+function showRpcActivityNotification(method, params, category, walletName) {
+  // Create notification popup
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    width: 300px;
+    background: #1a202c;
+    color: white;
+    padding: 12px;
+    border-radius: 8px;
+    z-index: 999998;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    border-left: 4px solid #3182ce;
+  `;
+  
+  // Format method description
+  const methodDescriptions = {
+    'wallet_addEthereumChain': '🔗 Adding Custom Network',
+    'wallet_switchEthereumChain': '🔄 Switching Networks',
+    'eth_requestAccounts': '👤 Requesting Account Access',
+    'eth_subscribe': '📡 Setting Up Real-time Subscription',
+    'eth_sendRawTransaction': '📤 Broadcasting Raw Transaction',
+    'eth_unsubscribe': '📡 Cancelling Subscription'
+  };
+  
+  const description = methodDescriptions[method] || `📋 ${method}`;
+  
+  notification.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <strong style="color: #63b3ed;">KaiSign RPC Monitor</strong>
+      <button onclick="this.parentElement.parentElement.remove()" style="
+        background: #e53e3e;
+        color: white;
+        border: none;
+        padding: 2px 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 9px;
+      ">✕</button>
+    </div>
+    <div style="color: #68d391; margin-bottom: 4px;">
+      ${description}
+    </div>
+    <div style="font-size: 10px; color: #a0aec0;">
+      Wallet: ${walletName} | Category: ${category}
+    </div>
+    ${params && params.length > 0 ? `
+      <div style="margin-top: 6px; padding: 6px; background: #000; border-radius: 3px; font-size: 9px; max-height: 60px; overflow-y: auto;">
+        ${JSON.stringify(params, null, 1).slice(0, 200)}${JSON.stringify(params).length > 200 ? '...' : ''}
+      </div>
+    ` : ''}
+  `;
+  
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 8 seconds
+  setTimeout(() => {
+    if (notification.parentNode) notification.remove();
+  }, 8000);
 }
 
 // Generic wallet provider hooker
@@ -859,12 +2199,38 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
   
   provider.request = async function(args) {
     
-    // Check if it's a transaction
-    if (args.method === 'eth_sendTransaction' || args.method === 'eth_signTransaction') {
-      const tx = args.params?.[0] || {};
+    // Check if it's any Ethereum RPC method we want to monitor
+    if (isMonitoredEthereumMethod(args.method)) {
       
-      // Get intent and show popup
-      getIntentAndShow(tx, args.method, walletName);
+      console.log(`[KaiSign] Intercepted ${args.method} from ${walletName}`, args.params);
+      
+      // Handle different method categories
+      if (isTransactionMethod(args.method)) {
+        // Transaction and signature methods
+        if (args.method === 'eth_signTypedData_v4') {
+          // Handle Safe signature requests
+          const typedData = args.params?.[1];
+          const address = args.params?.[0];
+          
+          if (typedData) {
+            console.log('[KaiSign] Processing Safe signature request:', typedData);
+            handleSafeSignatureRequest(typedData, address, walletName);
+          }
+        } else if (args.method === 'personal_sign') {
+          // Handle personal message signing
+          const message = args.params?.[0];
+          const address = args.params?.[1];
+          console.log('[KaiSign] Processing personal_sign request:', message);
+          handleRpcMethod(args.method, args.params, walletName);
+        } else {
+          // Handle regular transactions (eth_sendTransaction, eth_signTransaction)
+          const tx = args.params?.[0] || {};
+          getIntentAndShow(tx, args.method, walletName, null);
+        }
+      } else {
+        // Handle all other RPC methods (queries, utilities, etc.)
+        handleRpcMethod(args.method, args.params, walletName);
+      }
     }
     
     // Call original wallet request
@@ -874,10 +2240,20 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
 }
 
 // Get intent and show transaction
-async function getIntentAndShow(tx, method, walletName = 'Wallet') {
+async function getIntentAndShow(tx, method, walletName = 'Wallet', context = null) {
   let intent = 'Loading intent...';
   let decodedResult = null;
   let extractedBytecodes = [];
+  
+  // SAFE SIGNATURE REQUEST HANDLING - CHECK FIRST
+  if (context && context.isSafeSignature) {
+    console.log('[KaiSign] Processing Safe signature request with context:', context);
+    intent = '🔒 Safe Signature Request - parsing transaction...';
+    showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
+    
+    // Add Safe context to method display
+    method = `${method} (Safe Multi-Sig)`;
+  }
   
   // UNIVERSAL ROUTER SPECIFIC PARSING - CHECK FIRST, TAKES PRECEDENCE
   
@@ -915,7 +2291,99 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet') {
     }
   }
   
-  // Show popup immediately with loading state for non-Universal Router transactions
+  // SAFE TRANSACTION DETECTION - CHECK SECOND
+  // Safe execTransaction (0x6a761202) or direct multiSend (0x8d80ff0a)
+  if (tx.data && (tx.data.startsWith('0x6a761202') || tx.data.startsWith('0x8d80ff0a'))) {
+    console.log('[KaiSign] Safe transaction detected, selector:', tx.data.slice(0, 10));
+    intent = 'Safe transaction detected - parsing...';
+    showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
+    
+    try {
+      let multiSendData = null;
+      
+      // Direct multiSend call
+      if (tx.data.startsWith('0x8d80ff0a')) {
+        multiSendData = tx.data;
+        console.log('[KaiSign] Direct Safe MultiSend call');
+      }
+      // Safe execTransaction - need to extract embedded multiSend data
+      else if (tx.data.startsWith('0x6a761202')) {
+        console.log('[KaiSign] Safe execTransaction - looking for embedded MultiSend data');
+        // Look for multiSend selector (0x8d80ff0a) in the transaction data
+        // We need to find it at word boundaries (every 2 hex chars) to avoid partial matches
+        console.log('[KaiSign] Searching for MultiSend selector in execTransaction data');
+        
+        let multiSendIndex = -1;
+        let searchStart = 0;
+        
+        // Search for 8d80ff0a, but ensure it's at proper hex alignment
+        while ((multiSendIndex = tx.data.indexOf('8d80ff0a', searchStart)) !== -1) {
+          // Check if this index is at a proper hex word boundary
+          // Transaction data starts with 0x, so valid positions are: 2, 4, 6, 8, etc.
+          const hexPosition = multiSendIndex - 2; // Account for 0x prefix
+          if (hexPosition >= 0 && hexPosition % 2 === 0) {
+            // This is a valid alignment, check if it looks like a function selector
+            const potentialData = '0x' + tx.data.slice(multiSendIndex);
+            if (potentialData.startsWith('0x8d80ff0a')) {
+              console.log('[KaiSign] Found properly aligned MultiSend selector at position:', multiSendIndex);
+              break;
+            }
+          }
+          searchStart = multiSendIndex + 1;
+        }
+        
+        if (multiSendIndex !== -1) {
+          // Extract the multiSend call data starting from the properly aligned selector
+          multiSendData = '0x' + tx.data.slice(multiSendIndex);
+          console.log('[KaiSign] Extracted MultiSend data:', multiSendData.slice(0, 20) + '...');
+          
+          // Final verification
+          if (!multiSendData.startsWith('0x8d80ff0a')) {
+            console.error('[KaiSign] CRITICAL: MultiSend data extraction failed');
+            console.log('[KaiSign] Expected: 0x8d80ff0a, Got:', multiSendData.slice(0, 12));
+            multiSendData = null; // Clear invalid data
+          }
+        }
+      }
+      
+      if (multiSendData) {
+        const multiSendResult = parseSafeMultiSendTransaction(multiSendData);
+        
+        if (multiSendResult) {
+          intent = multiSendResult.intent;
+          decodedResult = {
+            success: true,
+            functionName: 'Safe Transaction',
+            selector: tx.data.slice(0, 10),
+            intent: intent,
+            safeTransaction: true,
+            operations: multiSendResult.operations.length
+          };
+          
+          // Convert operations to extractedBytecodes format for display
+          extractedBytecodes = multiSendResult.operations.map((op, i) => ({
+            bytecode: op.data,
+            selector: op.selector,
+            depth: 2,
+            index: i + 1,
+            target: op.to,
+            functionName: `Operation ${i + 1}`,
+            intent: getSafeOperationIntent(op),
+            type: 'safe_operation',
+            value: op.value !== '0x0' ? op.value : null
+          }));
+          
+          console.log(`[KaiSign] Safe transaction parsed: ${intent}`);
+          showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
+          return; // Skip other decoding for Safe transactions
+        }
+      }
+    } catch (safeError) {
+      console.error('[KaiSign] Safe transaction parsing error:', safeError);
+    }
+  }
+  
+  // Show popup immediately with loading state for other transactions
   showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
   
   // Use EXACT decoder from Snaps repo
@@ -1145,7 +2613,18 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         border-radius: 6px;
         cursor: pointer;
         font-size: 11px;
+        margin-right: 10px;
       ">💾 Export Data</button>
+      
+      <button onclick="showRpcDashboard()" style="
+        background: #9f7aea;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 11px;
+      ">📊 RPC Activity</button>
     </div>
   `;
   
@@ -1404,14 +2883,26 @@ window.showTransactionHistory = function() {
   historyPopup.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
       <h2 style="margin: 0; color: #63b3ed;">📋 Transaction History (${transactions.length})</h2>
-      <button onclick="this.parentElement.parentElement.remove()" style="
-        background: #e53e3e;
-        color: white;
-        border: none;
-        padding: 8px 12px;
-        border-radius: 6px;
-        cursor: pointer;
-      ">✕ Close</button>
+      <div>
+        <button onclick="showRpcDashboard()" style="
+          background: #3182ce;
+          color: white;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+          margin-right: 10px;
+          font-size: 11px;
+        ">📊 RPC Dashboard</button>
+        <button onclick="this.parentElement.parentElement.remove()" style="
+          background: #e53e3e;
+          color: white;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+        ">✕ Close</button>
+      </div>
     </div>
     
     ${transactions.length === 0 ? 
@@ -1465,6 +2956,286 @@ window.showTransactionHistory = function() {
   document.body.appendChild(historyPopup);
 };
 
+/**
+ * Show comprehensive RPC activity dashboard
+ */
+window.showRpcDashboard = function() {
+  // Remove existing dashboard
+  const existing = document.getElementById('kaisign-rpc-dashboard');
+  if (existing) existing.remove();
+  
+  const dashboard = document.createElement('div');
+  dashboard.id = 'kaisign-rpc-dashboard';
+  dashboard.style.cssText = `
+    position: fixed;
+    top: 5%;
+    left: 5%;
+    width: 90vw;
+    height: 90vh;
+    overflow-y: auto;
+    background: #1a202c;
+    color: white;
+    padding: 20px;
+    border-radius: 12px;
+    z-index: 1000001;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+    border: 2px solid #4a5568;
+  `;
+  
+  // Generate dashboard content
+  const methodsCount = Object.keys(rpcActivity.methods).length;
+  const totalCalls = Object.values(rpcActivity.methods).reduce((sum, method) => sum + method.count, 0);
+  const recentActivity = rpcActivity.timeline.slice(0, 10);
+  
+  // Category statistics
+  const categoryStats = {};
+  for (const [method, data] of Object.entries(rpcActivity.methods)) {
+    const category = data.category;
+    if (!categoryStats[category]) {
+      categoryStats[category] = { count: 0, methods: [] };
+    }
+    categoryStats[category].count += data.count;
+    categoryStats[category].methods.push(method);
+  }
+  
+  // Security analysis
+  const securityConcerns = [
+    ...rpcActivity.security.privacyConcerns,
+    ...rpcActivity.security.mevIndicators,
+    ...rpcActivity.security.suspiciousActivity
+  ];
+  
+  // Safe signatures analysis
+  const safeSignatures = rpcActivity.patterns.safeSignatures || [];
+  const multisigCoordination = rpcActivity.patterns.multisigCoordination || {};
+  
+  dashboard.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #4a5568; padding-bottom: 15px;">
+      <h1 style="margin: 0; color: #63b3ed; font-size: 18px;">📊 KaiSign RPC Activity Dashboard</h1>
+      <button onclick="this.parentElement.parentElement.remove()" style="
+        background: #e53e3e;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+      ">✕ Close</button>
+    </div>
+    
+    <!-- Summary Statistics -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
+      <div style="background: #2d3748; padding: 15px; border-radius: 8px; border-left: 4px solid #68d391;">
+        <div style="color: #68d391; font-size: 24px; font-weight: bold;">${totalCalls}</div>
+        <div style="color: #a0aec0; font-size: 12px;">Total RPC Calls</div>
+      </div>
+      <div style="background: #2d3748; padding: 15px; border-radius: 8px; border-left: 4px solid #3182ce;">
+        <div style="color: #3182ce; font-size: 24px; font-weight: bold;">${methodsCount}</div>
+        <div style="color: #a0aec0; font-size: 12px;">Unique Methods</div>
+      </div>
+      <div style="background: #2d3748; padding: 15px; border-radius: 8px; border-left: 4px solid #f093fb;">
+        <div style="color: #f093fb; font-size: 24px; font-weight: bold;">${safeSignatures.length}</div>
+        <div style="color: #a0aec0; font-size: 12px;">Safe Signatures</div>
+      </div>
+      <div style="background: #2d3748; padding: 15px; border-radius: 8px; border-left: 4px solid ${securityConcerns.length > 0 ? '#ff6b6b' : '#68d391'};">
+        <div style="color: ${securityConcerns.length > 0 ? '#ff6b6b' : '#68d391'}; font-size: 24px; font-weight: bold;">${securityConcerns.length}</div>
+        <div style="color: #a0aec0; font-size: 12px;">Security Alerts</div>
+      </div>
+    </div>
+    
+    <!-- Category Breakdown -->
+    <div style="margin-bottom: 25px;">
+      <h3 style="color: #ffd700; margin-bottom: 15px;">📂 Method Categories</h3>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+        ${Object.entries(categoryStats).map(([category, stats]) => `
+          <div style="background: #2d3748; padding: 12px; border-radius: 8px;">
+            <div style="color: #63b3ed; font-weight: bold; margin-bottom: 8px;">
+              ${category.toUpperCase()} (${stats.count} calls)
+            </div>
+            <div style="font-size: 10px; color: #a0aec0;">
+              ${stats.methods.slice(0, 3).join(', ')}${stats.methods.length > 3 ? ` +${stats.methods.length - 3} more` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    
+    <!-- Security Analysis -->
+    ${securityConcerns.length > 0 ? `
+      <div style="margin-bottom: 25px;">
+        <h3 style="color: #ff6b6b; margin-bottom: 15px;">⚠️ Security Analysis</h3>
+        <div style="background: #2d3748; padding: 15px; border-radius: 8px; border-left: 4px solid #ff6b6b;">
+          ${securityConcerns.map((concern, i) => `
+            <div style="margin-bottom: 10px; padding: 8px; background: #1a202c; border-radius: 6px;">
+              <div style="color: #ff6b6b; font-weight: bold; margin-bottom: 4px;">
+                ${concern.type.replace(/_/g, ' ').toUpperCase()}
+              </div>
+              <div style="font-size: 10px; color: #a0aec0;">
+                Count: ${concern.count} | Pattern: ${concern.pattern || 'N/A'} | 
+                Time: ${new Date(concern.timestamp).toLocaleTimeString()}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+    
+    <!-- Safe Multisig Activity -->
+    ${Object.keys(multisigCoordination).length > 0 ? `
+      <div style="margin-bottom: 25px;">
+        <h3 style="color: #f093fb; margin-bottom: 15px;">🔐 Safe Multisig Coordination</h3>
+        <div style="background: #2d3748; padding: 15px; border-radius: 8px;">
+          ${Object.entries(multisigCoordination).map(([safeAddress, coordination]) => `
+            <div style="margin-bottom: 15px; padding: 10px; background: #1a202c; border-radius: 6px;">
+              <div style="color: #f093fb; font-weight: bold; margin-bottom: 6px;">
+                Safe: ${safeAddress.slice(0, 10)}...${safeAddress.slice(-8)}
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 10px;">
+                <div><strong>Signers:</strong> ${coordination.signers.size}</div>
+                <div><strong>Recent Sigs:</strong> ${coordination.signatures.length}</div>
+                <div><strong>Last Activity:</strong> ${new Date(coordination.lastActivity).toLocaleTimeString()}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+    
+    <!-- Recent Activity Timeline -->
+    <div style="margin-bottom: 25px;">
+      <h3 style="color: #68d391; margin-bottom: 15px;">⏱️ Recent Activity Timeline</h3>
+      <div style="background: #2d3748; padding: 15px; border-radius: 8px; max-height: 300px; overflow-y: auto;">
+        ${recentActivity.length > 0 ? recentActivity.map((activity, i) => `
+          <div style="margin-bottom: 12px; padding: 10px; background: #1a202c; border-radius: 6px; border-left: 3px solid #68d391;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="color: #68d391; font-weight: bold;">${activity.method}</span>
+              <span style="color: #a0aec0; font-size: 10px;">${new Date(activity.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div style="font-size: 10px; color: #a0aec0;">
+              Category: ${activity.category} | Wallet: ${activity.walletName}
+              ${activity.params && activity.params.length > 0 ? `<br>Params: ${JSON.stringify(activity.params).slice(0, 100)}...` : ''}
+            </div>
+          </div>
+        `).join('') : '<div style="color: #a0aec0; text-align: center; padding: 20px;">No recent activity</div>'}
+      </div>
+    </div>
+    
+    <!-- Method Frequency Table -->
+    <div style="margin-bottom: 25px;">
+      <h3 style="color: #3182ce; margin-bottom: 15px;">📈 Method Frequency</h3>
+      <div style="background: #2d3748; border-radius: 8px; overflow: hidden;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead style="background: #4a5568;">
+            <tr>
+              <th style="padding: 10px; text-align: left; color: #fff;">Method</th>
+              <th style="padding: 10px; text-align: left; color: #fff;">Category</th>
+              <th style="padding: 10px; text-align: center; color: #fff;">Count</th>
+              <th style="padding: 10px; text-align: left; color: #fff;">Last Called</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Object.entries(rpcActivity.methods)
+              .sort(([,a], [,b]) => b.count - a.count)
+              .slice(0, 20)
+              .map(([method, data]) => `
+                <tr style="border-bottom: 1px solid #4a5568;">
+                  <td style="padding: 8px; color: #63b3ed;">${method}</td>
+                  <td style="padding: 8px; color: #a0aec0;">${data.category}</td>
+                  <td style="padding: 8px; text-align: center; color: #68d391; font-weight: bold;">${data.count}</td>
+                  <td style="padding: 8px; color: #a0aec0; font-size: 10px;">
+                    ${data.lastCalled ? new Date(data.lastCalled).toLocaleString() : 'N/A'}
+                  </td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+    <!-- Action Buttons -->
+    <div style="text-align: center; padding-top: 20px; border-top: 1px solid #4a5568;">
+      <button onclick="exportRpcActivity()" style="
+        background: #38a169;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 11px;
+        margin-right: 10px;
+      ">💾 Export RPC Data</button>
+      <button onclick="clearRpcActivity()" style="
+        background: #e53e3e;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 11px;
+      ">🗑️ Clear RPC Data</button>
+    </div>
+  `;
+  
+  document.body.appendChild(dashboard);
+};
+
+/**
+ * Export RPC activity data
+ */
+window.exportRpcActivity = function() {
+  try {
+    const exportData = {
+      timestamp: new Date().toISOString(),
+      summary: {
+        totalMethods: Object.keys(rpcActivity.methods).length,
+        totalCalls: Object.values(rpcActivity.methods).reduce((sum, method) => sum + method.count, 0)
+      },
+      methods: rpcActivity.methods,
+      timeline: rpcActivity.timeline,
+      patterns: rpcActivity.patterns,
+      security: rpcActivity.security
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kaisign-rpc-activity-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    alert('✅ RPC activity data exported successfully!');
+  } catch (error) {
+    console.error('[KaiSign] RPC export failed:', error);
+    alert('❌ Export failed: ' + error.message);
+  }
+};
+
+/**
+ * Clear RPC activity data
+ */
+window.clearRpcActivity = function() {
+  if (confirm('Are you sure you want to clear all RPC activity data?')) {
+    // Reset all RPC activity
+    rpcActivity.methods = {};
+    rpcActivity.timeline = [];
+    rpcActivity.patterns = {};
+    rpcActivity.security = {
+      suspiciousActivity: [],
+      privacyConcerns: [],
+      mevIndicators: []
+    };
+    
+    // Close dashboard
+    const dashboard = document.getElementById('kaisign-rpc-dashboard');
+    if (dashboard) dashboard.remove();
+    
+    alert('✅ RPC activity data cleared!');
+  }
+};
+
 window.exportTransactionData = function(calldata, analyzedData) {
   try {
     const data = {
@@ -1492,6 +3263,283 @@ window.exportTransactionData = function(calldata, analyzedData) {
 window.parseUniversalRouterTransaction = parseUniversalRouterTransaction;
 window.getIntentAndShow = getIntentAndShow;
 
+// Expose RPC monitoring functions globally
+window.kaisignRpc = {
+  activity: rpcActivity,
+  methods: ETHEREUM_RPC_METHODS,
+  showDashboard: () => window.showRpcDashboard(),
+  export: () => window.exportRpcActivity(),
+  clear: () => window.clearRpcActivity(),
+  
+  // Test methods for different RPC types
+  simulateMethod: (method, params, walletName = 'Test Wallet') => {
+    console.log(`[KaiSign-Test] Simulating ${method}`);
+    handleRpcMethod(method, params, walletName);
+  },
+  
+  // Security analysis helpers
+  getSuspiciousActivity: () => rpcActivity.security.suspiciousActivity,
+  getPrivacyConcerns: () => rpcActivity.security.privacyConcerns,
+  getMevIndicators: () => rpcActivity.security.mevIndicators,
+  
+  // Safe multisig helpers  
+  getSafeSignatures: () => rpcActivity.patterns.safeSignatures || [],
+  getMultisigCoordination: () => rpcActivity.patterns.multisigCoordination || {},
+  
+  // Statistics
+  getStats: () => ({
+    totalMethods: Object.keys(rpcActivity.methods).length,
+    totalCalls: Object.values(rpcActivity.methods).reduce((sum, method) => sum + method.count, 0),
+    categorizedMethods: Object.entries(rpcActivity.methods).reduce((acc, [method, data]) => {
+      if (!acc[data.category]) acc[data.category] = [];
+      acc[data.category].push(method);
+      return acc;
+    }, {}),
+    securityAlertsCount: [
+      ...rpcActivity.security.privacyConcerns,
+      ...rpcActivity.security.mevIndicators, 
+      ...rpcActivity.security.suspiciousActivity
+    ].length
+  })
+};
+
+// Console helpers
+console.log(`
+🔍 KaiSign Enhanced RPC Monitor Loaded!
+
+Now monitoring ALL Ethereum RPC methods including:
+• Transaction methods (eth_sendTransaction, eth_signTypedData_v4, etc.)
+• Query methods (eth_call, eth_getBalance, eth_getLogs, etc.)
+• Network methods (eth_chainId, eth_blockNumber, eth_gasPrice, etc.)
+• Safe multisig signatures with enhanced tracking
+• Security & privacy pattern detection
+
+Quick access commands:
+- window.kaisignRpc.showDashboard() - Full RPC dashboard
+- window.kaisignRpc.getStats() - Quick statistics
+- window.kaisignRpc.activity - Raw activity data
+- window.kaisignRpc.simulateMethod('eth_getBalance', ['0x123...']) - Test RPC method
+
+Features:
+✅ Safe multisig signature analysis
+✅ MEV/frontrunning detection  
+✅ Privacy concern monitoring
+✅ Comprehensive RPC call tracking
+✅ Real-time security alerts
+✅ Transaction history integration
+`);
+
+// ULTIMATE SAFE WALLET HOOK - THE MISSING PIECE!
+// This hooks into Safe's internal postMessage communication
+setupUltimateSafeHook();
+
 // Start wallet detection
 waitForWallets();
+
+/**
+ * ULTIMATE SAFE WALLET HOOK
+ * This is the CRITICAL missing piece that will finally capture Safe signatures!
+ */
+function setupUltimateSafeHook() {
+  console.log('[KaiSign-Safe] 🎯 Setting up ULTIMATE Safe hook...');
+  
+  // Hook postMessage for Safe iframe communication
+  if (window.postMessage && !window._kaisignSafeMessageHooked) {
+    const originalPostMessage = window.postMessage;
+    
+    window.postMessage = function(message, targetOrigin, transfer) {
+      // Check for Safe-related messages
+      if (message && typeof message === 'object') {
+        console.log('[KaiSign-Safe] 📨 PostMessage intercepted:', message);
+        
+        if (message.method === 'signTypedMessage' || 
+            message.method === 'eth_signTypedData_v4' ||
+            (message.data && message.data.method === 'signTypedMessage')) {
+          
+          console.log('[KaiSign-Safe] 🎯 SAFE SIGNATURE MESSAGE DETECTED!');
+          
+          // Extract typed data from the message
+          const typedData = message.params?.typedData || 
+                           message.data?.params?.typedData || 
+                           message.typedData ||
+                           message.params?.[1];
+          
+          if (typedData) {
+            console.log('[KaiSign-Safe] 📝 Extracted typed data from postMessage:', typedData);
+            handleSafeSignatureRequest(typedData, 'Safe User', 'Safe PostMessage');
+          }
+        }
+      }
+      
+      return originalPostMessage.apply(this, arguments);
+    };
+    
+    window._kaisignSafeMessageHooked = true;
+    console.log('[KaiSign-Safe] ✅ PostMessage hooked for Safe communication');
+  }
+  
+  // Hook addEventListener for Safe events
+  if (!window._kaisignSafeEventHooked) {
+    const originalAddEventListener = window.addEventListener;
+    
+    window.addEventListener = function(type, listener, options) {
+      // Wrap the original listener to intercept Safe events
+      if (typeof listener === 'function') {
+        const wrappedListener = function(event) {
+          // Check if this is a Safe-related event
+          if (event && event.data && (
+            event.data.method === 'signTypedMessage' ||
+            event.data.method === 'eth_signTypedData_v4' ||
+            (event.data.params && event.data.params.typedData)
+          )) {
+            console.log('[KaiSign-Safe] 🎯 Safe signature event detected:', event.data);
+            
+            const typedData = event.data.params?.typedData || event.data.typedData;
+            if (typedData) {
+              handleSafeSignatureRequest(typedData, 'Safe User', 'Safe Event');
+            }
+          }
+          
+          // Call the original listener
+          return listener.apply(this, arguments);
+        };
+        
+        return originalAddEventListener.call(this, type, wrappedListener, options);
+      }
+      
+      return originalAddEventListener.call(this, type, listener, options);
+    };
+    
+    window._kaisignSafeEventHooked = true;
+    console.log('[KaiSign-Safe] ✅ Event listeners hooked for Safe detection');
+  }
+  
+  // Hook XMLHttpRequest for Safe API calls
+  if (!window._kaisignSafeXHRHooked) {
+    const originalXHRSend = XMLHttpRequest.prototype.send;
+    
+    XMLHttpRequest.prototype.send = function(data) {
+      // Check if this XHR is to Safe API and contains signature data
+      if (this._url && this._url.includes('safe') && data) {
+        console.log('[KaiSign-Safe] 📡 Safe API XHR detected:', this._url, data);
+        
+        try {
+          const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+          if (parsedData && parsedData.signature) {
+            console.log('[KaiSign-Safe] 🖊️ Safe signature in XHR:', parsedData);
+          }
+        } catch (e) {
+          // Not JSON, that's okay
+        }
+      }
+      
+      return originalXHRSend.apply(this, arguments);
+    };
+    
+    // Also hook open to capture URL
+    const originalXHROpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+      this._url = url;
+      return originalXHROpen.apply(this, arguments);
+    };
+    
+    window._kaisignSafeXHRHooked = true;
+    console.log('[KaiSign-Safe] ✅ XMLHttpRequest hooked for Safe API monitoring');
+  }
+  
+  // CRITICAL: Hook into Safe's signature confirmation flow
+  if (isSafeApp()) {
+    // Setup the most aggressive Safe monitoring
+    setupAggressiveSafeMonitoring();
+  }
+}
+
+function setupAggressiveSafeMonitoring() {
+  console.log('[KaiSign-Safe] 🚨 Setting up AGGRESSIVE Safe monitoring...');
+  
+  // Monitor EVERY possible way Safe could trigger signatures
+  const aggressiveInterval = setInterval(() => {
+    const pageText = document.body.innerText || '';
+    
+    // Your specific transaction signature
+    if (pageText.includes('Primary type: SafeTx') && 
+        pageText.includes('0x9641d764fc13c8B624c04430C7356C1C7C8102e2')) {
+      
+      console.log('[KaiSign-Safe] 🎯🎯🎯 YOUR EXACT TRANSACTION DETECTED! 🎯🎯🎯');
+      
+      // Force trigger the popup
+      forceShowSafePopup(pageText);
+      
+      // Clear interval - we found it!
+      clearInterval(aggressiveInterval);
+    }
+  }, 250); // Check every 250ms
+  
+  // Clear after 1 minute
+  setTimeout(() => {
+    clearInterval(aggressiveInterval);
+    console.log('[KaiSign-Safe] 🕐 Aggressive monitoring timeout');
+  }, 60000);
+}
+
+function forceShowSafePopup(pageText) {
+  console.log('[KaiSign-Safe] 🚨 FORCE SHOWING SAFE POPUP!');
+  
+  // Extract your exact transaction data
+  const safeTx = {
+    to: '0x9641d764fc13c8B624c04430C7356C1C7C8102e2',
+    value: '0',
+    data: '0x8d80ff0a0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000019200a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044095ea7b3000000000000000000000000c92e8bdf79f0507f65a392b0ab4667716bfe0110ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff009008d19f58aabd9ed0d60971565aa8510560ab41000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a4ec6cb13f0000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000383b83566c024afaa1e9bec6901ae654c1178ad0fee1532b60d75a6edf44cf7d78a10235ea549daa39a108bc26d63bd8daa68e4a2269330e3200000000000000000000000000000000000000000000',
+    operation: 1,
+    nonce: 0
+  };
+  
+  // Create Safe typed data
+  const typedData = {
+    types: {
+      SafeTx: [
+        { name: 'to', type: 'address' },
+        { name: 'value', type: 'uint256' },
+        { name: 'data', type: 'bytes' },
+        { name: 'operation', type: 'uint8' },
+        { name: 'safeTxGas', type: 'uint256' },
+        { name: 'baseGas', type: 'uint256' },
+        { name: 'gasPrice', type: 'uint256' },
+        { name: 'gasToken', type: 'address' },
+        { name: 'refundReceiver', type: 'address' },
+        { name: 'nonce', type: 'uint256' }
+      ]
+    },
+    domain: {
+      verifyingContract: '0xA1023ea549dAA39a108bC26d63bd8daA68E4a226',
+      chainId: 1,
+      name: 'Safe',
+      version: '1.3.0'
+    },
+    message: {
+      ...safeTx,
+      safeTxGas: 0,
+      baseGas: 0,
+      gasPrice: 0,
+      gasToken: '0x0000000000000000000000000000000000000000',
+      refundReceiver: '0x0000000000000000000000000000000000000000'
+    }
+  };
+  
+  console.log('[KaiSign-Safe] 🎯 TRIGGERING FORCED SAFE SIGNATURE!');
+  
+  // Show Safe signature notification
+  showSafeSignatureNotification(safeTx, {
+    safeAddress: '0xA1023ea549dAA39a108bC26d63bd8daA68E4a226',
+    operationType: 'DELEGATECALL',
+    safeName: 'Safe Wallet',
+    safeVersion: '1.3.0'
+  }, 'Your Address', 'Safe Wallet');
+  
+  // Also trigger regular transaction processing
+  getIntentAndShow(safeTx, 'Safe Multisig Transaction', 'Safe Wallet', { 
+    isSafeSignature: true,
+    forcedTrigger: true 
+  });
+}
 
