@@ -24,6 +24,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "local-metadata/manifest.json",
         "local-metadata/registry/*.json",
         "local-metadata/**/*.json"
       ],

@@ -1,0 +1,156 @@
+{
+  "$schema": "../../specs/erc7730-v1.schema.json",
+  "metadata": {
+    "owner": "Ethereum Foundation",
+    "info": {
+      "legalName": "ERC-721 Non-Fungible Token Standard",
+      "url": "https://eips.ethereum.org/EIPS/eip-721",
+      "lastUpdate": "2024-12-07"
+    }
+  },
+  "context": {
+    "contract": {
+      "abi": [
+        {
+          "name": "approve",
+          "selector": "0x095ea7b3",
+          "type": "function",
+          "stateMutability": "nonpayable",
+          "inputs": [
+            {"name": "to", "type": "address"},
+            {"name": "tokenId", "type": "uint256"}
+          ]
+        },
+        {
+          "name": "setApprovalForAll",
+          "selector": "0xa22cb465",
+          "type": "function",
+          "stateMutability": "nonpayable",
+          "inputs": [
+            {"name": "operator", "type": "address"},
+            {"name": "approved", "type": "bool"}
+          ]
+        },
+        {
+          "name": "transferFrom",
+          "selector": "0x23b872dd",
+          "type": "function",
+          "stateMutability": "nonpayable",
+          "inputs": [
+            {"name": "from", "type": "address"},
+            {"name": "to", "type": "address"},
+            {"name": "tokenId", "type": "uint256"}
+          ]
+        },
+        {
+          "name": "safeTransferFrom",
+          "selector": "0x42842e0e",
+          "type": "function",
+          "stateMutability": "nonpayable",
+          "inputs": [
+            {"name": "from", "type": "address"},
+            {"name": "to", "type": "address"},
+            {"name": "tokenId", "type": "uint256"}
+          ]
+        },
+        {
+          "name": "safeTransferFrom",
+          "selector": "0xb88d4fde",
+          "type": "function",
+          "stateMutability": "nonpayable",
+          "inputs": [
+            {"name": "from", "type": "address"},
+            {"name": "to", "type": "address"},
+            {"name": "tokenId", "type": "uint256"},
+            {"name": "data", "type": "bytes"}
+          ]
+        },
+        {
+          "name": "ownerOf",
+          "selector": "0x6352211e",
+          "type": "function",
+          "stateMutability": "view",
+          "inputs": [
+            {"name": "tokenId", "type": "uint256"}
+          ],
+          "outputs": [
+            {"name": "", "type": "address"}
+          ]
+        },
+        {
+          "name": "balanceOf",
+          "selector": "0x70a08231",
+          "type": "function",
+          "stateMutability": "view",
+          "inputs": [
+            {"name": "owner", "type": "address"}
+          ],
+          "outputs": [
+            {"name": "", "type": "uint256"}
+          ]
+        },
+        {
+          "name": "getApproved",
+          "selector": "0x081812fc",
+          "type": "function",
+          "stateMutability": "view",
+          "inputs": [
+            {"name": "tokenId", "type": "uint256"}
+          ],
+          "outputs": [
+            {"name": "", "type": "address"}
+          ]
+        },
+        {
+          "name": "isApprovedForAll",
+          "selector": "0xe985e9c5",
+          "type": "function",
+          "stateMutability": "view",
+          "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "operator", "type": "address"}
+          ],
+          "outputs": [
+            {"name": "", "type": "bool"}
+          ]
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "approve": {
+        "intent": "Approve NFT",
+        "category": "approval"
+      },
+      "setApprovalForAll": {
+        "intent": "Set NFT Approval For All",
+        "category": "approval"
+      },
+      "transferFrom": {
+        "intent": "Transfer NFT",
+        "category": "transfer"
+      },
+      "safeTransferFrom": {
+        "intent": "Safe Transfer NFT",
+        "category": "transfer"
+      },
+      "ownerOf": {
+        "intent": "Check NFT Owner",
+        "category": "view"
+      },
+      "balanceOf": {
+        "intent": "Check NFT Balance",
+        "category": "view"
+      },
+      "getApproved": {
+        "intent": "Get Approved Address",
+        "category": "view"
+      },
+      "isApprovedForAll": {
+        "intent": "Check Approval Status",
+        "category": "view"
+      }
+    }
+  }
+}

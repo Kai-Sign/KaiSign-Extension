@@ -194,9 +194,9 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
  * Parse Safe MultiSend transaction data
  * Format: multiSend(bytes transactions) where transactions contains multiple encoded operations
  */
-function parseSafeMultiSendTransaction(txData) {
+async function parseSafeMultiSendTransaction(txData) {
   try {
-    
+
     if (!txData || !txData.startsWith('0x8d80ff0a')) {
       console.log('[KaiSign] Not a multiSend transaction');
       return null;
@@ -250,16 +250,16 @@ function parseSafeMultiSendTransaction(txData) {
     }
     
     console.log(`[KaiSign] Parsed ${operations.length} operations from MultiSend`);
-    
-    // Analyze operations to create intent
+
+    // Analyze operations to create intent (await registry loading)
     const intents = [];
     for (const op of operations) {
       if (op.selector) {
-        const intent = getSafeOperationIntent(op);
+        const intent = await getSafeOperationIntent(op);
         if (intent) intents.push(intent);
       }
     }
-    
+
     const mainIntent = intents.length > 0 ? intents.join(' + ') : `Safe Batch (${operations.length} operations)`;
     
     return {
@@ -277,23 +277,42 @@ function parseSafeMultiSendTransaction(txData) {
 /**
  * Get intent for individual Safe operation
  * Uses registry loader for selector lookups (no hardcoded values)
+ * Now async to ensure registry is loaded
  */
-function getSafeOperationIntent(operation) {
+async function getSafeOperationIntent(operation) {
   if (!operation.selector || operation.selector === '0x') return null;
+
+  // Ensure registry is loaded before lookup
+  if (window.registryLoader && !window.registryLoader.loaded) {
+    console.log(`[KaiSign] Waiting for registry to load...`);
+    await window.registryLoader.ensureLoaded();
+  }
+
+  // Debug logging
+  console.log(`[KaiSign] getSafeOperationIntent for selector: ${operation.selector}`);
+  console.log(`[KaiSign] Registry exists: ${!!window.registryLoader}`);
+  console.log(`[KaiSign] Registry loaded: ${window.registryLoader?.loaded}`);
+  console.log(`[KaiSign] Selector registry size: ${window.registryLoader?.selectorRegistry?.size}`);
 
   // Use registry loader for selector lookup
   const selectorInfo = window.registryLoader?.getSelectorInfo(operation.selector);
 
+  console.log(`[KaiSign] Selector lookup result:`, selectorInfo);
+
   if (selectorInfo) {
     const intent = selectorInfo.intent;
+    console.log(`[KaiSign] Found intent: ${intent}, category: ${selectorInfo.category}`);
+
     // Try to identify token for approval/transfer operations
     if (selectorInfo.category === 'approval' || selectorInfo.category === 'transfer') {
-      const token = getTokenSymbol(operation.to) || 'Token';
+      const token = getTokenSymbol(operation.to);
+      console.log(`[KaiSign] Token lookup for ${operation.to}: ${token}`);
       return `${intent} ${token}`;
     }
     return intent;
   }
 
+  console.warn(`[KaiSign] No selector info found for ${operation.selector}, falling back to Contract Call`);
   return 'Contract Call';
 }
 
@@ -2304,7 +2323,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
       
       if (multiSendData) {
         console.log('[KaiSign] Calling parseSafeMultiSendTransaction with:', multiSendData.slice(0, 50) + '...');
-        const multiSendResult = parseSafeMultiSendTransaction(multiSendData);
+        const multiSendResult = await parseSafeMultiSendTransaction(multiSendData);
         console.log('[KaiSign] parseSafeMultiSendTransaction result:', multiSendResult);
         
         if (multiSendResult) {
@@ -2319,17 +2338,17 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
           };
           
           // Convert operations to extractedBytecodes format for display
-          extractedBytecodes = multiSendResult.operations.map((op, i) => ({
+          extractedBytecodes = await Promise.all(multiSendResult.operations.map(async (op, i) => ({
             bytecode: op.data,
             selector: op.selector,
             depth: 2,
             index: i + 1,
             target: op.to,
             functionName: `Operation ${i + 1}`,
-            intent: getSafeOperationIntent(op),
+            intent: await getSafeOperationIntent(op),
             type: 'safe_operation',
             value: op.value !== '0x0' ? op.value : null
-          }));
+          })));
           
           console.log(`[KaiSign] Safe: ${intent}`);
           showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);

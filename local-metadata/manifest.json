@@ -1,0 +1,51 @@
+{
+  "$schema": "../specs/erc7730-manifest-v1.schema.json",
+  "type": "metadataManifest",
+  "version": "1.0.0",
+  "tokens": [
+    "tokens/usdc.json",
+    "tokens/usdt.json",
+    "tokens/dai.json",
+    "tokens/weth.json",
+    "tokens/wbtc.json",
+    "tokens/uni.json",
+    "tokens/link.json",
+    "tokens/aave.json",
+    "tokens/comp.json",
+    "tokens/mkr.json",
+    "tokens/snx.json",
+    "tokens/crv.json",
+    "tokens/ldo.json",
+    "tokens/op.json",
+    "tokens/matic.json",
+    "tokens/pepe.json",
+    "tokens/shib.json",
+    "tokens/btc.json"
+  ],
+  "contracts": [
+    "safe/multi-send/metadata.json",
+    "safe/multi-send-call-only/metadata.json",
+    "safe/safe-singleton/metadata.json",
+    "safe/safe-proxy-factory/metadata.json",
+    "safe/create-call/metadata.json",
+    "safe/safe-to-safe/metadata.json",
+    "uniswap-v3/universal-router-v2/metadata.json",
+    "uniswap-v4/pool-manager/metadata.json",
+    "uniswap-v4/position-manager/metadata.json",
+    "uniswap-v4/state-view/metadata.json",
+    "uniswap-v4/quoter/metadata.json",
+    "uniswap-v4/position-descriptor/metadata.json",
+    "aave/governance-v2/metadata.json",
+    "poap/poap-bridge/metadata.json",
+    "lifi/diamond/metadata.json"
+  ],
+  "standards": [
+    "standards/erc20.json",
+    "standards/erc721.json",
+    "standards/erc1155.json"
+  ],
+  "registries": {
+    "universalRouterCommands": "registry/universal-router-commands.json",
+    "intentFormatting": "registry/intent-formatting.json"
+  }
+}
