@@ -1,0 +1,147 @@
+{
+  "$schema": "../../erc7730-v1.schema.json",
+  "type": "selectorRegistry",
+  "version": "1.0.0",
+  "categories": {
+    "erc20": {
+      "description": "Standard ERC-20 token functions",
+      "selectors": {
+        "0xa9059cbb": {
+          "signature": "transfer(address,uint256)",
+          "name": "transfer",
+          "intent": "Transfer",
+          "category": "transfer"
+        },
+        "0x23b872dd": {
+          "signature": "transferFrom(address,address,uint256)",
+          "name": "transferFrom",
+          "intent": "Transfer From",
+          "category": "transfer"
+        },
+        "0x095ea7b3": {
+          "signature": "approve(address,uint256)",
+          "name": "approve",
+          "intent": "Approve",
+          "category": "approval"
+        },
+        "0x70a08231": {
+          "signature": "balanceOf(address)",
+          "name": "balanceOf",
+          "intent": "Check Balance",
+          "category": "query"
+        }
+      }
+    },
+    "defi": {
+      "description": "Common DeFi functions",
+      "selectors": {
+        "0xd0e30db0": {
+          "signature": "deposit()",
+          "name": "deposit",
+          "intent": "Deposit",
+          "category": "deposit"
+        },
+        "0x2e1a7d4d": {
+          "signature": "withdraw(uint256)",
+          "name": "withdraw",
+          "intent": "Withdraw",
+          "category": "withdraw"
+        },
+        "0x414bf389": {
+          "signature": "exactInputSingle((address,address,uint24,uint160,address,uint256,uint256,uint160))",
+          "name": "exactInputSingle",
+          "intent": "Swap Exact Input",
+          "category": "swap"
+        },
+        "0x38ed1739": {
+          "signature": "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)",
+          "name": "swapExactTokensForTokens",
+          "intent": "Swap Tokens",
+          "category": "swap"
+        },
+        "0x01e1d114": {
+          "signature": "sweepToken(address,uint256,address)",
+          "name": "sweepToken",
+          "intent": "Sweep Token",
+          "category": "cleanup"
+        }
+      }
+    },
+    "safe": {
+      "description": "Safe wallet functions",
+      "selectors": {
+        "0x6a761202": {
+          "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+          "name": "execTransaction",
+          "intent": "Execute Transaction",
+          "category": "execution"
+        },
+        "0x8d80ff0a": {
+          "signature": "multiSend(bytes)",
+          "name": "multiSend",
+          "intent": "Batch Transaction",
+          "category": "batch",
+          "isMulticall": true
+        },
+        "0x9641d764": {
+          "signature": "multiSend(bytes)",
+          "name": "multiSendCallOnly",
+          "intent": "Batch Transaction (Call Only)",
+          "category": "batch",
+          "isMulticall": true
+        },
+        "0xec6cb13f": {
+          "signature": "execute(address,uint256,bytes,uint8)",
+          "name": "execute",
+          "intent": "Execute",
+          "category": "execution"
+        }
+      }
+    },
+    "multicall": {
+      "description": "Multicall patterns",
+      "selectors": {
+        "0xac9650d8": {
+          "signature": "multicall(bytes[])",
+          "name": "multicall",
+          "intent": "Batch Calls",
+          "category": "batch",
+          "isMulticall": true,
+          "decodingHint": "standard_multicall"
+        },
+        "0x5ae401dc": {
+          "signature": "multicall(uint256,bytes[])",
+          "name": "multicallWithDeadline",
+          "intent": "Batch Calls",
+          "category": "batch",
+          "isMulticall": true,
+          "decodingHint": "multicall_with_deadline"
+        },
+        "0x1f0464d1": {
+          "signature": "multicall(uint256,bytes[])",
+          "name": "multicallValue",
+          "intent": "Batch Calls with Value",
+          "category": "batch",
+          "isMulticall": true,
+          "decodingHint": "multicall_with_value"
+        },
+        "0x174dea71": {
+          "signature": "multicall(uint256,bytes[])",
+          "name": "multicallWithGasLimit",
+          "intent": "Batch Calls",
+          "category": "batch",
+          "isMulticall": true,
+          "decodingHint": "multicall_with_gas_limit"
+        },
+        "0x3593564c": {
+          "signature": "execute(bytes,bytes[],uint256)",
+          "name": "execute",
+          "intent": "Universal Router Execute",
+          "category": "routing",
+          "isMulticall": true,
+          "decodingHint": "universal_router"
+        }
+      }
+    }
+  }
+}
