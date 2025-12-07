@@ -1,4 +1,3 @@
-console.log('[KaiSign] Content script loading...');
 
 // =============================================================================
 // UNIVERSAL ROUTER TRANSACTION PARSER (ETHERS.JS APPROACH)
@@ -206,7 +205,6 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
  */
 function parseSafeMultiSendTransaction(txData) {
   try {
-    console.log('[KaiSign] Parsing Safe MultiSend transaction...');
     
     if (!txData || !txData.startsWith('0x8d80ff0a')) {
       console.log('[KaiSign] Not a multiSend transaction');
@@ -909,7 +907,7 @@ function isSafeApp() {
 function detectSafeTransactions() {
   if (!isSafeApp()) return;
   
-  console.log('[KaiSign-Safe] 🎯 Starting enhanced Safe transaction detection...');
+  // Starting Safe transaction detection
   
   // STRATEGY 1: Advanced DOM Observer for Safe UI
   setupAdvancedSafeObserver();
@@ -944,7 +942,6 @@ function setupAdvancedSafeObserver() {
             target.textContent.includes('Primary type: SafeTx') ||
             target.textContent.includes('Operation:')
           )) {
-            console.log('[KaiSign-Safe] 🚨 Safe transaction data detected in DOM update!');
             extractSafeTransactionData();
           }
         }
@@ -959,7 +956,6 @@ function setupAdvancedSafeObserver() {
       characterData: true
     });
     
-    console.log('[KaiSign-Safe] ✅ Advanced Safe DOM observer started');
   } catch (error) {
     console.error('[KaiSign-Safe] Error setting up advanced Safe observer:', error);
   }
@@ -984,12 +980,10 @@ function checkSafeTransactionElements(element) {
   safeSelectors.forEach(selector => {
     const txElements = element.querySelectorAll ? element.querySelectorAll(selector) : [];
     if (txElements.length > 0) {
-      console.log(`[KaiSign-Safe] 🔍 Found Safe UI elements with selector: ${selector}`);
       
       txElements.forEach(txElement => {
         const text = txElement.textContent || txElement.innerText || '';
         if (text.includes('0x') && text.length > 20) {
-          console.log('[KaiSign-Safe] 📝 Transaction data found in element:', text.slice(0, 100));
           extractSafeTransactionFromElement(txElement);
         }
       });
@@ -998,7 +992,6 @@ function checkSafeTransactionElements(element) {
 }
 
 function setupSafeTransactionPolling() {
-  console.log('[KaiSign-Safe] 🕐 Starting Safe transaction polling...');
   
   let lastProcessedData = '';
   
@@ -1014,8 +1007,7 @@ function setupSafeTransactionPolling() {
       const currentData = allText.slice(allText.indexOf('Primary type: SafeTx'), allText.indexOf('Primary type: SafeTx') + 500);
       
       if (currentData !== lastProcessedData) {
-        console.log('[KaiSign-Safe] 🎯 FOUND YOUR TRANSACTION IN DOM!');
-        console.log('[KaiSign-Safe] Transaction data:', currentData);
+        console.log('[KaiSign-Safe] Transaction found in DOM');
         
         lastProcessedData = currentData;
         
@@ -1031,12 +1023,11 @@ function setupSafeTransactionPolling() {
   // Clear polling after 30 seconds to avoid infinite polling
   setTimeout(() => {
     clearInterval(pollInterval);
-    console.log('[KaiSign-Safe] 🕐 Safe transaction polling timeout');
   }, 30000);
 }
 
 function extractSafeTransactionFromDomText(domText) {
-  console.log('[KaiSign-Safe] 🔍 Extracting Safe transaction from DOM text...');
+  // Extract Safe transaction from DOM text
   
   try {
     // Parse the DOM text for Safe transaction details
@@ -1051,7 +1042,6 @@ function extractSafeTransactionFromDomText(domText) {
       const operation = operationMatch ? parseInt(operationMatch[1]) : 0;
       const nonce = nonceMatch ? parseInt(nonceMatch[1]) : 0;
       
-      console.log('[KaiSign-Safe] 🎯 Parsed transaction data:', { to, data: data.slice(0, 50) + '...', operation, nonce });
       
       // Create Safe transaction object
       const safeTx = {
@@ -1080,7 +1070,7 @@ function extractSafeTransactionFromDomText(domText) {
         message: safeTx
       };
       
-      console.log('[KaiSign-Safe] 🚨 TRIGGERING SAFE SIGNATURE REQUEST!');
+      console.log('[KaiSign-Safe] Triggering Safe signature request');
       handleSafeSignatureRequest(typedData, 'Safe User', 'Safe Wallet DOM');
       
       // Also trigger regular transaction processing
@@ -1095,7 +1085,6 @@ function extractSafeTransactionFromDomText(domText) {
 }
 
 function hookSafeSignatureButtons() {
-  console.log('[KaiSign-Safe] 🎯 Hooking Safe signature buttons...');
   
   // Look for and hook Safe signature buttons
   const buttonSelectors = [
@@ -1110,11 +1099,9 @@ function hookSafeSignatureButtons() {
   const hookButton = (button) => {
     if (button._kaisignHooked) return;
     
-    console.log('[KaiSign-Safe] 🔲 Hooking Safe button:', button.textContent);
     
     const originalClick = button.onclick;
     button.onclick = function(event) {
-      console.log('[KaiSign-Safe] 🖱️ Safe signature button clicked!');
       
       // Extract transaction data before signature
       setTimeout(() => {
@@ -1128,7 +1115,6 @@ function hookSafeSignatureButtons() {
     };
     
     button.addEventListener('click', () => {
-      console.log('[KaiSign-Safe] 🖱️ Safe button click event triggered!');
       setTimeout(() => {
         extractSafeTransactionData();
       }, 200);
@@ -1178,7 +1164,6 @@ function hookSafeSignatureButtons() {
 }
 
 function monitorSafeConfirmationDialogs() {
-  console.log('[KaiSign-Safe] 💬 Monitoring Safe confirmation dialogs...');
   
   const dialogObserver = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
@@ -1192,7 +1177,6 @@ function monitorSafeConfirmationDialogs() {
             node.matches('[class*="dialog"]') ||
             node.matches('[class*="Dialog"]'))) {
             
-            console.log('[KaiSign-Safe] 💬 Safe dialog/modal detected');
             
             // Check if this dialog contains transaction data
             const dialogText = node.innerText || '';
@@ -1200,7 +1184,6 @@ function monitorSafeConfirmationDialogs() {
                 dialogText.includes('Sign') ||
                 dialogText.includes('0x')) {
               
-              console.log('[KaiSign-Safe] 🎯 Transaction dialog detected, extracting data...');
               setTimeout(() => {
                 extractSafeTransactionFromElement(node);
                 extractSafeTransactionFromDomText(dialogText);
@@ -1224,7 +1207,6 @@ function extractSafeTransactionFromElement(element) {
     
     // Look for specific patterns in the element
     if (text.includes('0x8d80ff0a') || text.includes('multiSend') || text.includes('Primary type: SafeTx')) {
-      console.log('[KaiSign-Safe] 🎯 Safe transaction pattern found in element');
       extractSafeTransactionFromDomText(text);
     }
     
@@ -1233,18 +1215,17 @@ function extractSafeTransactionFromElement(element) {
     dataAttrs.forEach(attr => {
       const attrValue = element.getAttribute && element.getAttribute(attr);
       if (attrValue && attrValue.includes('0x')) {
-        console.log('[KaiSign-Safe] 📋 Transaction data found in attribute:', attr);
         try {
           const txData = JSON.parse(attrValue);
-          console.log('[KaiSign-Safe] Parsed transaction from attribute:', txData);
-          getIntentAndShow(txData, 'Safe Transaction (Attribute)', 'Safe Wallet', { extractedFromAttribute: true });
+          getIntentAndShow(txData, 'Safe Transaction (Attribute)', 'Safe Wallet', { 
+            isSafeSignature: true,
+            extractedFromAttribute: true 
+          });
         } catch (e) {
-          console.log('[KaiSign-Safe] Could not parse transaction attribute as JSON');
         }
       }
     });
   } catch (error) {
-    console.log('[KaiSign-Safe] Error extracting transaction from element:', error.message);
   }
 }
 
@@ -1257,7 +1238,8 @@ function extractSafeTransactionData() {
     for (const element of dataElements) {
       const text = element.textContent || element.innerText;
       if (text && text.includes('0x') && text.length > 50) {
-        console.log('[KaiSign] Found potential Safe transaction data:', text.substring(0, 100) + '...');
+        console.log('[KaiSign] Safe transaction data detected');
+        console.log('[KaiSign] DOM text sample:', text.slice(0, 200) + '...');
         
         // Try to extract transaction components
         const lines = text.split('\n');
@@ -1267,22 +1249,33 @@ function extractSafeTransactionData() {
         
         for (const line of lines) {
           const trimmed = line.trim();
+          console.log('[KaiSign] Checking line:', trimmed.slice(0, 100));
+          
           if (trimmed.toLowerCase().includes('to') && trimmed.includes('0x')) {
             const match = trimmed.match(/0x[a-fA-F0-9]{40}/);
-            if (match) toAddress = match[0];
+            if (match) {
+              toAddress = match[0];
+              console.log('[KaiSign] Found TO address:', toAddress);
+            }
           }
           if (trimmed.toLowerCase().includes('data') && trimmed.includes('0x')) {
             const match = trimmed.match(/0x[a-fA-F0-9]+/);
-            if (match && match[0].length > 10) data = match[0];
+            if (match && match[0].length > 10) {
+              data = match[0];
+              console.log('[KaiSign] Found DATA:', data.slice(0, 50) + '...');
+            }
           }
           if (trimmed.toLowerCase().includes('value')) {
             const match = trimmed.match(/0x[a-fA-F0-9]+/);
-            if (match) value = match[0];
+            if (match) {
+              value = match[0];
+              console.log('[KaiSign] Found VALUE:', value);
+            }
           }
         }
         
         if (toAddress && data) {
-          console.log('[KaiSign] Extracted Safe transaction - To:', toAddress, 'Data:', data.substring(0, 50) + '...');
+          console.log('[KaiSign] ✅ Safe transaction extracted - triggering popup');
           
           // Create transaction object and analyze
           const tx = {
@@ -1291,8 +1284,13 @@ function extractSafeTransactionData() {
             value: value || '0x0'
           };
           
-          getIntentAndShow(tx, 'Safe Transaction', 'Safe Wallet');
+          getIntentAndShow(tx, 'Safe Transaction', 'Safe Wallet', { 
+            isSafeSignature: true,
+            extractedFromDOM: true 
+          });
           break;
+        } else {
+          console.log('[KaiSign] ❌ Failed to extract To/Data from Safe transaction');
         }
       }
     }
@@ -1373,11 +1371,10 @@ function detectAndHookWallets() {
  */
 
 function detectAndHookSafeWallet() {
-  console.log('[KaiSign-Safe] 🔍 Detecting Safe wallet providers...');
+  // Detecting Safe wallet providers
   
   // Strategy 1: Hook window.safe (Safe Wallet Web Extension)
   if (window.safe && !hookedWallets.has('safe-extension')) {
-    console.log('[KaiSign-Safe] 📱 Found Safe Web Extension');
     if (window.safe.request) {
       hookWalletProvider(window.safe, 'safe-extension', 'Safe Web Extension');
       hookedWallets.add('safe-extension');
@@ -1386,7 +1383,6 @@ function detectAndHookSafeWallet() {
   
   // Strategy 2: Hook window.SafeProvider (Safe SDK)
   if (window.SafeProvider && !hookedWallets.has('safe-provider')) {
-    console.log('[KaiSign-Safe] 🔧 Found Safe Provider');
     if (window.SafeProvider.request) {
       hookWalletProvider(window.SafeProvider, 'safe-provider', 'Safe Provider');
       hookedWallets.add('safe-provider');
@@ -1399,7 +1395,6 @@ function detectAndHookSafeWallet() {
       if (provider.isSafe || provider._metamask?.isSafe || (provider.constructor && provider.constructor.name === 'SafeProvider')) {
         const walletKey = `safe-provider-${index}`;
         if (!hookedWallets.has(walletKey)) {
-          console.log('[KaiSign-Safe] 🔐 Found Safe in providers array at index', index);
           hookWalletProvider(provider, walletKey, 'Safe Wallet');
           hookedWallets.add(walletKey);
         }
@@ -1411,7 +1406,6 @@ function detectAndHookSafeWallet() {
   const safeGlobals = ['__SAFE__', 'safeConnector', 'SafeAppsSDK'];
   safeGlobals.forEach(globalName => {
     if (window[globalName] && typeof window[globalName] === 'object') {
-      console.log(`[KaiSign-Safe] 🌐 Found Safe global: ${globalName}`);
       hookSafeGlobal(window[globalName], globalName);
     }
   });
@@ -1430,12 +1424,11 @@ function hookSafeGlobal(safeObj, globalName) {
       }
     }
   } catch (error) {
-    console.log(`[KaiSign-Safe] Error hooking Safe global ${globalName}:`, error.message);
   }
 }
 
 function hookSafeEvents() {
-  console.log('[KaiSign-Safe] 🎯 Setting up Safe event listeners...');
+  // Setting up Safe event listeners
   
   // Listen for Safe-specific custom events
   const safeEvents = [
@@ -1449,7 +1442,6 @@ function hookSafeEvents() {
   
   safeEvents.forEach(eventName => {
     document.addEventListener(eventName, (event) => {
-      console.log(`[KaiSign-Safe] 🚨 Detected Safe event: ${eventName}`, event.detail);
       handleSafeCustomEvent(eventName, event.detail);
     });
   });
@@ -1462,7 +1454,6 @@ function hookSafeEvents() {
         
         // Check for Safe Apps SDK messages
         if (data.messageId && data.method) {
-          console.log(`[KaiSign-Safe] 📨 Safe SDK Message: ${data.method}`, data);
           
           if (data.method === 'signTypedMessage' || data.method === 'signMessage') {
             handleSafeSdkSignRequest(data);
@@ -1474,7 +1465,6 @@ function hookSafeEvents() {
 }
 
 function handleSafeCustomEvent(eventName, eventData) {
-  console.log(`[KaiSign-Safe] Processing custom Safe event: ${eventName}`);
   
   if (eventData && eventData.params) {
     // Extract signature data from Safe custom event
@@ -1490,7 +1480,6 @@ function handleSafeCustomEvent(eventName, eventData) {
 }
 
 function handleSafeSdkSignRequest(sdkData) {
-  console.log('[KaiSign-Safe] Processing Safe SDK sign request', sdkData);
   
   if (sdkData.params && sdkData.method === 'signTypedMessage') {
     const typedData = sdkData.params.typedData || sdkData.params.message;
@@ -1503,7 +1492,7 @@ function handleSafeSdkSignRequest(sdkData) {
 }
 
 function hookSafeSDK() {
-  console.log('[KaiSign-Safe] 🔌 Hooking Safe SDK...');
+  // Hooking Safe SDK
   
   // Hook SafeAppsSDK if available
   if (window.SafeAppsSDK && !hookedWallets.has('safe-apps-sdk')) {
@@ -1514,7 +1503,6 @@ function hookSafeSDK() {
       if (sdk.txs && typeof sdk.txs.signTypedMessage === 'function') {
         const originalSignTypedMessage = sdk.txs.signTypedMessage;
         sdk.txs.signTypedMessage = function(typedData) {
-          console.log('[KaiSign-Safe] 🎯 Safe SDK signTypedMessage intercepted:', typedData);
           
           // Process the Safe signature request
           handleSafeSignatureRequest(typedData, 'Unknown', 'Safe Apps SDK');
@@ -1525,15 +1513,13 @@ function hookSafeSDK() {
       }
       
       hookedWallets.add('safe-apps-sdk');
-      console.log('[KaiSign-Safe] ✅ Safe Apps SDK hooked successfully');
     } catch (error) {
-      console.log('[KaiSign-Safe] Error hooking Safe SDK:', error.message);
     }
   }
 }
 
 function hookSafeApiCalls() {
-  console.log('[KaiSign-Safe] 🌐 Hooking Safe API calls...');
+  // Hooking Safe API calls
   
   // Hook fetch for Safe API requests
   if (window.fetch && !window._kaisignFetchHooked) {
@@ -1542,24 +1528,19 @@ function hookSafeApiCalls() {
     window.fetch = async function(url, options) {
       // Check for Safe API calls
       if (typeof url === 'string' && (url.includes('safe.global') || url.includes('gnosis-safe'))) {
-        console.log('[KaiSign-Safe] 🔗 Safe API call detected:', url);
         
         // Check if it's a signature-related API call
         if (url.includes('/signatures') || url.includes('/confirm') || options?.method === 'POST') {
-          console.log('[KaiSign-Safe] 🖊️ Safe signature API call detected');
           
           // Try to extract transaction data from request body
           if (options?.body) {
             try {
               const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
-              console.log('[KaiSign-Safe] Safe API request body:', body);
               
               if (body.safeTxHash || body.transactionHash) {
                 // This might be a signature submission - could trigger popup
-                console.log('[KaiSign-Safe] 📝 Safe signature submission detected');
               }
             } catch (parseError) {
-              console.log('[KaiSign-Safe] Could not parse Safe API body');
             }
           }
         }
@@ -1569,7 +1550,6 @@ function hookSafeApiCalls() {
     };
     
     window._kaisignFetchHooked = true;
-    console.log('[KaiSign-Safe] ✅ Safe API calls hooked');
   }
 }
 
@@ -1597,9 +1577,10 @@ function handleSafeSignatureRequest(typedData, signerAddress, walletName) {
     analyzeSafeSignatureActivity(typedData, signerAddress, walletName);
     
     // Check if this is a Safe transaction signature request
+    console.log('[KaiSign] Checking SafeTx condition:', { hasTypes: !!typedData.types, hasSafeTx: !!(typedData.types?.SafeTx) });
     if (typedData.types && typedData.types.SafeTx) {
+      console.log('[KaiSign] ✅ SAFE TRANSACTION DETECTED - proceeding to getIntentAndShow');
       const safeTx = typedData.message;
-      console.log('[KaiSign] Found Safe transaction data:', safeTx);
       
       // Convert Safe transaction to standard transaction format
       const tx = {
@@ -1627,12 +1608,16 @@ function handleSafeSignatureRequest(typedData, signerAddress, walletName) {
         operationType: safeTx.operation === 0 ? 'CALL' : 'DELEGATECALL'
       };
       
-      console.log('[KaiSign] Enhanced Safe context:', context);
       
       // Show Safe-specific notification
-      showSafeSignatureNotification(safeTx, context, signerAddress, walletName);
+      try {
+        showSafeSignatureNotification(safeTx, context, signerAddress, walletName);
+      } catch (notifError) {
+        console.error('[KaiSign] Safe notification error:', notifError);
+      }
       
       // Process the transaction data like a regular transaction
+      console.log('[KaiSign] 🚀 CALLING getIntentAndShow for Safe transaction:', { to: tx.to, dataLength: tx.data?.length });
       getIntentAndShow(tx, 'eth_signTypedData_v4 (Safe Multisig)', walletName, context);
     } else {
       // Handle other typed data signatures (EIP-712)
@@ -1731,7 +1716,6 @@ function trackMultisigCoordination(safeAddress, signer, timestamp) {
     sig => sig.timestamp > oneHourAgo
   );
   
-  console.log(`[KaiSign-Safe] Coordination for ${safeAddress}: ${coordination.signers.size} signers, ${coordination.signatures.length} recent signatures`);
 }
 
 /**
@@ -2029,7 +2013,6 @@ function handleRpcMethod(method, params, walletName) {
     showRpcActivityNotification(method, params, category, walletName);
   }
   
-  console.log(`[KaiSign-RPC] ${method} (${category}) - Count: ${rpcActivity.methods[method].count}`);
 }
 
 /**
@@ -2209,11 +2192,20 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
         // Transaction and signature methods
         if (args.method === 'eth_signTypedData_v4') {
           // Handle Safe signature requests
-          const typedData = args.params?.[1];
+          const typedDataRaw = args.params?.[1];
           const address = args.params?.[0];
           
-          if (typedData) {
-            console.log('[KaiSign] Processing Safe signature request:', typedData);
+          if (typedDataRaw) {
+            // Parse JSON string if needed
+            let typedData;
+            try {
+              typedData = typeof typedDataRaw === 'string' ? JSON.parse(typedDataRaw) : typedDataRaw;
+              console.log('[KaiSign] 🔧 Parsed typedData:', { hasTypes: !!typedData.types, hasSafeTx: !!(typedData.types?.SafeTx) });
+            } catch (e) {
+              console.error('[KaiSign] Failed to parse typedData:', e);
+              typedData = typedDataRaw;
+            }
+            
             handleSafeSignatureRequest(typedData, address, walletName);
           }
         } else if (args.method === 'personal_sign') {
@@ -2247,12 +2239,13 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   
   // SAFE SIGNATURE REQUEST HANDLING - CHECK FIRST
   if (context && context.isSafeSignature) {
-    console.log('[KaiSign] Processing Safe signature request with context:', context);
+    console.log('[KaiSign] Safe signature context detected - checking transaction data');
     intent = '🔒 Safe Signature Request - parsing transaction...';
     showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
     
     // Add Safe context to method display
     method = `${method} (Safe Multi-Sig)`;
+    console.log('[KaiSign] Safe transaction data selector:', tx.data ? tx.data.slice(0, 10) : 'no data');
   }
   
   // UNIVERSAL ROUTER SPECIFIC PARSING - CHECK FIRST, TAKES PRECEDENCE
@@ -2294,7 +2287,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   // SAFE TRANSACTION DETECTION - CHECK SECOND
   // Safe execTransaction (0x6a761202) or direct multiSend (0x8d80ff0a)
   if (tx.data && (tx.data.startsWith('0x6a761202') || tx.data.startsWith('0x8d80ff0a'))) {
-    console.log('[KaiSign] Safe transaction detected, selector:', tx.data.slice(0, 10));
+    console.log('[KaiSign] ✅ SAFE PARSING SECTION REACHED - selector:', tx.data.slice(0, 10));
     intent = 'Safe transaction detected - parsing...';
     showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
     
@@ -2304,11 +2297,9 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
       // Direct multiSend call
       if (tx.data.startsWith('0x8d80ff0a')) {
         multiSendData = tx.data;
-        console.log('[KaiSign] Direct Safe MultiSend call');
       }
       // Safe execTransaction - need to extract embedded multiSend data
       else if (tx.data.startsWith('0x6a761202')) {
-        console.log('[KaiSign] Safe execTransaction - looking for embedded MultiSend data');
         // Look for multiSend selector (0x8d80ff0a) in the transaction data
         // We need to find it at word boundaries (every 2 hex chars) to avoid partial matches
         console.log('[KaiSign] Searching for MultiSend selector in execTransaction data');
@@ -2347,7 +2338,9 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
       }
       
       if (multiSendData) {
+        console.log('[KaiSign] Calling parseSafeMultiSendTransaction with:', multiSendData.slice(0, 50) + '...');
         const multiSendResult = parseSafeMultiSendTransaction(multiSendData);
+        console.log('[KaiSign] parseSafeMultiSendTransaction result:', multiSendResult);
         
         if (multiSendResult) {
           intent = multiSendResult.intent;
@@ -2373,7 +2366,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
             value: op.value !== '0x0' ? op.value : null
           }));
           
-          console.log(`[KaiSign] Safe transaction parsed: ${intent}`);
+          console.log(`[KaiSign] Safe: ${intent}`);
           showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
           return; // Skip other decoding for Safe transactions
         }
@@ -2451,6 +2444,8 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
 // Show enhanced transaction info with complete bytecode data
 async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wallet', decodedResult = null, extractedBytecodes = []) {
+  console.log('[KaiSign] 🎯 showEnhancedTransactionInfo called:', { method, intent, walletName });
+  
   // Remove old popup if exists
   const old = document.getElementById('kaisign-popup');
   if (old) old.remove();
@@ -3341,7 +3336,6 @@ waitForWallets();
  * This is the CRITICAL missing piece that will finally capture Safe signatures!
  */
 function setupUltimateSafeHook() {
-  console.log('[KaiSign-Safe] 🎯 Setting up ULTIMATE Safe hook...');
   
   // Hook postMessage for Safe iframe communication
   if (window.postMessage && !window._kaisignSafeMessageHooked) {
@@ -3350,13 +3344,13 @@ function setupUltimateSafeHook() {
     window.postMessage = function(message, targetOrigin, transfer) {
       // Check for Safe-related messages
       if (message && typeof message === 'object') {
-        console.log('[KaiSign-Safe] 📨 PostMessage intercepted:', message);
+        // PostMessage intercepted - analyzing...
         
         if (message.method === 'signTypedMessage' || 
             message.method === 'eth_signTypedData_v4' ||
             (message.data && message.data.method === 'signTypedMessage')) {
           
-          console.log('[KaiSign-Safe] 🎯 SAFE SIGNATURE MESSAGE DETECTED!');
+          console.log('[KaiSign-Safe] Safe signature detected');
           
           // Extract typed data from the message
           const typedData = message.params?.typedData || 
@@ -3365,7 +3359,6 @@ function setupUltimateSafeHook() {
                            message.params?.[1];
           
           if (typedData) {
-            console.log('[KaiSign-Safe] 📝 Extracted typed data from postMessage:', typedData);
             handleSafeSignatureRequest(typedData, 'Safe User', 'Safe PostMessage');
           }
         }
@@ -3375,7 +3368,6 @@ function setupUltimateSafeHook() {
     };
     
     window._kaisignSafeMessageHooked = true;
-    console.log('[KaiSign-Safe] ✅ PostMessage hooked for Safe communication');
   }
   
   // Hook addEventListener for Safe events
@@ -3392,7 +3384,6 @@ function setupUltimateSafeHook() {
             event.data.method === 'eth_signTypedData_v4' ||
             (event.data.params && event.data.params.typedData)
           )) {
-            console.log('[KaiSign-Safe] 🎯 Safe signature event detected:', event.data);
             
             const typedData = event.data.params?.typedData || event.data.typedData;
             if (typedData) {
@@ -3411,7 +3402,6 @@ function setupUltimateSafeHook() {
     };
     
     window._kaisignSafeEventHooked = true;
-    console.log('[KaiSign-Safe] ✅ Event listeners hooked for Safe detection');
   }
   
   // Hook XMLHttpRequest for Safe API calls
@@ -3421,12 +3411,10 @@ function setupUltimateSafeHook() {
     XMLHttpRequest.prototype.send = function(data) {
       // Check if this XHR is to Safe API and contains signature data
       if (this._url && this._url.includes('safe') && data) {
-        console.log('[KaiSign-Safe] 📡 Safe API XHR detected:', this._url, data);
         
         try {
           const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
           if (parsedData && parsedData.signature) {
-            console.log('[KaiSign-Safe] 🖊️ Safe signature in XHR:', parsedData);
           }
         } catch (e) {
           // Not JSON, that's okay
@@ -3444,102 +3432,13 @@ function setupUltimateSafeHook() {
     };
     
     window._kaisignSafeXHRHooked = true;
-    console.log('[KaiSign-Safe] ✅ XMLHttpRequest hooked for Safe API monitoring');
   }
   
   // CRITICAL: Hook into Safe's signature confirmation flow
   if (isSafeApp()) {
-    // Setup the most aggressive Safe monitoring
-    setupAggressiveSafeMonitoring();
+    // Safe app detected - monitoring will be handled by existing Safe hooks
   }
 }
 
-function setupAggressiveSafeMonitoring() {
-  console.log('[KaiSign-Safe] 🚨 Setting up AGGRESSIVE Safe monitoring...');
-  
-  // Monitor EVERY possible way Safe could trigger signatures
-  const aggressiveInterval = setInterval(() => {
-    const pageText = document.body.innerText || '';
-    
-    // Your specific transaction signature
-    if (pageText.includes('Primary type: SafeTx') && 
-        pageText.includes('0x9641d764fc13c8B624c04430C7356C1C7C8102e2')) {
-      
-      console.log('[KaiSign-Safe] 🎯🎯🎯 YOUR EXACT TRANSACTION DETECTED! 🎯🎯🎯');
-      
-      // Force trigger the popup
-      forceShowSafePopup(pageText);
-      
-      // Clear interval - we found it!
-      clearInterval(aggressiveInterval);
-    }
-  }, 250); // Check every 250ms
-  
-  // Clear after 1 minute
-  setTimeout(() => {
-    clearInterval(aggressiveInterval);
-    console.log('[KaiSign-Safe] 🕐 Aggressive monitoring timeout');
-  }, 60000);
-}
 
-function forceShowSafePopup(pageText) {
-  console.log('[KaiSign-Safe] 🚨 FORCE SHOWING SAFE POPUP!');
-  
-  // Extract your exact transaction data
-  const safeTx = {
-    to: '0x9641d764fc13c8B624c04430C7356C1C7C8102e2',
-    value: '0',
-    data: '0x8d80ff0a0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000019200a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044095ea7b3000000000000000000000000c92e8bdf79f0507f65a392b0ab4667716bfe0110ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff009008d19f58aabd9ed0d60971565aa8510560ab41000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a4ec6cb13f0000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000383b83566c024afaa1e9bec6901ae654c1178ad0fee1532b60d75a6edf44cf7d78a10235ea549daa39a108bc26d63bd8daa68e4a2269330e3200000000000000000000000000000000000000000000',
-    operation: 1,
-    nonce: 0
-  };
-  
-  // Create Safe typed data
-  const typedData = {
-    types: {
-      SafeTx: [
-        { name: 'to', type: 'address' },
-        { name: 'value', type: 'uint256' },
-        { name: 'data', type: 'bytes' },
-        { name: 'operation', type: 'uint8' },
-        { name: 'safeTxGas', type: 'uint256' },
-        { name: 'baseGas', type: 'uint256' },
-        { name: 'gasPrice', type: 'uint256' },
-        { name: 'gasToken', type: 'address' },
-        { name: 'refundReceiver', type: 'address' },
-        { name: 'nonce', type: 'uint256' }
-      ]
-    },
-    domain: {
-      verifyingContract: '0xA1023ea549dAA39a108bC26d63bd8daA68E4a226',
-      chainId: 1,
-      name: 'Safe',
-      version: '1.3.0'
-    },
-    message: {
-      ...safeTx,
-      safeTxGas: 0,
-      baseGas: 0,
-      gasPrice: 0,
-      gasToken: '0x0000000000000000000000000000000000000000',
-      refundReceiver: '0x0000000000000000000000000000000000000000'
-    }
-  };
-  
-  console.log('[KaiSign-Safe] 🎯 TRIGGERING FORCED SAFE SIGNATURE!');
-  
-  // Show Safe signature notification
-  showSafeSignatureNotification(safeTx, {
-    safeAddress: '0xA1023ea549dAA39a108bC26d63bd8daA68E4a226',
-    operationType: 'DELEGATECALL',
-    safeName: 'Safe Wallet',
-    safeVersion: '1.3.0'
-  }, 'Your Address', 'Safe Wallet');
-  
-  // Also trigger regular transaction processing
-  getIntentAndShow(safeTx, 'Safe Multisig Transaction', 'Safe Wallet', { 
-    isSafeSignature: true,
-    forcedTrigger: true 
-  });
-}
 
