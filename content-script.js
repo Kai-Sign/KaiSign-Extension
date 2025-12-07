@@ -64,17 +64,8 @@ const UNIVERSAL_ROUTER_ABI = [
   }
 ];
 
-// Known token addresses and symbols (from ERC7730 metadata approach)
-const TOKEN_REGISTRY = {
-  '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': { symbol: 'USDC', decimals: 6, name: 'USD Coin' },
-  '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': { symbol: 'WETH', decimals: 18, name: 'Wrapped Ether' },
-  '0x6b175474e89094c44da98b954eedeac495271d0f': { symbol: 'DAI', decimals: 18, name: 'Dai Stablecoin' },
-  '0xdac17f958d2ee523a2206206994597c13d831ec7': { symbol: 'USDT', decimals: 6, name: 'Tether USD' },
-  '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': { symbol: 'WBTC', decimals: 8, name: 'Wrapped BTC' },
-  '0x514910771af9ca656af840dff83e8264ecf986ca': { symbol: 'LINK', decimals: 18, name: 'Chainlink Token' },
-  '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984': { symbol: 'UNI', decimals: 18, name: 'Uniswap' },
-  '0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0': { symbol: 'MATIC', decimals: 18, name: 'Polygon' }
-};
+// Token lookups now use registryLoader (loaded from local-metadata/registry/tokens.json)
+// See registry-loader.js for implementation
 
 /**
  * Parse Universal Router transaction using ethers.js ABI decoding
@@ -285,61 +276,40 @@ function parseSafeMultiSendTransaction(txData) {
 
 /**
  * Get intent for individual Safe operation
+ * Uses registry loader for selector lookups (no hardcoded values)
  */
 function getSafeOperationIntent(operation) {
   if (!operation.selector || operation.selector === '0x') return null;
-  
-  const commonSelectors = {
-    '0x095ea7b3': 'Approve',
-    '0xa9059cbb': 'Transfer', 
-    '0x23b872dd': 'Transfer From',
-    '0xd0e30db0': 'Deposit',
-    '0x2e1d4d': 'Withdraw',
-    '0x6a761202': 'Execute Transaction',
-    '0xec6cb13f': 'Execute'
-  };
-  
-  const intent = commonSelectors[operation.selector];
-  if (intent) {
+
+  // Use registry loader for selector lookup
+  const selectorInfo = window.registryLoader?.getSelectorInfo(operation.selector);
+
+  if (selectorInfo) {
+    const intent = selectorInfo.intent;
     // Try to identify token for approval/transfer operations
-    if (operation.selector === '0x095ea7b3' || operation.selector === '0xa9059cbb') {
+    if (selectorInfo.category === 'approval' || selectorInfo.category === 'transfer') {
       const token = getTokenSymbol(operation.to) || 'Token';
       return `${intent} ${token}`;
     }
     return intent;
   }
-  
-  return `Contract Call`;
+
+  return 'Contract Call';
 }
 
 /**
- * Get Universal Router command name from command byte
+ * Get Universal Router command info from command byte
+ * Uses registry loader for command lookups (no hardcoded values)
  */
-// Simple Universal Router command mapping for clear intents
 function getUniversalRouterCommandInfo(commandByte) {
-  const commands = {
-    0x00: { name: 'V3_SWAP_EXACT_IN', intent: 'Swap', category: 'swap', action: 'swap' },
-    0x01: { name: 'V3_SWAP_EXACT_OUT', intent: 'Swap', category: 'swap', action: 'swap' }, 
-    0x02: { name: 'PERMIT2_TRANSFER_FROM', intent: 'Transfer', category: 'transfer', action: 'transfer' },
-    0x03: { name: 'PERMIT2_PERMIT_BATCH', intent: 'Permit', category: 'permit', action: 'permit' },
-    0x04: { name: 'SWEEP', intent: 'Sweep', category: 'cleanup', action: 'sweep' },
-    0x05: { name: 'TRANSFER', intent: 'Transfer', category: 'transfer', action: 'transfer' },
-    0x06: { name: 'PAY_PORTION', intent: 'Pay', category: 'payment', action: 'pay' },
-    0x08: { name: 'V2_SWAP_EXACT_IN', intent: 'Swap', category: 'swap', action: 'swap' },
-    0x09: { name: 'V2_SWAP_EXACT_OUT', intent: 'Swap', category: 'swap', action: 'swap' },
-    0x0a: { name: 'PERMIT2_PERMIT', intent: 'Permit', category: 'permit', action: 'permit' },
-    0x0b: { name: 'WRAP_ETH', intent: 'Wrap ETH', category: 'wrap', action: 'wrap' },
-    0x0c: { name: 'UNWRAP_WETH', intent: 'Unwrap WETH', category: 'unwrap', action: 'unwrap' },
-    0x0d: { name: 'PERMIT2_TRANSFER_FROM_BATCH', intent: 'Transfer', category: 'transfer', action: 'transfer' },
-    0x0e: { name: 'BALANCE_CHECK_ERC20', intent: 'Check Balance', category: 'query', action: 'check' },
-    0x10: { name: 'SEAPORT', intent: 'Marketplace', category: 'marketplace', action: 'trade' },
-    0x11: { name: 'LOOKS_RARE_V2', intent: 'Marketplace', category: 'marketplace', action: 'trade' },
-    0x12: { name: 'NFTX', intent: 'Vault', category: 'vault', action: 'vault' },
-    0x13: { name: 'CRYPTOPUNKS', intent: 'Marketplace', category: 'marketplace', action: 'trade' }
-  };
-  
-  return commands[commandByte] || { 
-    name: `UNKNOWN_CMD_0x${commandByte.toString(16).padStart(2, '0')}`, 
+  // Use registry loader for command lookup
+  if (window.registryLoader) {
+    return window.registryLoader.getCommandInfo(commandByte);
+  }
+
+  // Fallback for when registry isn't loaded yet
+  return {
+    name: `UNKNOWN_CMD_0x${commandByte.toString(16).padStart(2, '0')}`,
     intent: 'Unknown',
     category: 'unknown',
     action: 'unknown'
@@ -352,18 +322,18 @@ function getUniversalRouterCommandName(commandByte) {
 }
 
 /**
- * Enhanced token address resolution using TOKEN_REGISTRY
+ * Enhanced token address resolution using registry loader
+ * No hardcoded values - uses local-metadata/registry/tokens.json
  */
 function resolveTokenSymbol(address) {
   if (!address) return null;
-  
-  const normalizedAddress = address.toLowerCase();
-  const token = TOKEN_REGISTRY[normalizedAddress];
-  
-  if (token) {
-    return token.symbol;
+
+  // Use registry loader for token lookup
+  if (window.registryLoader) {
+    const info = window.registryLoader.getTokenInfo(address);
+    return info?.symbol || null;
   }
-  
+
   return null;
 }
 
@@ -398,10 +368,12 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
           }
         }
         
-        // Enhanced token search in raw hex data
-        const knownTokenAddresses = Object.keys(TOKEN_REGISTRY);
+        // Enhanced token search in raw hex data using registry loader
+        const knownTokenAddresses = window.registryLoader?.tokenRegistry?.tokens
+          ? Object.keys(window.registryLoader.tokenRegistry.tokens)
+          : [];
         const foundTokens = [];
-        
+
         for (const tokenAddr of knownTokenAddresses) {
           const searchAddr = tokenAddr.slice(2).toLowerCase(); // Remove 0x
           if (data.toLowerCase().includes(searchAddr)) {
@@ -455,8 +427,10 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
           }
         }
         
-        // Also search for known tokens in the hex data for cleanup commands
-        const cleanupTokenAddresses = Object.keys(TOKEN_REGISTRY);
+        // Also search for known tokens in the hex data for cleanup commands (using registry)
+        const cleanupTokenAddresses = window.registryLoader?.tokenRegistry?.tokens
+          ? Object.keys(window.registryLoader.tokenRegistry.tokens)
+          : [];
         const foundCleanupTokens = [];
         
         for (const tokenAddr of cleanupTokenAddresses) {
@@ -581,19 +555,15 @@ function parseUniversalRouterInputData(commandInfo, inputData) {
         break;
     }
     
-    // Direct search for known token addresses in the hex data
-    const knownTokens = {
-      'a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC',
-      'c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 'WETH',
-      '6b175474e89094c44da98b954eedeac495271d0f': 'DAI'
-    };
-    
+    // Direct search for known token addresses in the hex data (using registry)
+    const registryTokens = window.registryLoader?.tokenRegistry?.tokens || {};
     const foundTokens = [];
     const lowerData = data.toLowerCase();
-    
-    for (const [tokenAddr, symbol] of Object.entries(knownTokens)) {
+
+    for (const [fullAddr, tokenInfo] of Object.entries(registryTokens)) {
+      const tokenAddr = fullAddr.slice(2).toLowerCase(); // Remove 0x prefix
       if (lowerData.includes(tokenAddr)) {
-        foundTokens.push({ address: '0x' + tokenAddr, symbol });
+        foundTokens.push({ address: fullAddr, symbol: tokenInfo.symbol });
       }
     }
     
@@ -635,64 +605,68 @@ function parseUniversalRouterInputData(commandInfo, inputData) {
   }
 }
 
-// Token metadata for common tokens
-const TOKEN_METADATA = {
-  '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC',
-  '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 'WETH', 
-  '0x6b175474e89094c44da98b954eedeac495271d0f': 'DAI',
-  '0xdac17f958d2ee523a2206206994597c13d831ec7': 'USDT',
-  '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 'WBTC',
-  '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984': 'UNI',
-  '0x514910771af9ca656af840dff83e8264ecf986ca': 'LINK',
-  '0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9': 'AAVE',
-  '0x0000000000000000000000000000000000000000': 'ETH'
-};
+// Token metadata now loaded from registry (see registry-loader.js)
+// Uses local-metadata/registry/tokens.json
 
 /**
  * Get token symbol from address
+ * Uses registry loader for lookups (no hardcoded values)
  */
 function getTokenSymbol(address) {
   if (!address) return 'TOKEN';
-  const normalized = address.toLowerCase();
-  return TOKEN_METADATA[normalized] || address.slice(0, 6) + '...';
+
+  // Use registry loader for token lookup
+  if (window.registryLoader) {
+    return window.registryLoader.getTokenSymbol(address);
+  }
+
+  // Fallback if registry not loaded
+  return address.slice(0, 6) + '...';
 }
 
 /**
  * Format command description with parsed parameters and token names
+ * Uses registry loader for intent templates (no hardcoded strings)
  */
 function formatCommandDescription(commandInfo, parsedParams, transactionValue) {
   if (!parsedParams) {
     // For WRAP_ETH and UNWRAP_WETH, use transaction value
     if (commandInfo.action === 'wrap' && transactionValue) {
-      return `Wrap ${formatEther(transactionValue)} ETH to WETH`;
+      const params = { amount: formatEther(transactionValue), category: 'wrap' };
+      return window.registryLoader?.formatIntent('wrap_eth', params) ||
+             `Wrap ${formatEther(transactionValue)} ETH to WETH`;
     }
     if (commandInfo.action === 'unwrap') {
-      return `Unwrap WETH to ETH`;
+      return window.registryLoader?.formatIntent('unwrap_weth', { category: 'unwrap' }) ||
+             'Unwrap WETH to ETH';
     }
     return commandInfo.intent;
   }
-  
+
   switch (parsedParams.type) {
     case 'transfer':
       const fromToken = getTokenSymbol(parsedParams.token);
       const recipient = parsedParams.recipient ? parsedParams.recipient.slice(0, 6) + '...' : 'recipient';
-      return `Transfer ${fromToken} to ${recipient}`;
-      
+      return window.registryLoader?.formatIntent('transfer_to_recipient', { token: fromToken, recipient, category: 'transfer' }) ||
+             `Transfer ${fromToken} to ${recipient}`;
+
     case 'swap':
       const token0 = getTokenSymbol(parsedParams.token0);
       const token1 = getTokenSymbol(parsedParams.token1);
-      return `Swap ${token0} to ${token1}`;
-      
+      return window.registryLoader?.formatIntent('swap_with_tokens', { fromToken: token0, toToken: token1, category: 'swap' }) ||
+             `Swap ${token0} to ${token1}`;
+
     case 'marketplace':
-      return `${parsedParams.marketplace} Trade`;
-      
+      return window.registryLoader?.formatIntent('marketplace_trade', { marketplace: parsedParams.marketplace, category: 'marketplace' }) ||
+             `${parsedParams.marketplace} Trade`;
+
     case 'generic':
       if (parsedParams.addresses.length > 0) {
         const firstToken = getTokenSymbol(parsedParams.addresses[0]);
         return `${commandInfo.intent} ${firstToken}`;
       }
       return commandInfo.intent;
-      
+
     default:
       return commandInfo.intent;
   }
@@ -834,17 +808,13 @@ function getMainTransactionIntent(calls, transactionValue) {
       }
     }
     
-    // Search for known token addresses in the raw transaction
-    const tokenSearchMap = {
-      'a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC',
-      'c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 'WETH',
-      '6b175474e89094c44da98b954eedeac495271d0f': 'DAI',
-      'dac17f958d2ee523a2206206994597c13d831ec7': 'USDT',
-      '2260fac5e5542a773aa44fbcfedf7c193bc2c599': 'WBTC'
-    };
-    
-    for (const [tokenAddr, tokenSymbol] of Object.entries(tokenSearchMap)) {
+    // Search for known token addresses in the raw transaction (using registry)
+    const searchTokens = window.registryLoader?.tokenRegistry?.tokens || {};
+
+    for (const [fullAddr, tokenInfo] of Object.entries(searchTokens)) {
+      const tokenAddr = fullAddr.slice(2).toLowerCase(); // Remove 0x prefix
       if (rawTx.toLowerCase().includes(tokenAddr)) {
+        const tokenSymbol = tokenInfo.symbol;
         if (hasMarketplace && !hasWrapEth && !hasUnwrapWeth) {
           // Direct marketplace trade
           toToken = tokenSymbol;
@@ -877,21 +847,16 @@ function getMainTransactionIntent(calls, transactionValue) {
 }
 
 /**
- * Get function name from selector (basic mapping for common functions)
+ * Get function name from selector
+ * Uses registry loader for lookups (no hardcoded values)
  */
 function getFunctionNameFromSelector(selector) {
-  const commonFunctions = {
-    '0xa9059cbb': 'transfer(address,uint256)',
-    '0x23b872dd': 'transferFrom(address,address,uint256)',
-    '0x095ea7b3': 'approve(address,uint256)',
-    '0x70a08231': 'balanceOf(address)',
-    '0x414bf389': 'exactInputSingle((address,address,uint24,uint160,address,uint256,uint256,uint160))',
-    '0x38ed1739': 'swapExactTokensForTokens(uint256,uint256,address[],address,uint256)',
-    '0xd0e30db0': 'deposit()',
-    '0x2e1a7d4d': 'withdraw(uint256)',
-    '0x01e1d114': 'sweepToken(address,uint256,address)'
-  };
-  return commonFunctions[selector] || 'unknown';
+  // Use registry loader for selector lookup
+  if (window.registryLoader) {
+    return window.registryLoader.getFunctionName(selector);
+  }
+
+  return 'unknown';
 }
 
 // Wallet detection and hooking
