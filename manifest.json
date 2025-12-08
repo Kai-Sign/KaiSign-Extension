@@ -25,6 +25,12 @@
       "js": ["registry-loader.js", "metadata.js", "decode.js", "advanced-decoder.js", "content-script.js"],
       "run_at": "document_end",
       "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["bridge-script.js"],
+      "run_at": "document_end",
+      "world": "ISOLATED"
     }
   ],
   "web_accessible_resources": [
