@@ -1,3 +1,123 @@
+// =============================================================================
+// KAISIGN CONTENT SCRIPT - TRANSACTION ANALYSIS & CLEAR SIGNING
+// =============================================================================
+
+// Inject complete embedded styles (MAIN world cannot load external CSS files)
+(function injectStyles() {
+  if (document.getElementById('kaisign-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'kaisign-styles';
+  style.textContent = `
+    /* KaiSign Complete Embedded Styles - Minimalist Dark Theme */
+    .kaisign-popup { position: fixed; top: 20px; right: 20px; width: 420px; max-height: 85vh; overflow-y: auto; background: #161b22; color: #e6edf3; padding: 0; border-radius: 12px; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.5; box-shadow: 0 16px 48px rgba(0,0,0,0.5); border: 1px solid #30363d; }
+    .kaisign-popup * { box-sizing: border-box; }
+    .kaisign-popup-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid #30363d; background: #0d1117; border-radius: 12px 12px 0 0; }
+    .kaisign-popup-logo { display: flex; align-items: center; gap: 10px; }
+    .kaisign-popup-logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #58a6ff, #a371f7); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 10px; color: white; }
+    .kaisign-popup-title { font-size: 14px; font-weight: 600; color: #e6edf3; }
+    .kaisign-popup-subtitle { font-size: 11px; color: #8b949e; }
+    .kaisign-close-btn { width: 28px; height: 28px; background: transparent; border: 1px solid #30363d; border-radius: 6px; color: #8b949e; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
+    .kaisign-close-btn:hover { background: #f85149; border-color: #f85149; color: white; }
+    .kaisign-warning { padding: 10px 16px; background: rgba(248, 81, 73, 0.1); border-bottom: 1px solid #30363d; font-size: 11px; color: #f85149; text-align: center; }
+    .kaisign-intent-section { padding: 16px; background: #21262d; border-bottom: 1px solid #30363d; }
+    .kaisign-intent { font-size: 16px; font-weight: 600; color: #3fb950; margin-bottom: 12px; }
+    .kaisign-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .kaisign-detail-item { font-size: 12px; }
+    .kaisign-detail-label { color: #ffd700; font-weight: 500; }
+    .kaisign-detail-value { color: #e6edf3; word-break: break-all; font-family: 'SF Mono', Consolas, monospace; }
+    .kaisign-popup-content { padding: 16px; }
+    .kaisign-section { margin-bottom: 16px; padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #58a6ff; }
+    .kaisign-section.success { border-left-color: #3fb950; }
+    .kaisign-section.error { border-left-color: #f85149; }
+    .kaisign-section.purple { border-left-color: #a371f7; }
+    .kaisign-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .kaisign-section-title { font-size: 12px; font-weight: 600; color: #58a6ff; display: flex; align-items: center; gap: 6px; }
+    .kaisign-section-title.green { color: #3fb950; }
+    .kaisign-section-title.red { color: #f85149; }
+    .kaisign-section-title.purple { color: #a371f7; }
+    .kaisign-copy-btn { padding: 4px 8px; background: #58a6ff; color: white; border: none; border-radius: 4px; font-size: 10px; cursor: pointer; transition: all 0.2s ease; }
+    .kaisign-copy-btn:hover { background: #4c8ed9; }
+    .kaisign-copy-btn.copied { background: #3fb950; }
+    .kaisign-bytecode { background: #0d1117; padding: 8px; border-radius: 4px; word-break: break-all; max-height: 100px; overflow-y: auto; font-family: 'SF Mono', Consolas, monospace; font-size: 10px; color: #8b949e; border: 1px solid #30363d; }
+    .kaisign-bytecode-info { margin-top: 8px; font-size: 10px; color: #6e7681; }
+    .kaisign-tree { background: #0d1117; padding: 12px; border-radius: 6px; margin-top: 8px; }
+    .kaisign-tree-header { font-size: 11px; font-weight: 600; color: #3fb950; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #30363d; }
+    .kaisign-tree-item { margin: 6px 0; padding: 8px; background: #161b22; border-radius: 4px; border-left: 3px solid #ffd700; }
+    .kaisign-tree-item.level-1 { border-left-color: #ffd700; }
+    .kaisign-tree-item.level-2 { border-left-color: #f85149; margin-left: 16px; }
+    .kaisign-tree-item.level-3 { border-left-color: #4ecdc4; margin-left: 32px; }
+    .kaisign-tree-item.level-4 { border-left-color: #45b7d1; margin-left: 48px; }
+    .kaisign-tree-item.level-5 { border-left-color: #96ceb4; margin-left: 64px; }
+    .kaisign-tree-selector { font-family: 'SF Mono', Consolas, monospace; font-weight: 600; color: #ffd700; }
+    .kaisign-tree-level { font-size: 9px; color: #6e7681; margin-left: 8px; }
+    .kaisign-tree-details { margin-top: 4px; font-size: 10px; color: #8b949e; }
+    .kaisign-tree-target { color: #58a6ff; }
+    .kaisign-tree-function { color: #3fb950; margin-left: 8px; }
+    .kaisign-tree-intent { color: #ffd700; font-weight: 500; }
+    .kaisign-tree-bytecode { margin-top: 6px; }
+    .kaisign-tree-bytecode-label { font-size: 9px; font-weight: 600; color: #a371f7; margin-bottom: 4px; }
+    .kaisign-tree-bytecode-value { background: #0d1117; padding: 6px; border-radius: 3px; word-break: break-all; max-height: 50px; overflow-y: auto; font-size: 8px; color: #8b949e; font-family: 'SF Mono', Consolas, monospace; }
+    .kaisign-tree-footer { margin-top: 8px; padding-top: 8px; border-top: 1px solid #30363d; font-size: 9px; color: #3fb950; text-align: center; }
+    .kaisign-decode-result { font-size: 11px; }
+    .kaisign-decode-success { color: #3fb950; margin-bottom: 4px; }
+    .kaisign-decode-error { color: #f85149; }
+    .kaisign-decode-detail { color: #8b949e; margin: 2px 0; }
+    .kaisign-action-bar { display: flex; gap: 8px; padding: 16px; border-top: 1px solid #30363d; background: #0d1117; border-radius: 0 0 12px 12px; }
+    .kaisign-btn { flex: 1; padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 6px; border: none; }
+    .kaisign-btn-primary { background: #58a6ff; color: white; }
+    .kaisign-btn-primary:hover { background: #4c8ed9; }
+    .kaisign-btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+    .kaisign-btn-secondary:hover { background: #30363d; }
+    .kaisign-btn-purple { background: #a371f7; color: white; }
+    .kaisign-btn-purple:hover { background: #8b5cf6; }
+    /* Modal styles */
+    .kaisign-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90vw; max-width: 800px; max-height: 85vh; overflow-y: auto; background: #161b22; color: #e6edf3; padding: 0; border-radius: 12px; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.5; box-shadow: 0 16px 48px rgba(0,0,0,0.6); border: 1px solid #30363d; }
+    .kaisign-modal * { box-sizing: border-box; }
+    .kaisign-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #30363d; background: #0d1117; border-radius: 12px 12px 0 0; }
+    .kaisign-modal-title { font-size: 16px; font-weight: 600; color: #58a6ff; }
+    .kaisign-modal-actions { display: flex; gap: 8px; }
+    .kaisign-modal-content { padding: 16px 20px; }
+    .kaisign-history-item { margin-bottom: 12px; padding: 14px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d; }
+    .kaisign-history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .kaisign-history-intent { font-weight: 500; color: #3fb950; }
+    .kaisign-history-time { font-size: 10px; color: #6e7681; }
+    .kaisign-history-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; margin-bottom: 8px; }
+    .kaisign-history-detail { color: #8b949e; }
+    .kaisign-history-detail strong { color: #e6edf3; }
+    .kaisign-history-data { margin-top: 8px; }
+    .kaisign-history-data-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .kaisign-history-data-label { font-size: 10px; color: #ffd700; }
+    .kaisign-history-data-value { background: #161b22; padding: 6px; border-radius: 4px; word-break: break-all; max-height: 60px; overflow-y: auto; font-size: 9px; font-family: 'SF Mono', Consolas, monospace; color: #8b949e; }
+    .kaisign-modal-footer { padding: 16px 20px; border-top: 1px solid #30363d; text-align: center; background: #0d1117; border-radius: 0 0 12px 12px; }
+    /* Dashboard styles */
+    .kaisign-dashboard { position: fixed; top: 5%; left: 5%; width: 90vw; height: 90vh; overflow-y: auto; background: #0d1117; color: #e6edf3; padding: 0; border-radius: 12px; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.5; box-shadow: 0 16px 48px rgba(0,0,0,0.7); border: 1px solid #30363d; }
+    .kaisign-dashboard * { box-sizing: border-box; }
+    .kaisign-dashboard-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid #30363d; background: #161b22; position: sticky; top: 0; z-index: 10; }
+    .kaisign-dashboard-title { font-size: 18px; font-weight: 600; color: #58a6ff; }
+    .kaisign-dashboard-content { padding: 24px; }
+    .kaisign-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .kaisign-stat-card { background: #161b22; padding: 16px; border-radius: 8px; border: 1px solid #30363d; }
+    .kaisign-stat-value { font-size: 28px; font-weight: 600; color: #e6edf3; font-family: 'SF Mono', Consolas, monospace; }
+    .kaisign-stat-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    .kaisign-category { margin-bottom: 24px; }
+    .kaisign-category-title { font-size: 14px; font-weight: 600; color: #e6edf3; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #30363d; }
+    .kaisign-method-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+    .kaisign-method-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #161b22; border-radius: 6px; border: 1px solid #30363d; font-size: 11px; }
+    .kaisign-method-name { font-family: 'SF Mono', Consolas, monospace; color: #e6edf3; }
+    .kaisign-method-count { background: #21262d; padding: 2px 8px; border-radius: 10px; font-size: 10px; color: #58a6ff; }
+    .kaisign-security-alert { padding: 12px; background: rgba(248, 81, 73, 0.1); border: 1px solid #f85149; border-radius: 6px; margin-bottom: 8px; }
+    .kaisign-security-alert-title { font-weight: 600; color: #f85149; margin-bottom: 4px; }
+    .kaisign-security-alert-desc { font-size: 11px; color: #8b949e; }
+    .kaisign-empty { text-align: center; padding: 40px; color: #6e7681; }
+    /* Scrollbar styling */
+    .kaisign-popup::-webkit-scrollbar, .kaisign-modal::-webkit-scrollbar, .kaisign-dashboard::-webkit-scrollbar { width: 6px; }
+    .kaisign-popup::-webkit-scrollbar-track, .kaisign-modal::-webkit-scrollbar-track, .kaisign-dashboard::-webkit-scrollbar-track { background: transparent; }
+    .kaisign-popup::-webkit-scrollbar-thumb, .kaisign-modal::-webkit-scrollbar-thumb, .kaisign-dashboard::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+    .kaisign-popup::-webkit-scrollbar-thumb:hover, .kaisign-modal::-webkit-scrollbar-thumb:hover, .kaisign-dashboard::-webkit-scrollbar-thumb:hover { background: #484f58; }
+  `;
+  document.head.appendChild(style);
+  console.log('[KaiSign] Embedded styles injected');
+})();
 
 // =============================================================================
 // UNIVERSAL ROUTER TRANSACTION PARSER (ETHERS.JS APPROACH)
@@ -2428,21 +2548,21 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
 // Show enhanced transaction info with complete bytecode data
 async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wallet', decodedResult = null, extractedBytecodes = []) {
-  console.log('[KaiSign] 🎯 showEnhancedTransactionInfo called:', { method, intent, walletName });
-  
+  console.log('[KaiSign] showEnhancedTransactionInfo called:', { method, intent, walletName });
+
   // Remove old popup if exists
   const old = document.getElementById('kaisign-popup');
   if (old) old.remove();
-  
+
   // Try to use advanced decoder for ANY transaction if available
   let realExtractedBytecodes = extractedBytecodes;
   let advancedDecodingResult = null;
-  
+
   if (tx.data && tx.data.length > 10 && window.AdvancedTransactionDecoder) {
     try {
       const decoder = new window.AdvancedTransactionDecoder();
       advancedDecodingResult = await decoder.decodeTransaction(tx, tx.to, 1);
-      
+
       if (advancedDecodingResult && advancedDecodingResult.extractedBytecodes) {
         realExtractedBytecodes = advancedDecodingResult.extractedBytecodes;
       }
@@ -2456,160 +2576,108 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       }
     }
   }
-  
-  // Create enhanced popup
+
+  // Create enhanced popup using CSS classes
   const popup = document.createElement('div');
   popup.id = 'kaisign-popup';
-  popup.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    width: 450px;
-    max-height: 80vh;
-    overflow-y: auto;
-    background: #2d3748;
-    color: white;
-    padding: 20px;
-    border-radius: 12px;
-    z-index: 999999;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-    box-shadow: 0 8px 25px rgba(0,0,0,0.4);
-    border: 2px solid #4a5568;
-  `;
-  
+  popup.className = 'kaisign-popup';
+
+  // Helper to escape HTML
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  // Helper to truncate address
+  const truncateAddress = (addr) => {
+    if (!addr || addr.length < 12) return addr || 'N/A';
+    return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+  };
+
   const bytecodeSection = tx.data ? `
-    <div style="margin: 12px 0; padding: 12px; background: #1a202c; border-radius: 6px; border-left: 4px solid #3182ce;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <strong style="color: #63b3ed;">📋 Complete Bytecode Data</strong>
-        <button onclick="copyToClipboard('${tx.data}', this)" style="
-          background: #3182ce;
-          color: white;
-          border: none;
-          padding: 4px 8px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 10px;
-        ">📋 Copy All</button>
+    <div class="kaisign-section">
+      <div class="kaisign-section-header">
+        <span class="kaisign-section-title">Complete Bytecode Data</span>
+        <button class="kaisign-copy-btn" onclick="copyToClipboard('${escapeHtml(tx.data)}', this)">Copy All</button>
       </div>
-      <div style="
-        background: #000;
-        padding: 8px;
-        border-radius: 4px;
-        word-break: break-all;
-        max-height: 120px;
-        overflow-y: auto;
-        border: 1px solid #4a5568;
-      ">
-        ${tx.data}
-      </div>
-      <div style="margin-top: 8px; color: #a0aec0; font-size: 10px;">
-        Length: ${tx.data.length} chars | Function: ${tx.data.slice(0, 10)}
+      <div class="kaisign-bytecode">${escapeHtml(tx.data)}</div>
+      <div class="kaisign-bytecode-info">
+        Length: ${tx.data.length} chars | Selector: ${tx.data.slice(0, 10)}
       </div>
     </div>
   ` : '';
-  
+
   const extractedSection = extractedBytecodes.length > 0 ? `
-    <div style="margin: 12px 0; padding: 12px; background: #1a202c; border-radius: 6px; border-left: 4px solid #9f7aea;">
-      <strong style="color: #b794f6;">🌳 Nested Bytecode Tree Structure (${extractedBytecodes.length})</strong>
-      <div style="margin-top: 12px; font-family: monospace; font-size: 10px;">
-        ${generateBytecodeTree(extractedBytecodes)}
+    <div class="kaisign-section purple">
+      <div class="kaisign-section-header">
+        <span class="kaisign-section-title purple">Nested Calls (${extractedBytecodes.length})</span>
       </div>
+      ${generateBytecodeTree(extractedBytecodes)}
     </div>
   ` : '';
-  
+
   const decodingSection = decodedResult ? `
-    <div style="margin: 12px 0; padding: 12px; background: #1a202c; border-radius: 6px; border-left: 4px solid ${decodedResult.success ? '#38a169' : '#e53e3e'};">
-      <strong style="color: ${decodedResult.success ? '#68d391' : '#fc8181'};">🔬 Decoding Result</strong>
-      <div style="margin-top: 8px; font-size: 10px;">
-        ${decodedResult.success ? 
-          `<div style="color: #68d391;">✅ Success</div>
-           <div>Function: ${decodedResult.functionName || 'Unknown'}</div>
-           <div>Selector: ${decodedResult.selector}</div>` :
-          `<div style="color: #fc8181;">❌ Failed: ${decodedResult.error}</div>`
+    <div class="kaisign-section ${decodedResult.success ? 'success' : 'error'}">
+      <div class="kaisign-section-header">
+        <span class="kaisign-section-title ${decodedResult.success ? 'green' : 'red'}">Decoding Result</span>
+      </div>
+      <div class="kaisign-decode-result">
+        ${decodedResult.success ?
+          `<div class="kaisign-decode-success">Success</div>
+           <div class="kaisign-decode-detail">Function: ${escapeHtml(decodedResult.functionName || 'Unknown')}</div>
+           <div class="kaisign-decode-detail">Selector: ${escapeHtml(decodedResult.selector)}</div>` :
+          `<div class="kaisign-decode-error">Failed: ${escapeHtml(decodedResult.error)}</div>`
         }
       </div>
     </div>
   ` : '';
-  
+
   popup.innerHTML = `
-    <div style="font-size: 11px; color: #ff6b6b; font-weight: bold; margin-bottom: 12px; text-align: center; border: 1px solid #ff6b6b; padding: 6px; border-radius: 6px;">
-      ⚠️ DEMONSTRATION VERSION - USE AT YOUR OWN RISK
+    <div class="kaisign-warning">
+      DEMONSTRATION VERSION - USE AT YOUR OWN RISK
     </div>
-    
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-      <div>
-        <div style="font-size: 16px; font-weight: bold; color: #63b3ed;">
-          🔍 KaiSign Transaction Analysis
+
+    <div class="kaisign-popup-header">
+      <div class="kaisign-popup-logo">
+        <span class="kaisign-popup-logo-icon">KS</span>
+        <div>
+          <div class="kaisign-popup-title">KaiSign Analysis</div>
+          <div class="kaisign-popup-subtitle">${escapeHtml(walletName)} | ${escapeHtml(method)}</div>
         </div>
-        <div style="font-size: 12px; color: #a0aec0;">
-          ${walletName} | ${method}
+      </div>
+      <button class="kaisign-close-btn" onclick="this.closest('.kaisign-popup').remove()">✕</button>
+    </div>
+
+    <div class="kaisign-intent-section">
+      <div class="kaisign-intent">${escapeHtml(intent || 'Analyzing transaction...')}</div>
+      <div class="kaisign-details-grid">
+        <div class="kaisign-detail-item">
+          <span class="kaisign-detail-label">To: </span>
+          <span class="kaisign-detail-value">${truncateAddress(tx.to)}</span>
+        </div>
+        <div class="kaisign-detail-item">
+          <span class="kaisign-detail-label">Value: </span>
+          <span class="kaisign-detail-value">${escapeHtml(tx.value || '0x0')}</span>
         </div>
       </div>
-      <button onclick="this.parentElement.parentElement.remove()" style="
-        background: #e53e3e;
-        color: white;
-        border: none;
-        padding: 6px 10px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 11px;
-      ">✕ Close</button>
     </div>
-    
-    <div style="background: #4a5568; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-      <div style="font-size: 18px; color: #68d391; margin-bottom: 8px; font-weight: bold;">
-        🎯 ${intent || 'Loading intent...'}
-      </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
-        <div><strong style="color: #ffd700;">To:</strong> <span style="word-break: break-all;">${tx.to || 'N/A'}</span></div>
-        <div><strong style="color: #ffd700;">Value:</strong> ${tx.value || '0x0'}</div>
-      </div>
+
+    <div class="kaisign-popup-content">
+      ${bytecodeSection}
+      ${extractedSection}
+      ${decodingSection}
     </div>
-    
-    ${bytecodeSection}
-    ${extractedSection}
-    ${decodingSection}
-    
-    <div style="margin-top: 15px; padding-top: 12px; border-top: 1px solid #4a5568;">
-      <button onclick="showTransactionHistory()" style="
-        background: #3182ce;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 11px;
-        margin-right: 10px;
-      ">📋 View History</button>
-      
-      <button onclick="exportTransactionData('${tx.data}', '${JSON.stringify({decodedResult, extractedBytecodes}).replace(/'/g, "\\'")}')
-      " style="
-        background: #38a169;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 11px;
-        margin-right: 10px;
-      ">💾 Export Data</button>
-      
-      <button onclick="showRpcDashboard()" style="
-        background: #9f7aea;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 11px;
-      ">📊 RPC Activity</button>
+
+    <div class="kaisign-action-bar">
+      <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
+      <button class="kaisign-btn kaisign-btn-secondary" onclick="exportTransactionData('${escapeHtml(tx.data)}', ${JSON.stringify(JSON.stringify({decodedResult, extractedBytecodes}))})">Export</button>
+      <button class="kaisign-btn kaisign-btn-purple" onclick="showRpcDashboard()">RPC Activity</button>
     </div>
   `;
-  
+
   document.body.appendChild(popup);
-  
-  // Auto-remove after 30 seconds (longer for enhanced popup)
+
+  // Auto-remove after 30 seconds
   setTimeout(() => {
     if (popup.parentNode) popup.remove();
   }, 30000);
@@ -2806,15 +2874,17 @@ window.generateBytecodeTree = function(bytecodes) {
 
 // Helper functions for enhanced popup
 window.copyToClipboard = function(text, button) {
-  navigator.clipboard.writeText(text).then(() => {
+  const showCopied = () => {
     const originalText = button.textContent;
-    button.textContent = '✅ Copied!';
-    button.style.background = '#38a169';
+    button.textContent = 'Copied!';
+    button.classList.add('copied');
     setTimeout(() => {
       button.textContent = originalText;
-      button.style.background = '#3182ce';
+      button.classList.remove('copied');
     }, 2000);
-  }).catch(err => {
+  };
+
+  navigator.clipboard.writeText(text).then(showCopied).catch(err => {
     console.error('[KaiSign] Copy failed:', err);
     // Fallback: create temporary textarea
     const textarea = document.createElement('textarea');
@@ -2823,115 +2893,75 @@ window.copyToClipboard = function(text, button) {
     textarea.select();
     document.execCommand('copy');
     document.body.removeChild(textarea);
-    
-    const originalText = button.textContent;
-    button.textContent = '✅ Copied!';
-    button.style.background = '#38a169';
-    setTimeout(() => {
-      button.textContent = originalText;
-      button.style.background = '#3182ce';
-    }, 2000);
+    showCopied();
   });
 };
 
 window.showTransactionHistory = function() {
+  // Get transactions from localStorage (fallback) and display
   const transactions = JSON.parse(localStorage.getItem('kaisign-transactions') || '[]');
-  
+
+  // Remove existing modal
+  const existing = document.getElementById('kaisign-history');
+  if (existing) existing.remove();
+
   const historyPopup = document.createElement('div');
   historyPopup.id = 'kaisign-history';
-  historyPopup.style.cssText = `
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 80vw;
-    max-width: 800px;
-    max-height: 80vh;
-    overflow-y: auto;
-    background: #2d3748;
-    color: white;
-    padding: 20px;
-    border-radius: 12px;
-    z-index: 1000000;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-    box-shadow: 0 8px 25px rgba(0,0,0,0.6);
-    border: 2px solid #4a5568;
-  `;
-  
+  historyPopup.className = 'kaisign-modal';
+
+  // Helper to escape HTML
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  // Helper to truncate address
+  const truncateAddress = (addr) => {
+    if (!addr || addr.length < 20) return addr || 'N/A';
+    return `${addr.slice(0, 10)}...${addr.slice(-8)}`;
+  };
+
   historyPopup.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-      <h2 style="margin: 0; color: #63b3ed;">📋 Transaction History (${transactions.length})</h2>
-      <div>
-        <button onclick="showRpcDashboard()" style="
-          background: #3182ce;
-          color: white;
-          border: none;
-          padding: 8px 12px;
-          border-radius: 6px;
-          cursor: pointer;
-          margin-right: 10px;
-          font-size: 11px;
-        ">📊 RPC Dashboard</button>
-        <button onclick="this.parentElement.parentElement.remove()" style="
-          background: #e53e3e;
-          color: white;
-          border: none;
-          padding: 8px 12px;
-          border-radius: 6px;
-          cursor: pointer;
-        ">✕ Close</button>
+    <div class="kaisign-modal-header">
+      <h2 class="kaisign-modal-title">Transaction History (${transactions.length})</h2>
+      <div class="kaisign-modal-actions">
+        <button class="kaisign-btn kaisign-btn-primary" onclick="showRpcDashboard(); this.closest('.kaisign-modal').remove();">RPC Dashboard</button>
+        <button class="kaisign-close-btn" onclick="this.closest('.kaisign-modal').remove()">✕</button>
       </div>
     </div>
-    
-    ${transactions.length === 0 ? 
-      '<div style="text-align: center; color: #a0aec0; padding: 40px;">No transactions recorded yet</div>' :
-      transactions.map((tx, i) => `
-        <div style="margin-bottom: 15px; padding: 15px; background: #1a202c; border-radius: 8px; border: 1px solid #4a5568;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <strong style="color: #68d391;">#${i + 1} ${tx.intent}</strong>
-            <span style="color: #a0aec0; font-size: 10px;">${new Date(tx.time).toLocaleString()}</span>
-          </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; font-size: 10px;">
-            <div><strong>Method:</strong> ${tx.method}</div>
-            <div><strong>To:</strong> ${tx.to?.slice(0, 20)}...</div>
-          </div>
-          ${tx.data ? `
-            <div style="margin-top: 8px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <span style="color: #ffd700; font-size: 10px;">Bytecode Data:</span>
-                <button onclick="copyToClipboard('${tx.data}', this)" style="
-                  background: #3182ce;
-                  color: white;
-                  border: none;
-                  padding: 2px 6px;
-                  border-radius: 3px;
-                  cursor: pointer;
-                  font-size: 9px;
-                ">Copy</button>
-              </div>
-              <div style="background: #000; padding: 6px; border-radius: 4px; word-break: break-all; max-height: 60px; overflow-y: auto; font-size: 9px;">
-                ${tx.data}
-              </div>
+
+    <div class="kaisign-modal-content">
+      ${transactions.length === 0 ?
+        '<div class="kaisign-empty">No transactions recorded yet</div>' :
+        transactions.map((tx, i) => `
+          <div class="kaisign-history-item">
+            <div class="kaisign-history-header">
+              <span class="kaisign-history-intent">#${i + 1} ${escapeHtml(tx.intent || 'Unknown')}</span>
+              <span class="kaisign-history-time">${tx.time ? new Date(tx.time).toLocaleString() : 'N/A'}</span>
             </div>
-          ` : ''}
-        </div>
-      `).join('')
-    }
-    
-    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #4a5568; text-align: center;">
-      <button onclick="localStorage.removeItem('kaisign-transactions'); this.parentElement.parentElement.remove(); alert('Transaction history cleared!');" style="
-        background: #e53e3e;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 11px;
-      ">🗑️ Clear History</button>
+            <div class="kaisign-history-details">
+              <div class="kaisign-history-detail"><strong>Method:</strong> ${escapeHtml(tx.method || 'N/A')}</div>
+              <div class="kaisign-history-detail"><strong>To:</strong> ${truncateAddress(tx.to)}</div>
+            </div>
+            ${tx.data ? `
+              <div class="kaisign-history-data">
+                <div class="kaisign-history-data-header">
+                  <span class="kaisign-history-data-label">Bytecode Data:</span>
+                  <button class="kaisign-copy-btn" onclick="copyToClipboard('${escapeHtml(tx.data)}', this)">Copy</button>
+                </div>
+                <div class="kaisign-history-data-value">${escapeHtml(tx.data)}</div>
+              </div>
+            ` : ''}
+          </div>
+        `).join('')
+      }
+    </div>
+
+    <div class="kaisign-modal-footer">
+      <button class="kaisign-btn kaisign-btn-secondary" onclick="localStorage.removeItem('kaisign-transactions'); this.closest('.kaisign-modal').remove(); alert('Transaction history cleared!');">Clear History</button>
     </div>
   `;
-  
+
   document.body.appendChild(historyPopup);
 };
 
@@ -2942,26 +2972,10 @@ window.showRpcDashboard = function() {
   // Remove existing dashboard
   const existing = document.getElementById('kaisign-rpc-dashboard');
   if (existing) existing.remove();
-  
+
   const dashboard = document.createElement('div');
   dashboard.id = 'kaisign-rpc-dashboard';
-  dashboard.style.cssText = `
-    position: fixed;
-    top: 5%;
-    left: 5%;
-    width: 90vw;
-    height: 90vh;
-    overflow-y: auto;
-    background: #1a202c;
-    color: white;
-    padding: 20px;
-    border-radius: 12px;
-    z-index: 1000001;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.7);
-    border: 2px solid #4a5568;
-  `;
+  dashboard.className = 'kaisign-dashboard';
   
   // Generate dashboard content
   const methodsCount = Object.keys(rpcActivity.methods).length;
