@@ -427,6 +427,35 @@ async function getSafeOperationIntent(operation) {
     if (selectorInfo.category === 'approval' || selectorInfo.category === 'transfer') {
       const token = getTokenSymbol(operation.to);
       console.log(`[KaiSign] Token lookup for ${operation.to}: ${token}`);
+
+      // Try to extract and format amount if available
+      if (operation.data && operation.data.length >= 74 && window.formatTokenAmount) {
+        try {
+          // Extract amount from data (second parameter after selector and address)
+          // For transfer(address,uint256): selector(10 chars) + address(64 chars) + amount(64 chars)
+          // For approve(address,uint256): same structure
+          const amountHex = '0x' + operation.data.slice(74, 138);
+
+          // LOG THE EXTRACTED AMOUNT
+          console.log(`[KaiSign] Extracted amount hex:`, amountHex);
+          console.log(`[KaiSign] Amount length:`, amountHex.length);
+          console.log(`[KaiSign] Full operation.data:`, operation.data);
+          console.log(`[KaiSign] operation.data.length:`, operation.data.length);
+
+          if (amountHex !== '0x0' && amountHex !== '0x' && amountHex.length > 3) {
+            const formattedAmount = window.formatTokenAmount(amountHex, operation.to, 1);
+            console.log(`[KaiSign] Formatted amount:`, formattedAmount);
+            return `${intent} ${formattedAmount}`;
+          } else {
+            console.log(`[KaiSign] Amount is zero or invalid, using token symbol only`);
+          }
+        } catch (amountError) {
+          console.error('[KaiSign] Error formatting amount in Safe operation:', amountError);
+        }
+      } else {
+        console.log(`[KaiSign] Skipping amount formatting - data length: ${operation.data?.length}, formatTokenAmount exists: ${!!window.formatTokenAmount}`);
+      }
+
       return `${intent} ${token}`;
     }
     return intent;
@@ -2503,6 +2532,30 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
       if (decoded.success) {
         intent = decoded.intent || 'Contract interaction';
         decodedResult = decoded;
+
+        // Enhance intent with formatted token amounts
+        if (decoded.params && window.formatTokenAmount) {
+          try {
+            // Look for amount/value parameters
+            for (const [key, value] of Object.entries(decoded.params)) {
+              const keyLower = key.toLowerCase();
+              if ((keyLower.includes('amount') || keyLower.includes('value')) && value && value !== '0x0') {
+                // Try to find token address from params or use contract address
+                const tokenAddress = decoded.params.token || decoded.params.asset || decoded.params.tokenAddress || tx.to;
+                if (tokenAddress) {
+                  const formattedAmount = window.formatTokenAmount(value, tokenAddress, chainId);
+                  // Append amount to intent if not already there
+                  if (!intent.includes(formattedAmount) && !intent.toLowerCase().includes('amount')) {
+                    intent = `${intent} (${formattedAmount})`;
+                  }
+                }
+                break; // Only format first amount found
+              }
+            }
+          } catch (amountError) {
+            console.error('[KaiSign] Error formatting amount in intent:', amountError);
+          }
+        }
       } else {
         intent = 'Contract interaction';
         decodedResult = decoded;
@@ -2517,8 +2570,13 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   } else {
     showEnhancedTransactionInfo(tx, method, intent, walletName, null, []);
   }
-  
-  // Save transaction with intent (store locally instead of using chrome.runtime)
+}
+
+// Show enhanced transaction info with complete bytecode data
+async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wallet', decodedResult = null, extractedBytecodes = []) {
+  console.log('[KaiSign] showEnhancedTransactionInfo called:', { method, intent, walletName });
+
+  // Save transaction via bridge script (MAIN → ISOLATED → background)
   try {
     const transactionData = {
       id: Date.now().toString(),
@@ -2531,24 +2589,17 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
       decodedResult: decodedResult,
       extractedBytecodes: extractedBytecodes
     };
-    
-    // Save to localStorage instead
-    const existingTxs = JSON.parse(localStorage.getItem('kaisign-transactions') || '[]');
-    existingTxs.unshift(transactionData); // Add to beginning
-    
-    // Keep only last 50 transactions
-    if (existingTxs.length > 50) {
-      existingTxs.splice(50);
-    }
-    
-    localStorage.setItem('kaisign-transactions', JSON.stringify(existingTxs));
-  } catch (error) {
-  }
-}
 
-// Show enhanced transaction info with complete bytecode data
-async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wallet', decodedResult = null, extractedBytecodes = []) {
-  console.log('[KaiSign] showEnhancedTransactionInfo called:', { method, intent, walletName });
+    // Send to ISOLATED world bridge script via postMessage
+    window.postMessage({
+      type: 'KAISIGN_SAVE_TX',
+      data: transactionData
+    }, '*');
+
+    console.log('[KaiSign] Transaction sent to bridge for saving');
+  } catch (error) {
+    console.error('[KaiSign] Error sending transaction to bridge:', error);
+  }
 
   // Remove old popup if exists
   const old = document.getElementById('kaisign-popup');
@@ -2822,7 +2873,7 @@ window.generateBytecodeTree = function(bytecodes) {
               ${bytecode.functionName ? `<span style="color: #68d391; margin-left: 8px;">🔧 ${bytecode.functionName}</span>` : ''}
               ${bytecode.intent ? `<br><span style="color: #ffd700; font-weight: bold; margin-left: ${depth * 16}px;">💡 ${bytecode.intent}</span>` : ''}
               ${bytecode.category ? `<span style="color: #9f7aea; margin-left: 8px;">📂 ${bytecode.category}</span>` : ''}
-              ${bytecode.value ? `<span style="color: #ffd700; margin-left: 8px;">💰 ${bytecode.value}</span>` : ''}
+              ${bytecode.value ? `<span style="color: #ffd700; margin-left: 8px;">💰 ${(bytecode.tokenAddress && window.formatTokenAmount) ? window.formatTokenAmount(bytecode.value, bytecode.tokenAddress, 1) : bytecode.value}</span>` : ''}
             </div>
             
             <!-- Bytecode Data with Copy Button -->
@@ -2898,71 +2949,73 @@ window.copyToClipboard = function(text, button) {
 };
 
 window.showTransactionHistory = function() {
-  // Get transactions from localStorage (fallback) and display
-  const transactions = JSON.parse(localStorage.getItem('kaisign-transactions') || '[]');
+  // Get transactions from chrome.storage via background.js
+  chrome.runtime.sendMessage({ type: 'GET_TRANSACTIONS' }, (response) => {
+    const transactions = response?.transactions || [];
 
-  // Remove existing modal
-  const existing = document.getElementById('kaisign-history');
-  if (existing) existing.remove();
+    // Remove existing modal
+    const existing = document.getElementById('kaisign-history');
+    if (existing) existing.remove();
 
-  const historyPopup = document.createElement('div');
-  historyPopup.id = 'kaisign-history';
-  historyPopup.className = 'kaisign-modal';
+    const historyPopup = document.createElement('div');
+    historyPopup.id = 'kaisign-history';
+    historyPopup.className = 'kaisign-modal';
 
-  // Helper to escape HTML
-  const escapeHtml = (str) => {
-    if (!str) return '';
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  };
+    // Helper to escape HTML
+    const escapeHtml = (str) => {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    };
 
-  // Helper to truncate address
-  const truncateAddress = (addr) => {
-    if (!addr || addr.length < 20) return addr || 'N/A';
-    return `${addr.slice(0, 10)}...${addr.slice(-8)}`;
-  };
+    // Helper to truncate address
+    const truncateAddress = (addr) => {
+      if (!addr || addr.length < 20) return addr || 'N/A';
+      return `${addr.slice(0, 10)}...${addr.slice(-8)}`;
+    };
 
-  historyPopup.innerHTML = `
-    <div class="kaisign-modal-header">
-      <h2 class="kaisign-modal-title">Transaction History (${transactions.length})</h2>
-      <div class="kaisign-modal-actions">
-        <button class="kaisign-btn kaisign-btn-primary" onclick="showRpcDashboard(); this.closest('.kaisign-modal').remove();">RPC Dashboard</button>
-        <button class="kaisign-close-btn" onclick="this.closest('.kaisign-modal').remove()">✕</button>
+    historyPopup.innerHTML = `
+      <div class="kaisign-modal-header">
+        <h2 class="kaisign-modal-title">Transaction History (${transactions.length})</h2>
+        <div class="kaisign-modal-actions">
+          <button class="kaisign-btn kaisign-btn-primary" onclick="showRpcDashboard(); this.closest('.kaisign-modal').remove();">RPC Dashboard</button>
+          <button class="kaisign-close-btn" onclick="this.closest('.kaisign-modal').remove()">✕</button>
+        </div>
       </div>
-    </div>
 
-    <div class="kaisign-modal-content">
-      ${transactions.length === 0 ?
-        '<div class="kaisign-empty">No transactions recorded yet</div>' :
-        transactions.map((tx, i) => `
-          <div class="kaisign-history-item">
-            <div class="kaisign-history-header">
-              <span class="kaisign-history-intent">#${i + 1} ${escapeHtml(tx.intent || 'Unknown')}</span>
-              <span class="kaisign-history-time">${tx.time ? new Date(tx.time).toLocaleString() : 'N/A'}</span>
-            </div>
-            <div class="kaisign-history-details">
-              <div class="kaisign-history-detail"><strong>Method:</strong> ${escapeHtml(tx.method || 'N/A')}</div>
-              <div class="kaisign-history-detail"><strong>To:</strong> ${truncateAddress(tx.to)}</div>
-            </div>
-            ${tx.data ? `
-              <div class="kaisign-history-data">
-                <div class="kaisign-history-data-header">
-                  <span class="kaisign-history-data-label">Bytecode Data:</span>
-                  <button class="kaisign-copy-btn" onclick="copyToClipboard('${escapeHtml(tx.data)}', this)">Copy</button>
-                </div>
-                <div class="kaisign-history-data-value">${escapeHtml(tx.data)}</div>
+      <div class="kaisign-modal-content">
+        ${transactions.length === 0 ?
+          '<div class="kaisign-empty">No transactions recorded yet</div>' :
+          transactions.map((tx, i) => `
+            <div class="kaisign-history-item">
+              <div class="kaisign-history-header">
+                <span class="kaisign-history-intent">#${i + 1} ${escapeHtml(tx.intent || 'Unknown')}</span>
+                <span class="kaisign-history-time">${tx.time ? new Date(tx.time).toLocaleString() : 'N/A'}</span>
               </div>
-            ` : ''}
-          </div>
-        `).join('')
-      }
-    </div>
+              <div class="kaisign-history-details">
+                <div class="kaisign-history-detail"><strong>Method:</strong> ${escapeHtml(tx.method || 'N/A')}</div>
+                <div class="kaisign-history-detail"><strong>To:</strong> ${truncateAddress(tx.to)}</div>
+              </div>
+              ${tx.data ? `
+                <div class="kaisign-history-data">
+                  <div class="kaisign-history-data-header">
+                    <span class="kaisign-history-data-label">Bytecode Data:</span>
+                    <button class="kaisign-copy-btn" onclick="copyToClipboard('${escapeHtml(tx.data)}', this)">Copy</button>
+                  </div>
+                  <div class="kaisign-history-data-value">${escapeHtml(tx.data)}</div>
+                </div>
+              ` : ''}
+            </div>
+          `).join('')
+        }
+      </div>
 
-    <div class="kaisign-modal-footer">
-      <button class="kaisign-btn kaisign-btn-secondary" onclick="localStorage.removeItem('kaisign-transactions'); this.closest('.kaisign-modal').remove(); alert('Transaction history cleared!');">Clear History</button>
-    </div>
-  `;
+      <div class="kaisign-modal-footer">
+        <button class="kaisign-btn kaisign-btn-secondary" onclick="chrome.runtime.sendMessage({ type: 'CLEAR_TRANSACTIONS' }, () => { this.closest('.kaisign-modal').remove(); alert('Transaction history cleared!'); });">Clear History</button>
+      </div>
+    `;
 
-  document.body.appendChild(historyPopup);
+    document.body.appendChild(historyPopup);
+  });
 };
 
 /**

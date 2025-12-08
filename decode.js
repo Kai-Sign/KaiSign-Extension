@@ -355,7 +355,62 @@ async function getContractMetadata(contractAddress, chainId) {
   return await window.metadataService.getContractMetadata(contractAddress, chainId);
 }
 
+/**
+ * Format token amount from wei to human-readable format
+ * @param {string|number} rawAmount - Amount in wei (hex or decimal)
+ * @param {string} tokenAddress - Token contract address
+ * @param {number} chainId - Chain ID
+ * @returns {string} - Formatted amount with symbol (e.g., "1.5 WETH")
+ */
+function formatTokenAmount(rawAmount, tokenAddress, chainId = 1) {
+  if (!rawAmount || rawAmount === '0x0' || rawAmount === '0') {
+    return '0';
+  }
+
+  try {
+    // Convert hex to decimal if needed
+    let amountBN;
+    if (typeof rawAmount === 'string' && rawAmount.startsWith('0x')) {
+      amountBN = BigInt(rawAmount);
+    } else if (typeof rawAmount === 'string') {
+      amountBN = BigInt(rawAmount);
+    } else {
+      amountBN = BigInt(rawAmount.toString());
+    }
+
+    // Get token info from registry
+    const registryLoader = window.RegistryLoader ? new window.RegistryLoader() : null;
+    let decimals = 18;
+    let symbol = 'TOKEN';
+
+    if (registryLoader) {
+      decimals = registryLoader.getTokenDecimals(tokenAddress, chainId) || 18;
+      symbol = registryLoader.getTokenSymbol(tokenAddress, chainId) || 'TOKEN';
+    }
+
+    // Convert wei to human-readable
+    const divisor = BigInt(10 ** decimals);
+    const wholePart = amountBN / divisor;
+    const fractionalPart = amountBN % divisor;
+
+    // Format with up to 6 decimal places
+    const fractionalStr = fractionalPart.toString().padStart(decimals, '0');
+    const trimmedFractional = fractionalStr.slice(0, 6).replace(/0+$/, '');
+
+    let formatted = wholePart.toString();
+    if (trimmedFractional) {
+      formatted += '.' + trimmedFractional;
+    }
+
+    return `${formatted} ${symbol}`;
+  } catch (error) {
+    console.error('[KaiSign] Error formatting token amount:', error);
+    return rawAmount.toString();
+  }
+}
+
 // Export globally
 window.decodeCalldata = decodeCalldata;
+window.formatTokenAmount = formatTokenAmount;
 
 console.log('[KaiSign] Dynamic decoder ready - NO HARDCODED METADATA');
