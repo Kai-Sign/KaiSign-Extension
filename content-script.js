@@ -313,8 +313,10 @@ async function parseUniversalRouterTransaction(txData, transactionValue = null) 
 /**
  * Parse Safe MultiSend transaction data
  * Format: multiSend(bytes transactions) where transactions contains multiple encoded operations
+ * @param {string} txData - The transaction data starting with 0x8d80ff0a
+ * @param {number} chainId - The chain ID for metadata lookups (default: 1)
  */
-async function parseSafeMultiSendTransaction(txData) {
+async function parseSafeMultiSendTransaction(txData, chainId = 1) {
   try {
 
     if (!txData || !txData.startsWith('0x8d80ff0a')) {
@@ -375,7 +377,7 @@ async function parseSafeMultiSendTransaction(txData) {
     const intents = [];
     for (const op of operations) {
       if (op.selector) {
-        const intent = await getSafeOperationIntent(op);
+        const intent = await getSafeOperationIntent(op, chainId);
         if (intent) intents.push(intent);
       }
     }
@@ -399,8 +401,9 @@ async function parseSafeMultiSendTransaction(txData) {
  * Uses registry loader for selector lookups (no hardcoded values)
  * Now async to ensure registry is loaded
  */
-async function getSafeOperationIntent(operation) {
+async function getSafeOperationIntent(operation, chainId = 1) {
   if (!operation.selector || operation.selector === '0x') return null;
+  const selector = operation.selector;
 
   // Ensure registry is loaded before lookup
   if (window.registryLoader && !window.registryLoader.loaded) {
@@ -461,7 +464,25 @@ async function getSafeOperationIntent(operation) {
     return intent;
   }
 
-  console.warn(`[KaiSign] No selector info found for ${operation.selector}, falling back to Contract Call`);
+  // No selector info found in registry - try metadata service as fallback
+  console.warn(`[KaiSign] No selector info found for ${selector}`);
+
+  // Fallback to metadata service via decodeCalldata
+  if (window.decodeCalldata && operation.to && operation.data) {
+    try {
+      console.log(`[KaiSign] Trying metadata service fallback for ${selector}`);
+      const decoded = await window.decodeCalldata(operation.data, operation.to, chainId);
+      console.log(`[KaiSign] Metadata decode result:`, decoded);
+
+      if (decoded.success && decoded.intent && decoded.intent !== 'Contract interaction' && decoded.intent !== 'Unknown function') {
+        console.log(`[KaiSign] Using metadata intent: ${decoded.intent}`);
+        return decoded.intent;
+      }
+    } catch (fallbackError) {
+      console.warn(`[KaiSign] Metadata fallback failed:`, fallbackError.message);
+    }
+  }
+
   return 'Contract Call';
 }
 
@@ -2471,8 +2492,11 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
       }
       
       if (multiSendData) {
+        // Determine chainId - use mainnet (1) as default for Safe transactions
+        const chainId = context?.chainId || 1;
+        console.log('[KaiSign] Calling parseSafeMultiSendTransaction with chainId:', chainId);
         console.log('[KaiSign] Calling parseSafeMultiSendTransaction with:', multiSendData.slice(0, 50) + '...');
-        const multiSendResult = await parseSafeMultiSendTransaction(multiSendData);
+        const multiSendResult = await parseSafeMultiSendTransaction(multiSendData, chainId);
         console.log('[KaiSign] parseSafeMultiSendTransaction result:', multiSendResult);
         
         if (multiSendResult) {
@@ -2494,7 +2518,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
             index: i + 1,
             target: op.to,
             functionName: `Operation ${i + 1}`,
-            intent: await getSafeOperationIntent(op),
+            intent: await getSafeOperationIntent(op, chainId),
             type: 'safe_operation',
             value: op.value !== '0x0' ? op.value : null
           })));
