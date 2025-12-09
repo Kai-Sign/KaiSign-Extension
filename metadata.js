@@ -19,6 +19,242 @@ const EMBEDDED_PERMIT2_METADATA = "ewogICIkc2NoZW1hIjogIi4uLy4uL2VyYzc3MzAtdjEuc
 // Embedded Universal Router metadata (base64 encoded) - with selector
 const EMBEDDED_UNIVERSAL_ROUTER_METADATA = "ewogICIkc2NoZW1hIjogIi4uLy4uL2VyYzc3MzAtdjEuc2NoZW1hLmpzb24iLAogICJjb250ZXh0IjogewogICAgImNvbnRyYWN0IjogewogICAgICAiYWJpIjogWwogICAgICAgIHsKICAgICAgICAgICJ0eXBlIjogImZ1bmN0aW9uIiwKICAgICAgICAgICJuYW1lIjogImV4ZWN1dGUiLAogICAgICAgICAgInNlbGVjdG9yIjogIjB4MzU5MzU2NGMiLAogICAgICAgICAgImlucHV0cyI6IFsKICAgICAgICAgICAgeyJuYW1lIjogImNvbW1hbmRzIiwgInR5cGUiOiAiYnl0ZXMifSwKICAgICAgICAgICAgeyJuYW1lIjogImlucHV0cyIsICJ0eXBlIjogImJ5dGVzW10ifSwKICAgICAgICAgICAgeyJuYW1lIjogImRlYWRsaW5lIiwgInR5cGUiOiAidWludDI1NiJ9CiAgICAgICAgICBdLAogICAgICAgICAgIm91dHB1dHMiOiBbXQogICAgICAgIH0KICAgICAgXQogICAgfQogIH0sCiAgImRpc3BsYXkiOiB7CiAgICAiZm9ybWF0cyI6IHsKICAgICAgImV4ZWN1dGUoYnl0ZXMsYnl0ZXNbXSx1aW50MjU2KSI6IHsKICAgICAgICAiaW50ZW50IjogewogICAgICAgICAgImZvcm1hdCI6IFsKICAgICAgICAgICAgewogICAgICAgICAgICAgICJ0eXBlIjogImNvbnRhaW5lciIsCiAgICAgICAgICAgICAgImZvcm1hdCI6ICJjYXJkIiwKICAgICAgICAgICAgICAiZmllbGRzIjogWwogICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAidHlwZSI6ICJ0ZXh0IiwKICAgICAgICAgICAgICAgICAgInZhbHVlIjogIkV4ZWN1dGUgdmlhIFVuaXZlcnNhbCBSb3V0ZXIiLAogICAgICAgICAgICAgICAgICAiZm9ybWF0IjogImhlYWRpbmcyIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgIF0KICAgICAgICAgICAgfQogICAgICAgICAgXQogICAgICAgIH0sCiAgICAgICAgImZpZWxkcyI6IFsKICAgICAgICAgIHsKICAgICAgICAgICAgInBhdGgiOiAiY29tbWFuZHMiLAogICAgICAgICAgICAibGFiZWwiOiAiQ29tbWFuZHMiLAogICAgICAgICAgICAiZm9ybWF0IjogInJhdyIKICAgICAgICAgIH0sCiAgICAgICAgICB7CiAgICAgICAgICAgICJwYXRoIjogImRlYWRsaW5lIiwKICAgICAgICAgICAgImxhYmVsIjogIkRlYWRsaW5lIiwKICAgICAgICAgICAgImZvcm1hdCI6ICJyYXciCiAgICAgICAgICB9CiAgICAgICAgXQogICAgICB9CiAgICB9CiAgfSwKICAibWV0YWRhdGEiOiB7CiAgICAib3duZXIiOiAiVW5pc3dhcCIsCiAgICAiaW5mbyI6IHsKICAgICAgInVybCI6ICJodHRwczovL2dpdGh1Yi5jb20vVW5pc3dhcC91bml2ZXJzYWwtcm91dGVyIiwKICAgICAgImxlZ2FsTmFtZSI6ICJVbml2ZXJzYWwgUm91dGVyIiwKICAgICAgImxhc3RVcGRhdGUiOiAiMjAyNS0wMS0wOSIKICAgIH0KICB9Cn0=";
 
+// Embedded Safe Singleton metadata (base64 encoded) - for execTransaction proxy detection
+const EMBEDDED_SAFE_SINGLETON_METADATA = "ewogICIkc2NoZW1hIjogIi4uLy4uL2VyYzc3MzAtdjEuc2NoZW1hLmpzb24iLAogICJjb250ZXh0IjogewogICAgImNvbnRyYWN0IjogewogICAgICAiYWJpIjogWwogICAgICAgIHsKICAgICAgICAgICJpbnB1dHMiOiBbCiAgICAgICAgICAgIHsibmFtZSI6ICJ0byIsICJ0eXBlIjogImFkZHJlc3MifSwKICAgICAgICAgICAgeyJuYW1lIjogInZhbHVlIiwgInR5cGUiOiAidWludDI1NiJ9LAogICAgICAgICAgICB7Im5hbWUiOiAiZGF0YSIsICJ0eXBlIjogImJ5dGVzIn0sCiAgICAgICAgICAgIHsibmFtZSI6ICJvcGVyYXRpb24iLCAidHlwZSI6ICJ1aW50OCJ9LAogICAgICAgICAgICB7Im5hbWUiOiAic2FmZVR4R2FzIiwgInR5cGUiOiAidWludDI1NiJ9LAogICAgICAgICAgICB7Im5hbWUiOiAiYmFzZUdhcyIsICJ0eXBlIjogInVpbnQyNTYifSwKICAgICAgICAgICAgeyJuYW1lIjogImdhc1ByaWNlIiwgInR5cGUiOiAidWludDI1NiJ9LAogICAgICAgICAgICB7Im5hbWUiOiAiZ2FzVG9rZW4iLCAidHlwZSI6ICJhZGRyZXNzIn0sCiAgICAgICAgICAgIHsibmFtZSI6ICJyZWZ1bmRSZWNlaXZlciIsICJ0eXBlIjogImFkZHJlc3MifSwKICAgICAgICAgICAgeyJuYW1lIjogInNpZ25hdHVyZXMiLCAidHlwZSI6ICJieXRlcyJ9CiAgICAgICAgICBdLAogICAgICAgICAgIm5hbWUiOiAiZXhlY1RyYW5zYWN0aW9uIiwKICAgICAgICAgICJvdXRwdXRzIjogW3sibmFtZSI6ICJzdWNjZXNzIiwgInR5cGUiOiAiYm9vbCJ9XSwKICAgICAgICAgICJzdGF0ZU11dGFiaWxpdHkiOiAicGF5YWJsZSIsCiAgICAgICAgICAidHlwZSI6ICJmdW5jdGlvbiIsCiAgICAgICAgICAic2VsZWN0b3IiOiAiMHg2YTc2MTIwMiIKICAgICAgICB9CiAgICAgIF0KICAgIH0KICB9LAogICJtZXRhZGF0YSI6IHsKICAgICJvd25lciI6ICJTYWZlIEVjb3N5c3RlbSBGb3VuZGF0aW9uIgogIH0sCiAgImRpc3BsYXkiOiB7CiAgICAiZm9ybWF0cyI6IHsKICAgICAgImV4ZWNUcmFuc2FjdGlvbiI6IHsKICAgICAgICAiaW50ZW50IjogewogICAgICAgICAgInR5cGUiOiAiY2FsbGRhdGEiLAogICAgICAgICAgImZvcm1hdCI6IFsKICAgICAgICAgICAgewogICAgICAgICAgICAgICJ0eXBlIjogImNvbnRhaW5lciIsCiAgICAgICAgICAgICAgImxheW91dCI6ICJmbGV4IiwKICAgICAgICAgICAgICAiZGlyZWN0aW9uIjogImNvbHVtbiIsCiAgICAgICAgICAgICAgImZpZWxkcyI6IFsKICAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgInR5cGUiOiAidGV4dCIsCiAgICAgICAgICAgICAgICAgICJmb3JtYXQiOiAiaGVhZGluZzIiLAogICAgICAgICAgICAgICAgICAidmFsdWUiOiAiU2FmZSBNdWx0aS1TaWduYXR1cmUgVHJhbnNhY3Rpb24iCiAgICAgICAgICAgICAgICB9LAogICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAidHlwZSI6ICJhZGRyZXNzIiwKICAgICAgICAgICAgICAgICAgInBhdGgiOiAidG8iLAogICAgICAgICAgICAgICAgICAibGFiZWwiOiAiVGFyZ2V0IiwKICAgICAgICAgICAgICAgICAgImZvcm1hdCI6ICJhZGRyZXNzTmFtZSIKICAgICAgICAgICAgICAgIH0sCiAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICJ0eXBlIjogImFtb3VudCIsCiAgICAgICAgICAgICAgICAgICJwYXRoIjogInZhbHVlIiwKICAgICAgICAgICAgICAgICAgImxhYmVsIjogIlZhbHVlIiwKICAgICAgICAgICAgICAgICAgImZvcm1hdCI6ICJldGhlciIKICAgICAgICAgICAgICAgIH0sCiAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICJ0eXBlIjogImNhbGxkYXRhIiwKICAgICAgICAgICAgICAgICAgInBhdGgiOiAiZGF0YSIsCiAgICAgICAgICAgICAgICAgICJ0byI6ICIkLnRvIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgIF0KICAgICAgICAgICAgfQogICAgICAgICAgXQogICAgICAgIH0sCiAgICAgICAgImZpZWxkcyI6IFsKICAgICAgICAgIHsKICAgICAgICAgICAgInBhdGgiOiAidG8iLAogICAgICAgICAgICAibGFiZWwiOiAiVGFyZ2V0IiwKICAgICAgICAgICAgImZvcm1hdCI6ICJhZGRyZXNzTmFtZSIKICAgICAgICAgIH0sCiAgICAgICAgICB7CiAgICAgICAgICAgICJwYXRoIjogInZhbHVlIiwKICAgICAgICAgICAgImxhYmVsIjogIlZhbHVlIiwKICAgICAgICAgICAgImZvcm1hdCI6ICJldGhlciIKICAgICAgICAgIH0sCiAgICAgICAgICB7CiAgICAgICAgICAgICJwYXRoIjogImRhdGEiLAogICAgICAgICAgICAibGFiZWwiOiAiRGF0YSIsCiAgICAgICAgICAgICJ0eXBlIjogImNhbGxkYXRhIiwKICAgICAgICAgICAgInRvIjogIiQudG8iCiAgICAgICAgICB9LAogICAgICAgICAgewogICAgICAgICAgICAicGF0aCI6ICJvcGVyYXRpb24iLAogICAgICAgICAgICAibGFiZWwiOiAiT3BlcmF0aW9uIFR5cGUiLAogICAgICAgICAgICAiZm9ybWF0IjogImVudW0iLAogICAgICAgICAgICAib3B0aW9ucyI6IHsKICAgICAgICAgICAgICAiMCI6ICJDYWxsIiwKICAgICAgICAgICAgICAiMSI6ICJEZWxlZ2F0ZUNhbGwiCiAgICAgICAgICAgIH0KICAgICAgICAgIH0KICAgICAgICBdCiAgICAgIH0KICAgIH0KICB9Cn0=";
+
+// Embedded Safe MultiSend metadata (direct JSON for content-script.js access)
+const EMBEDDED_SAFE_MULTISEND_METADATA = {
+  "context": {
+    "contract": {
+      "abi": [
+        {
+          "type": "function",
+          "name": "multiSend",
+          "selector": "0x8d80ff0a",
+          "inputs": [
+            { "name": "transactions", "type": "bytes" }
+          ]
+        }
+      ]
+    }
+  },
+  "parsing": {
+    "multiSendStructure": {
+      "fields": [
+        { "name": "operation", "type": "uint8", "size": 1 },
+        { "name": "to", "type": "address", "size": 20 },
+        { "name": "value", "type": "uint256", "size": 32 },
+        { "name": "dataLength", "type": "uint256", "size": 32 },
+        { "name": "data", "type": "bytes", "sizeField": "dataLength" }
+      ]
+    },
+    "operationTypes": {
+      "0": { "name": "CALL", "color": "#68d391", "description": "Regular call" },
+      "1": { "name": "DELEGATECALL", "color": "#ff6b6b", "description": "Delegate call" }
+    }
+  },
+  "eip712": {
+    "SafeTx": [
+      { "name": "to", "type": "address" },
+      { "name": "value", "type": "uint256" },
+      { "name": "data", "type": "bytes" },
+      { "name": "operation", "type": "uint8" },
+      { "name": "safeTxGas", "type": "uint256" },
+      { "name": "baseGas", "type": "uint256" },
+      { "name": "gasPrice", "type": "uint256" },
+      { "name": "gasToken", "type": "address" },
+      { "name": "refundReceiver", "type": "address" },
+      { "name": "nonce", "type": "uint256" }
+    ]
+  },
+  "detection": {
+    "typedDataTypes": ["SafeTx", "SafeMessage"],
+    "domPatterns": ["Primary type: SafeTx", "Primary type: SafeMessage"]
+  },
+  "display": {
+    "formats": {
+      "multiSend(bytes)": {
+        "intent": "Execute Multiple Transactions (Safe Batch)",
+        "fields": [
+          { "path": "transactions", "label": "Batch Transactions", "format": "multiSendBatch" }
+        ]
+      }
+    }
+  }
+};
+
+// Expose embedded batch transaction metadata globally for content-script.js
+// Generic name - not protocol-specific
+window.batchTransactionMetadata = EMBEDDED_SAFE_MULTISEND_METADATA;
+window.multisendMetadata = EMBEDDED_SAFE_MULTISEND_METADATA;
+
+// =============================================================================
+// PROTOCOL METADATA - Categories, Safe Detection, Safe UI, Universal Router
+// =============================================================================
+
+// Protocol metadata storage
+const protocolMetadata = {
+  categories: null,
+  safeDetection: null,
+  safeUi: null,
+  universalRouter: null
+};
+
+// Load protocol metadata files
+async function loadProtocolMetadata() {
+  console.log('[Metadata] Loading protocol metadata files...');
+
+  try {
+    // Determine base path for metadata files
+    let basePath = LOCAL_METADATA_PATH;
+
+    // If chrome.runtime is available, use extension URL
+    if (window.chrome?.runtime?.getURL) {
+      try {
+        basePath = window.chrome.runtime.getURL(LOCAL_METADATA_PATH);
+      } catch (e) {
+        console.log('[Metadata] Using relative path for protocol metadata');
+      }
+    }
+
+    // Load all protocol metadata files in parallel
+    const [categoriesRes, safeDetectionRes, safeUiRes, universalRouterRes] = await Promise.allSettled([
+      fetch(`${basePath}/protocols/categories.json`).then(r => r.ok ? r.json() : null),
+      fetch(`${basePath}/safe/safe-detection.json`).then(r => r.ok ? r.json() : null),
+      fetch(`${basePath}/safe/safe-ui.json`).then(r => r.ok ? r.json() : null),
+      fetch(`${basePath}/uniswap/universal-router.json`).then(r => r.ok ? r.json() : null)
+    ]);
+
+    // Store loaded metadata
+    if (categoriesRes.status === 'fulfilled' && categoriesRes.value) {
+      protocolMetadata.categories = categoriesRes.value;
+      console.log('[Metadata] Loaded categories.json');
+    }
+
+    if (safeDetectionRes.status === 'fulfilled' && safeDetectionRes.value) {
+      protocolMetadata.safeDetection = safeDetectionRes.value;
+      console.log('[Metadata] Loaded safe-detection.json');
+    }
+
+    if (safeUiRes.status === 'fulfilled' && safeUiRes.value) {
+      protocolMetadata.safeUi = safeUiRes.value;
+      console.log('[Metadata] Loaded safe-ui.json');
+    }
+
+    if (universalRouterRes.status === 'fulfilled' && universalRouterRes.value) {
+      protocolMetadata.universalRouter = universalRouterRes.value;
+      console.log('[Metadata] Loaded universal-router.json');
+    }
+
+    console.log('[Metadata] Protocol metadata loading complete');
+
+  } catch (error) {
+    console.error('[Metadata] Error loading protocol metadata:', error);
+  }
+}
+
+// Get category info by name (checks aliases)
+function getCategoryInfo(categoryName) {
+  const categories = protocolMetadata.categories?.categories;
+  if (!categories) return null;
+
+  // Direct match first
+  if (categories[categoryName]) {
+    return categories[categoryName];
+  }
+
+  // Check aliases
+  for (const [key, category] of Object.entries(categories)) {
+    if (category.aliases?.includes(categoryName)) {
+      return category;
+    }
+  }
+
+  return null;
+}
+
+// Get all aliases for a category
+function getCategoryAliases(categoryName) {
+  const categoryInfo = getCategoryInfo(categoryName);
+  return categoryInfo?.aliases || [categoryName];
+}
+
+// Check if a category matches any of the given names
+function categoryMatches(category, names) {
+  if (!Array.isArray(names)) names = [names];
+  const aliases = getCategoryAliases(category);
+  return names.some(n => aliases.includes(n) || category === n);
+}
+
+// Format intent using category template
+function formatCategoryIntent(categoryName, params = {}) {
+  const categoryInfo = getCategoryInfo(categoryName);
+  if (!categoryInfo?.intentTemplate) {
+    return categoryInfo?.fallbackIntent || categoryName;
+  }
+
+  let intent = categoryInfo.intentTemplate;
+  for (const [key, value] of Object.entries(params)) {
+    intent = intent.replace(`{${key}}`, value);
+  }
+  return intent;
+}
+
+// Get Safe detection config
+function getSafeDetectionConfig() {
+  return protocolMetadata.safeDetection || {
+    hostnames: [],
+    hostnamePatterns: [],
+    domSelectors: {},
+    buttonTextPatterns: [],
+    dataPatterns: {},
+    safeEvents: [],
+    safeGlobals: []
+  };
+}
+
+// Get Safe UI config
+function getSafeUiConfig() {
+  return protocolMetadata.safeUi || {
+    notifications: {},
+    styles: {},
+    colors: {},
+    labels: {}
+  };
+}
+
+// Get Universal Router parsing config
+function getUniversalRouterConfig() {
+  return protocolMetadata.universalRouter || {
+    parsing: {},
+    fallbacks: {},
+    resultTypes: {}
+  };
+}
+
+// Extract data using offset config from metadata
+function extractDataWithOffset(data, offsetConfig) {
+  if (!offsetConfig || !data) return null;
+  const start = offsetConfig.start || 0;
+  const end = offsetConfig.end || data.length;
+  const prefix = offsetConfig.prefix || '';
+  return prefix + data.slice(start, end);
+}
+
+// Expose protocol metadata globally
+window.protocolMetadata = protocolMetadata;
+window.getCategoryInfo = getCategoryInfo;
+window.getCategoryAliases = getCategoryAliases;
+window.categoryMatches = categoryMatches;
+window.formatCategoryIntent = formatCategoryIntent;
+window.getSafeDetectionConfig = getSafeDetectionConfig;
+window.getSafeUiConfig = getSafeUiConfig;
+window.getUniversalRouterConfig = getUniversalRouterConfig;
+window.extractDataWithOffset = extractDataWithOffset;
+
+// Load protocol metadata on startup
+loadProtocolMetadata();
+
 // Contract mappings now loaded from registry (see registry-loader.js)
 // Uses local-metadata/registry/contract-mappings.json
 // Fallback function to get contract mapping from registry or return null
@@ -54,146 +290,118 @@ const metadataCache = {};
 // LOCAL METADATA LOADING FUNCTIONS
 // =============================================================================
 
-async function loadLocalMetadata(contractAddress, chainId) {
+/**
+ * Load metadata file from local-metadata directory
+ * @param {string} relativePath - Path relative to LOCAL_METADATA_PATH (e.g., "aave/pool-v3/metadata.json")
+ * @returns {object|null} - Parsed metadata or null
+ */
+async function loadMetadataFile(relativePath) {
   try {
-    console.log(`[Metadata] LOADING - Contract: ${contractAddress}`);
-    console.log(`[Metadata] LOADING - Available mappings:`, getAllMappedContracts());
-
-    // Check for embedded Safe metadata first
-    if (contractAddress === '0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67' || contractAddress === '0x4E1DCf7ad4E460CfD30791CCc4F9c8A4f820eC67') {
-      console.log(`[Metadata] ✅ Using embedded Safe Proxy Factory metadata`);
+    // Try using chrome.runtime.getURL for extension context
+    let basePath = LOCAL_METADATA_PATH;
+    if (window.chrome?.runtime?.getURL) {
       try {
-        const decodedMetadata = atob(EMBEDDED_SAFE_METADATA);
-        const metadata = JSON.parse(decodedMetadata);
-        console.log(`[Metadata] ✅ Loaded embedded Safe metadata`);
-        console.log(`[Metadata] Metadata keys:`, Object.keys(metadata));
-        return metadata;
-      } catch (decodeError) {
-        console.log(`[Metadata] ❌ Failed to decode embedded metadata:`, decodeError.message);
+        basePath = window.chrome.runtime.getURL(LOCAL_METADATA_PATH);
+      } catch (e) {
+        console.log('[Metadata] Using relative path');
       }
     }
 
-    // Check for embedded Permit2 metadata
-    const permit2Address = contractAddress.toLowerCase();
-    if (permit2Address === '0x000000000022d473030f116ddee9f6b43ac78ba3') {
-      console.log(`[Metadata] ✅ Using embedded Permit2 metadata`);
-      try {
-        const decodedMetadata = atob(EMBEDDED_PERMIT2_METADATA);
-        const metadata = JSON.parse(decodedMetadata);
-        console.log(`[Metadata] ✅ Loaded embedded Permit2 metadata`);
-        console.log(`[Metadata] Metadata keys:`, Object.keys(metadata));
-        return metadata;
-      } catch (decodeError) {
-        console.log(`[Metadata] ❌ Failed to decode embedded Permit2 metadata:`, decodeError.message);
-      }
-    }
+    const fullPath = `${basePath}/${relativePath}`;
+    console.log(`[Metadata] Fetching: ${fullPath}`);
 
-    // Check for embedded Universal Router metadata
-    const universalRouterAddress = contractAddress.toLowerCase();
-    if (universalRouterAddress === '0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad' || universalRouterAddress === '0x66a9893cc07d91d95644aedd05d03f95e1dba8af') {
-      console.log(`[Metadata] ✅ Using embedded Universal Router metadata`);
-      try {
-        const decodedMetadata = atob(EMBEDDED_UNIVERSAL_ROUTER_METADATA);
-        const metadata = JSON.parse(decodedMetadata);
-        console.log(`[Metadata] ✅ Loaded embedded Universal Router metadata`);
-        console.log(`[Metadata] Metadata keys:`, Object.keys(metadata));
-        return metadata;
-      } catch (decodeError) {
-        console.log(`[Metadata] ❌ Failed to decode embedded Universal Router metadata:`, decodeError.message);
-      }
-    }
-    
-    const metadataFile = getContractMetadataPath(contractAddress);
-    if (!metadataFile) {
-      console.log(`[Metadata] ❌ No local mapping for contract: ${contractAddress}`);
+    const response = await fetch(fullPath);
+    if (!response.ok) {
+      console.warn(`[Metadata] Failed to fetch ${fullPath}: ${response.status}`);
       return null;
     }
-    
-    const filePath = `${LOCAL_METADATA_PATH}/${metadataFile}`;
-    console.log(`[Metadata] ✅ Found mapping: ${filePath}`);
-    console.log(`[Metadata] Current location: ${window.location.href}`);
-    console.log(`[Metadata] Current origin: ${window.location.origin}`);
-    console.log(`[Metadata] Document base URI: ${document.baseURI}`);
-    
-    try {
-      // Since we're running on app.safe.global, we need to construct the extension URL
-      // Check all script sources to debug what's available
-      let extensionUrl = null;
-      const allScripts = document.querySelectorAll('script[src]');
-      console.log(`[Metadata] All script sources:`, Array.from(allScripts).map(s => s.src));
-      
-      // Look for extension-injected scripts
-      const extensionScripts = Array.from(allScripts).filter(s => s.src.includes('chrome-extension://'));
-      console.log(`[Metadata] Extension scripts:`, extensionScripts.map(s => s.src));
-      
-      // Also check for any global variables that might indicate extension context
-      console.log(`[Metadata] Window chrome:`, typeof window.chrome);
-      console.log(`[Metadata] Window browser:`, typeof window.browser);
-      console.log(`[Metadata] Chrome runtime:`, window.chrome?.runtime);
-      console.log(`[Metadata] Chrome runtime id:`, window.chrome?.runtime?.id);
-      console.log(`[Metadata] Chrome runtime getURL:`, typeof window.chrome?.runtime?.getURL);
-      console.log(`[Metadata] Extension context test:`, window.location.protocol);
-      
-      // Test if we can access chrome.runtime.getURL properly now
-      if (window.chrome?.runtime?.getURL) {
-        try {
-          const testUrl = window.chrome.runtime.getURL('test');
-          console.log(`[Metadata] Test getURL result:`, testUrl);
-        } catch (testError) {
-          console.log(`[Metadata] Test getURL failed:`, testError.message);
-        }
-      }
-      
-      // Try to detect extension ID from any available source
-      if (extensionScripts.length > 0) {
-        const extensionScript = extensionScripts[0].src;
-        const extensionId = extensionScript.match(/chrome-extension:\/\/([a-z]+)\//)?.[1];
-        if (extensionId) {
-          extensionUrl = `chrome-extension://${extensionId}/${filePath}`;
-          console.log(`[Metadata] Built extension URL: ${extensionUrl}`);
-        }
-      } else {
-        // Try to get extension ID from chrome.runtime if available in any form
-        try {
-          if (window.chrome && window.chrome.runtime && window.chrome.runtime.id) {
-            extensionUrl = `chrome-extension://${window.chrome.runtime.id}/${filePath}`;
-            console.log(`[Metadata] Built URL from runtime ID: ${extensionUrl}`);
-          } else if (window.chrome && window.chrome.runtime && window.chrome.runtime.getURL) {
-            // Try using getURL method
-            try {
-              extensionUrl = window.chrome.runtime.getURL(filePath);
-              console.log(`[Metadata] Built URL from runtime.getURL: ${extensionUrl}`);
-            } catch (getUrlError) {
-              console.log(`[Metadata] runtime.getURL failed: ${getUrlError.message}`);
-            }
-          }
-        } catch (e) {
-          console.log(`[Metadata] Chrome runtime access failed: ${e.message}`);
-        }
-      }
-      
-      // Try extension URL first, then fallback to relative
-      const fetchUrl = extensionUrl || filePath;
-      console.log(`[Metadata] Attempting fetch from: ${fetchUrl}`);
-      const response = await fetch(fetchUrl);
-      if (!response.ok) {
-        console.log(`[Metadata] ❌ Local file not found: ${response.status} - ${filePath}`);
-        return null;
-      }
-      
-      const metadata = await response.json();
-      console.log(`[Metadata] ✅ Loaded local metadata from ${filePath}`);
-      console.log(`[Metadata] Metadata keys:`, Object.keys(metadata));
-      
-      return metadata;
-      
-    } catch (fetchError) {
-      console.log(`[Metadata] Local file fetch failed:`, fetchError.message);
-      return null;
-    }
-    
+
+    const metadata = await response.json();
+    console.log(`[Metadata] ✅ Loaded: ${relativePath}`);
+    return metadata;
   } catch (error) {
-    console.error(`[Metadata] Error loading local metadata:`, error);
+    console.warn(`[Metadata] Error loading ${relativePath}:`, error.message);
+    return null;
+  }
+}
+
+async function loadLocalMetadata(contractAddress, chainId, selector = null) {
+  try {
+    const normalizedAddress = contractAddress.toLowerCase();
+
+    // SELECTOR-BASED DETECTION for contracts that use proxy patterns (like Safe)
+    // Any contract calling execTransaction (0x6a761202) is a Safe proxy
+    if (selector === '0x6a761202') {
+      try {
+        return JSON.parse(atob(EMBEDDED_SAFE_SINGLETON_METADATA));
+      } catch (e) {
+        // Silent fail - will fall through to other lookups
+      }
+    }
+
+    // Check embedded metadata first (Safe, Permit2, Universal Router, MultiSend)
+    if (normalizedAddress === '0x4e1dcf7ad4e460cfd30791ccc4f9c8a4f820ec67') {
+      try { return JSON.parse(atob(EMBEDDED_SAFE_METADATA)); } catch {}
+    }
+    if (normalizedAddress === '0x000000000022d473030f116ddee9f6b43ac78ba3') {
+      try { return JSON.parse(atob(EMBEDDED_PERMIT2_METADATA)); } catch {}
+    }
+    if (normalizedAddress === '0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad' || normalizedAddress === '0x66a9893cc07d91d95644aedd05d03f95e1dba8af') {
+      try { return JSON.parse(atob(EMBEDDED_UNIVERSAL_ROUTER_METADATA)); } catch {}
+    }
+
+    // MultiSend contracts
+    const multiSendAddresses = [
+      '0x9641d764fc13c8b624c04430c7356c1c7c8102e2',
+      '0x40a2accbd92bca938b02010e17a5b8929b49130d',
+      '0xa238cbeb142c10ef7ad8442c6d1f9e89e07e7761',
+      '0x38869bf66a61cf6bdb996a6ae40d5853fd43b526'
+    ];
+    if (multiSendAddresses.includes(normalizedAddress)) {
+      return EMBEDDED_SAFE_MULTISEND_METADATA;
+    }
+
+    // Safe Singleton addresses
+    const safeSingletonAddresses = [
+      '0xd9db270c1b5e3bd161e8c8503c55ceabee709552',
+      '0x41675c099f32341bf84bfc5382af534df5c7461a',
+      '0x29fcb43b46531bca003ddc8fcb67ffe91900c762'
+    ];
+    if (safeSingletonAddresses.includes(normalizedAddress)) {
+      return await loadMetadataFile('safe/safe-singleton/metadata.json');
+    }
+
+    // Aave V3 Pool
+    if (normalizedAddress === '0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2') {
+      return await loadMetadataFile('aave/pool-v3/metadata.json');
+    }
+
+    const metadataFile = getContractMetadataPath(contractAddress);
+    if (!metadataFile) return null;
+
+    const filePath = `${LOCAL_METADATA_PATH}/${metadataFile}`;
+
+    try {
+      // Try to construct extension URL
+      let extensionUrl = null;
+      const extensionScripts = Array.from(document.querySelectorAll('script[src]')).filter(s => s.src.includes('chrome-extension://'));
+
+      if (extensionScripts.length > 0) {
+        const extensionId = extensionScripts[0].src.match(/chrome-extension:\/\/([a-z]+)\//)?.[1];
+        if (extensionId) extensionUrl = `chrome-extension://${extensionId}/${filePath}`;
+      } else if (window.chrome?.runtime?.id) {
+        extensionUrl = `chrome-extension://${window.chrome.runtime.id}/${filePath}`;
+      } else if (window.chrome?.runtime?.getURL) {
+        try { extensionUrl = window.chrome.runtime.getURL(filePath); } catch {}
+      }
+
+      const response = await fetch(extensionUrl || filePath);
+      if (!response.ok) return null;
+      return await response.json();
+    } catch {
+      return null;
+    }
+  } catch {
     return null;
   }
 }
@@ -223,36 +431,26 @@ window.USE_LOCAL_METADATA = USE_LOCAL_METADATA;
 window.LOCAL_METADATA_PATH = LOCAL_METADATA_PATH;
 
 // Get contract metadata
-async function getContractMetadata(contractAddress, chainId) {
+// selector parameter allows detecting proxy contracts by their function selector
+async function getContractMetadata(contractAddress, chainId, selector = null) {
   const normalizedAddress = contractAddress.toLowerCase();
-  const cacheKey = `${normalizedAddress}-${chainId}`;
-  
-  console.log(`[Metadata] ===== METADATA FETCH =====`);
-  console.log(`[Metadata] Contract: ${normalizedAddress}`);
-  console.log(`[Metadata] ChainId: ${chainId}`);
-  console.log(`[Metadata] Cache key: ${cacheKey}`);
-  console.log(`[Metadata] Source: ${USE_LOCAL_METADATA ? 'LOCAL' : 'REMOTE'}`);
-  console.log(`[Metadata] CONTRACT MAPPING CHECK:`, !!getContractMetadataPath(normalizedAddress));
-  console.log(`[Metadata] ALL AVAILABLE CONTRACTS:`, getAllMappedContracts());
-  
+  // Include selector in cache key for proxy detection
+  const cacheKey = selector ? `${normalizedAddress}-${chainId}-${selector}` : `${normalizedAddress}-${chainId}`;
+
   if (metadataCache[cacheKey]) {
-    console.log(`[Metadata] ✅ Cache hit for ${cacheKey}`);
     return metadataCache[cacheKey];
   }
-  
-  // LOCAL METADATA MODE - Check for local files first
+
+  // LOCAL METADATA MODE
   if (USE_LOCAL_METADATA) {
-    console.log(`[Metadata] 📁 LOCAL MODE - Checking local metadata files`);
-    const localMetadata = await loadLocalMetadata(normalizedAddress, chainId);
+    const localMetadata = await loadLocalMetadata(normalizedAddress, chainId, selector);
     if (localMetadata) {
       metadataCache[cacheKey] = localMetadata;
       return localMetadata;
     }
-    console.log(`[Metadata] ❌ No local metadata found, falling back to remote`);
   }
-  
+
   try {
-    console.log(`[Metadata] 🔍 Querying subgraph for: ${normalizedAddress}`);
     
     // Query subgraph for blob hash
     const query = {
@@ -383,4 +581,4 @@ window.metadataService = {
 window.extractFunctionSelector = extractFunctionSelector;
 window.toTitleCase = toTitleCase;
 
-console.log('[KaiSign] Metadata service ready');
+// Metadata service ready
