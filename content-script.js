@@ -540,7 +540,18 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
     // Parse based on command category with enhanced token detection
     switch (category) {
       case 'swap':
-        // V3_SWAP_EXACT_IN: Look for token addresses in the swap path
+        // V3_SWAP_EXACT_IN format: recipient (address), amountIn (uint256), amountOutMin (uint256), path (bytes), payerIsUser (bool)
+        // Extract amountIn from second 32-byte slot (bytes 64-128)
+        let amountIn = null;
+        if (data.length >= 128) {
+          const amountInHex = data.slice(64, 128);
+          // Verify it's not all zeros or all f's
+          if (amountInHex && !amountInHex.match(/^0+$/) && amountInHex !== 'f'.repeat(64)) {
+            amountIn = '0x' + amountInHex;
+          }
+        }
+
+        // Look for token addresses in the swap path
         const addresses = [];
         for (let i = 0; i < data.length; i += 64) {
           const chunk = data.slice(i, i + 64);
@@ -551,12 +562,11 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
               const isAbiOffset = addr.match(/^0x00000000000000000000000000000000000[0-9a-f]{1,5}$/i);
               if (!isAbiOffset && addr !== '0x0000000000000000000000000000000000000000') {
                 addresses.push(addr);
-              } else {
               }
             }
           }
         }
-        
+
         // Enhanced token search in raw hex data using registry loader
         const knownTokenAddresses = window.registryLoader?.tokenRegistry?.tokens
           ? Object.keys(window.registryLoader.tokenRegistry.tokens)
@@ -566,22 +576,23 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
         for (const tokenAddr of knownTokenAddresses) {
           const searchAddr = tokenAddr.slice(2).toLowerCase(); // Remove 0x
           if (data.toLowerCase().includes(searchAddr)) {
-            foundTokens.push(tokenAddr); // Don't add 0x prefix since tokenAddr already has it
+            foundTokens.push(tokenAddr);
           }
         }
-        
+
         // Combine both methods
         const allTokens = [...new Set([...addresses, ...foundTokens])];
-        
+
         if (allTokens.length >= 2) {
-          const fromToken = resolveTokenSymbol(allTokens[0]) || allTokens[0];
-          const toToken = resolveTokenSymbol(allTokens[1]) || allTokens[1];
-          
+          const fromTokenSymbol = resolveTokenSymbol(allTokens[0]) || allTokens[0];
+          const toTokenSymbol = resolveTokenSymbol(allTokens[1]) || allTokens[1];
+
           return {
             fromToken: allTokens[0],
-            toToken: allTokens[1], 
-            fromSymbol: fromToken,
-            toSymbol: toToken,
+            toToken: allTokens[1],
+            fromSymbol: fromTokenSymbol,
+            toSymbol: toTokenSymbol,
+            amountIn: amountIn,
             type: 'swap'
           };
         } else if (allTokens.length === 1) {
@@ -590,8 +601,9 @@ function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
           return {
             fromToken: 'ETH',
             toToken: allTokens[0],
-            fromSymbol: 'ETH', 
+            fromSymbol: 'ETH',
             toSymbol: knownToken,
+            amountIn: amountIn,
             type: 'swap'
           };
         }

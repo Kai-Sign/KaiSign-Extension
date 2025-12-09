@@ -312,13 +312,16 @@ async function decodeCalldata(data, contractAddress, chainId) {
       };
     }
     
+    // Substitute template variables in intent (e.g., "Swap {amount} {token}")
+    const finalIntent = substituteIntentTemplate(intent, params, formatted);
+
     return {
       success: true,
       selector,
       function: functionSignature,
       functionName,
       params,
-      intent,
+      intent: finalIntent,
       formatted
     };
     
@@ -334,6 +337,49 @@ async function decodeCalldata(data, contractAddress, chainId) {
 }
 
 // Helper functions
+
+/**
+ * Substitute template variables in intent string
+ * Supports {paramName} syntax for simple params
+ * Supports {paramName:format} for formatted values (e.g., {amount:token})
+ * @param {string} template - Intent template with {variable} placeholders
+ * @param {object} params - Raw parameter values
+ * @param {object} formatted - Formatted parameter values with labels
+ * @returns {string} - Intent with substituted values
+ */
+function substituteIntentTemplate(template, params, formatted) {
+  if (!template || typeof template !== 'string') return template;
+
+  // Check if template has any placeholders
+  if (!template.includes('{')) return template;
+
+  let result = template;
+
+  // Replace {paramName} or {paramName:format} patterns
+  const regex = /\{(\w+)(?::(\w+))?\}/g;
+  result = result.replace(regex, (match, paramName, formatType) => {
+    // Try formatted value first
+    if (formatted && formatted[paramName]) {
+      const formattedParam = formatted[paramName];
+      // If format type specified, use it; otherwise use the value
+      if (formatType === 'label') {
+        return formattedParam.label || paramName;
+      }
+      return formattedParam.value || match;
+    }
+
+    // Fall back to raw params
+    if (params && params[paramName] !== undefined) {
+      return params[paramName];
+    }
+
+    // Return original placeholder if not found
+    return match;
+  });
+
+  return result;
+}
+
 function toTitleCase(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
@@ -378,14 +424,22 @@ function formatTokenAmount(rawAmount, tokenAddress, chainId = 1) {
       amountBN = BigInt(rawAmount.toString());
     }
 
-    // Get token info from registry
-    const registryLoader = window.RegistryLoader ? new window.RegistryLoader() : null;
+    // Get token info from registry - use existing singleton instance
+    const registryLoader = window.registryLoader;
     let decimals = 18;
     let symbol = 'TOKEN';
 
     if (registryLoader) {
       decimals = registryLoader.getTokenDecimals(tokenAddress, chainId) || 18;
       symbol = registryLoader.getTokenSymbol(tokenAddress, chainId) || 'TOKEN';
+    } else {
+      console.warn('[KaiSign] Registry loader not available for token formatting');
+    }
+
+    // Check for unlimited approval (max uint256)
+    const MAX_UINT256 = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
+    if (amountBN === MAX_UINT256) {
+      return `Unlimited ${symbol}`;
     }
 
     // Convert wei to human-readable
