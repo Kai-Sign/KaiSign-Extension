@@ -356,9 +356,10 @@ class AdvancedTransactionDecoder {
         }
       }
       
-      // Also scan for calldata-like patterns in raw data
-      const additionalBytecodes = this.scanForCalldataPatterns(calldata, contractAddress);
-      embeddedBytecodes.push(...additionalBytecodes);
+      // DISABLED: scanForCalldataPatterns was creating garbage by sliding window over all bytes
+      // The recursive decoder already handles nested calldata properly via metadata
+      // const additionalBytecodes = this.scanForCalldataPatterns(calldata, contractAddress);
+      // embeddedBytecodes.push(...additionalBytecodes);
       
     } catch (error) {
       console.warn(`[AdvDecoder] Embedded bytecode extraction error:`, error.message);

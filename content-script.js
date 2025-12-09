@@ -127,8 +127,8 @@
 class SimpleABIDecoder {
   static decodeExecuteFunction(txData) {
     if (!txData || txData.length < 10) return null;
-    
-    // Remove function selector (0x3593564c)
+
+    // Remove function selector (first 4 bytes / 10 hex chars)
     const payload = txData.slice(10);
     
     try {
@@ -169,239 +169,551 @@ class SimpleABIDecoder {
   }
 }
 
-// Universal Router ABI (execute function)
-const UNIVERSAL_ROUTER_ABI = [
-  {
-    "inputs": [
-      {"name": "commands", "type": "bytes"},
-      {"name": "inputs", "type": "bytes[]"},
-      {"name": "deadline", "type": "uint256"}
-    ],
-    "name": "execute",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
-  }
-];
-
 // Token lookups now use registryLoader (loaded from local-metadata/registry/tokens.json)
 // See registry-loader.js for implementation
+// NOTE: Universal Router ABI removed - now loaded from metadata via window.metadataService
+
+// =============================================================================
+// SELECTOR UTILITIES - Get selectors from registry instead of hardcoding
+// =============================================================================
 
 /**
- * Parse Universal Router transaction using ethers.js ABI decoding
- * Following the proven Snaps ERC7730 approach for proper token resolution
+ * Get selector for a known function from the registry
+ * @param {string} functionName - e.g., 'multiSend', 'execute', 'execTransaction'
+ * @returns {string|null} - The selector or null if not found
  */
-async function parseUniversalRouterTransaction(txData, transactionValue = null) {
-  try {
-    
-    // Use simple ABI decoder instead of ethers.js
-    const decoded = SimpleABIDecoder.decodeExecuteFunction(txData);
-    
-    if (!decoded) {
-      console.error('[UR-Parser-Ethers] Failed to decode execute function');
-      return [];
+function getKnownSelector(functionName) {
+  // Use registryLoader if available
+  if (window.registryLoader) {
+    const selector = window.registryLoader.getSelectorByName?.(functionName);
+    if (selector) return selector;
+  }
+  return null;
+}
+
+/**
+ * Check if transaction data matches a known function by name
+ * Uses registry lookup instead of hardcoded selectors
+ */
+function matchesFunction(txData, functionName) {
+  if (!txData || txData.length < 10) return false;
+  const selector = txData.slice(0, 10).toLowerCase();
+
+  // Check registry for this function name
+  if (window.registryLoader) {
+    const knownSelector = window.registryLoader.getSelectorByName?.(functionName);
+    if (knownSelector && selector === knownSelector.toLowerCase()) return true;
+
+    // Also check selector info for function name
+    const selectorInfo = window.registryLoader.getSelectorInfo?.(selector);
+    if (selectorInfo?.name?.toLowerCase().includes(functionName.toLowerCase())) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Check if data contains a known selector anywhere (for nested calls)
+ */
+function containsSelector(data, functionName) {
+  if (!data) return false;
+  const lowerData = data.toLowerCase();
+
+  if (window.registryLoader) {
+    const selector = window.registryLoader.getSelectorByName?.(functionName);
+    if (selector) {
+      // Remove 0x prefix for search
+      const selectorWithout0x = selector.slice(2).toLowerCase();
+      return lowerData.includes(selectorWithout0x);
     }
-    
-    
-    // Parse commands bytes and inputs array
-    const commandsData = decoded.commands.slice(2); // Remove 0x prefix
-    const commandsLength = commandsData.length;
-    const inputsArrayLength = decoded.inputs.length;
-    
-    
-    const extractedCalls = [];
-    
-    // Add root Universal Router call
-    extractedCalls.push({
-      bytecode: txData,
-      selector: '0x3593564c',
-      depth: 1,
-      index: 0,
-      target: 'Universal Router',
-      functionName: 'execute(bytes,bytes[],uint256)',
-      type: 'universal_router_root',
-      params: {
-        commandsCount: commandsLength / 2,
-        inputsCount: inputsArrayLength,
-        deadline: decoded.deadline
-      },
-      description: `Universal Router execution with ${commandsLength / 2} commands`
-    });
-    
-    // Parse each command byte and corresponding input with metadata-driven intents
-    for (let i = 0; i < commandsLength; i += 2) {
-      const commandByteHex = commandsData.slice(i, i + 2);
-      const commandByte = parseInt(commandByteHex, 16);
-      const commandInfo = getUniversalRouterCommandInfo(commandByte);
-      
-      
-      const commandIndex = i / 2;
-      if (commandIndex < inputsArrayLength) {
-        // Get the properly decoded input data for this command
-        try {
-          const inputData = decoded.inputs[commandIndex];
-          
-          
-          // Create atomic function call for this command with intent
-          extractedCalls.push({
-            bytecode: inputData,
-            selector: '0x' + commandByteHex,
-            depth: 2,
-            index: commandIndex + 1,
-            target: 'Universal Router',
-            functionName: commandInfo.name,
-            intent: commandInfo.intent,
-            category: commandInfo.category,
-            type: 'universal_router_command',
-            params: {
-              commandByte: '0x' + commandByteHex,
-              inputLength: inputData.length,
-              commandCategory: commandInfo.category
-            },
-            description: commandInfo.intent
-          });
-          
-          // Extract meaningful parameters from input data using proper token resolution
-          const parsedParams = parseUniversalRouterInputDataWithTokens(commandInfo, inputData);
-          if (parsedParams) {
-            extractedCalls[extractedCalls.length - 1].parsedParams = parsedParams;
-            extractedCalls[extractedCalls.length - 1].description = formatCommandDescriptionWithTokens(commandInfo, parsedParams, transactionValue);
-          } else {
-            // For commands without parsed params, try to format with transaction value
-            const description = formatCommandDescription(commandInfo, null, transactionValue);
-            extractedCalls[extractedCalls.length - 1].description = description;
-          }
-          
-          // If this input data contains a function selector, extract it as a nested call
-          if (inputData.length >= 10) {
-            const nestedSelector = inputData.slice(0, 10);
-            const nestedFunctionName = getFunctionNameFromSelector(nestedSelector);
-            
-            if (nestedFunctionName && nestedFunctionName !== 'unknown') {
-              extractedCalls.push({
-                bytecode: inputData,
-                selector: nestedSelector,
-                depth: 3,
-                index: (i / 2) * 10 + 100, // Unique index for nested calls
-                target: 'Nested Function Target',
-                functionName: nestedFunctionName,
-                intent: `Nested: ${nestedFunctionName}`,
-                type: 'nested_function_call',
-                params: {
-                  parentCommand: commandInfo.name,
-                  dataLength: inputData.length / 2
-                },
-                description: `Nested function call: ${nestedFunctionName}`
-              });
-            }
-          }
-          
-        } catch (inputError) {
-          console.log('[UR-Parser] Error parsing input', i / 2, ':', inputError.message);
+  }
+
+  return false;
+}
+
+// =============================================================================
+// ADDRESS FILTERING UTILITIES - Configurable address validation
+// =============================================================================
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+/**
+ * Check if an address is valid (not a zero address or ABI offset)
+ * Uses configurable patterns instead of hardcoded checks
+ */
+function isValidTokenAddress(addr) {
+  if (!addr || addr.length !== 42) return false;
+  const lowerAddr = addr.toLowerCase();
+
+  // Exclude zero address
+  if (lowerAddr === ZERO_ADDRESS.toLowerCase()) return false;
+
+  // Exclude ABI offset patterns (small values encoded as addresses)
+  // These are typically values like 0x000...0020, 0x000...0040, etc.
+  if (/^0x0{24}[0-9a-f]{1,16}$/i.test(addr)) return false;
+
+  // Must have some non-zero content in the address portion
+  const addressPart = addr.slice(2);
+  const nonZeroChars = addressPart.replace(/0/g, '');
+  if (nonZeroChars.length < 4) return false;
+
+  return true;
+}
+
+/**
+ * Extract valid addresses from hex data
+ * Looks for 32-byte slots that contain properly padded addresses
+ */
+function extractAddressesFromData(data) {
+  const addresses = [];
+  const cleanData = data.startsWith('0x') ? data.slice(2) : data;
+
+  for (let i = 0; i < cleanData.length; i += 64) {
+    const chunk = cleanData.slice(i, i + 64);
+    if (chunk.length === 64 && chunk.slice(0, 24) === '000000000000000000000000') {
+      const addr = '0x' + chunk.slice(24);
+      if (isValidTokenAddress(addr)) {
+        addresses.push(addr);
+      }
+    }
+  }
+
+  return addresses;
+}
+
+/**
+ * Search for known token addresses in hex data using registry
+ */
+function findKnownTokensInData(data) {
+  const foundTokens = [];
+  const lowerData = data.toLowerCase();
+
+  const knownTokens = window.registryLoader?.tokenRegistry?.tokens || {};
+  for (const tokenAddr of Object.keys(knownTokens)) {
+    const searchAddr = tokenAddr.slice(2).toLowerCase();
+    if (lowerData.includes(searchAddr)) {
+      foundTokens.push(tokenAddr);
+    }
+  }
+
+  return foundTokens;
+}
+
+// =============================================================================
+// GENERIC ABI DECODER UTILITIES - Metadata-driven parsing
+// =============================================================================
+
+/**
+ * GENERIC: Get protocol metadata from registry or embedded globals
+ * NO hardcoded protocol names - searches dynamically
+ */
+function getProtocolMetadata(protocolId) {
+  // Try registry first
+  const fromRegistry = window.metadataService?.getProtocolMetadata?.(protocolId);
+  if (fromRegistry) return fromRegistry;
+
+  // Try embedded metadata by exact name convention
+  const embeddedByExactName = window[`${protocolId}Metadata`];
+  if (embeddedByExactName) return embeddedByExactName;
+
+  // Search all window properties for metadata objects with matching capabilities
+  // This finds ANY embedded metadata without hardcoding protocol names
+  for (const key of Object.keys(window)) {
+    if (key.endsWith('Metadata') && typeof window[key] === 'object' && window[key] !== null) {
+      const meta = window[key];
+      // Check if this metadata has the structure we need
+      if (meta.parsing?.multiSendStructure || meta.context?.contract?.abi) {
+        return meta;
+      }
+    }
+  }
+
+  return null;
+}
+
+
+/**
+ * Get type size in bytes for ABI types
+ * @param {string} type - Solidity type (e.g., 'uint8', 'address', 'uint256')
+ * @returns {number} - Size in bytes
+ */
+function getTypeSize(type) {
+  if (type === 'address') return 20;
+  if (type === 'bool' || type === 'uint8' || type === 'int8') return 1;
+  if (type.startsWith('uint') || type.startsWith('int')) {
+    const bits = parseInt(type.replace(/[^0-9]/g, '')) || 256;
+    return bits / 8;
+  }
+  if (type.startsWith('bytes') && !type.includes('[]')) {
+    const size = parseInt(type.replace('bytes', ''));
+    if (!isNaN(size)) return size;
+  }
+  // Dynamic types (bytes, string, arrays) return 32 for the offset pointer
+  return 32;
+}
+
+/**
+ * Check if a type is dynamic (variable length)
+ */
+function isDynamicType(type) {
+  return type === 'bytes' || type === 'string' || type.endsWith('[]');
+}
+
+/**
+ * Extract a field value from hex data based on field definition
+ * @param {string} data - Hex data (without 0x prefix)
+ * @param {number} pos - Current position in hex string
+ * @param {object} field - Field definition from metadata
+ * @returns {object} - { value, nextPos }
+ */
+function extractFieldFromData(data, pos, field) {
+  const hexSize = field.size * 2; // Convert bytes to hex chars
+
+  if (field.type === 'uint8' || field.type === 'int8') {
+    const value = parseInt(data.slice(pos, pos + hexSize), 16);
+    return { value, nextPos: pos + hexSize };
+  }
+
+  if (field.type === 'address') {
+    const value = '0x' + data.slice(pos, pos + hexSize);
+    return { value, nextPos: pos + hexSize };
+  }
+
+  if (field.type === 'uint256' || field.type === 'uint128' || field.type === 'uint64' || field.type === 'uint32') {
+    const value = '0x' + data.slice(pos, pos + hexSize);
+    return { value, nextPos: pos + hexSize };
+  }
+
+  if (field.type === 'bytes' && field.sizeField) {
+    // Variable length bytes - size comes from another field
+    const value = '0x' + data.slice(pos, pos + hexSize);
+    return { value, nextPos: pos + hexSize };
+  }
+
+  // Default: extract as hex
+  const value = '0x' + data.slice(pos, pos + hexSize);
+  return { value, nextPos: pos + hexSize };
+}
+
+/**
+ * Parse multiSend transactions using metadata-driven structure
+ * @param {string} transactionsData - Raw transactions bytes (without 0x prefix)
+ * @param {object} metadata - Protocol multiSend metadata
+ * @returns {Array} - Parsed transactions
+ */
+function parseMultiSendWithMetadata(transactionsData, metadata) {
+  const structure = metadata?.parsing?.multiSendStructure;
+  if (!structure || !structure.fields) {
+    console.error('[MultiSend] No parsing structure in metadata');
+    return [];
+  }
+
+  const transactions = [];
+  let pos = 0;
+
+  while (pos < transactionsData.length) {
+    // Check minimum data remaining
+    const minSize = structure.fields
+      .filter(f => !f.sizeField)
+      .reduce((sum, f) => sum + f.size * 2, 0);
+
+    if (pos + minSize > transactionsData.length) break;
+
+    const tx = {};
+    let currentPos = pos;
+
+    for (const field of structure.fields) {
+      if (field.sizeField) {
+        // Variable length field - use size from another field
+        const dataLength = tx[field.sizeField];
+        if (dataLength > 0) {
+          tx[field.name] = '0x' + transactionsData.slice(currentPos, currentPos + dataLength);
+          currentPos += dataLength;
+        } else {
+          tx[field.name] = '0x';
+        }
+      } else {
+        const result = extractFieldFromData(transactionsData, currentPos, field);
+        tx[field.name] = result.value;
+        currentPos = result.nextPos;
+
+        // If this is the dataLength field, convert to hex char count
+        if (field.name === 'dataLength') {
+          tx.dataLength = parseInt(tx.dataLength, 16) * 2;
         }
       }
     }
-    
-    return extractedCalls;
-    
+
+    transactions.push(tx);
+    pos = currentPos;
+  }
+
+  return transactions;
+}
+
+/**
+ * Get operation type info from metadata
+ * @param {number} operation - Operation code (0 or 1)
+ * @param {object} metadata - Protocol metadata
+ * @returns {object} - { name, color, description }
+ */
+function getOperationTypeFromMetadata(operation, metadata) {
+  const opTypes = metadata?.parsing?.operationTypes;
+  if (opTypes && opTypes[operation]) {
+    return opTypes[operation];
+  }
+  // Fallback
+  return { name: `Operation ${operation}`, color: '#a0aec0', description: 'Unknown operation' };
+}
+
+/**
+ * GENERIC: Check if typed data matches protocol patterns using metadata
+ * Works for any protocol (Safe, Uniswap Permit, etc.)
+ * @param {object} typedData - EIP-712 typed data
+ * @param {object} metadata - Protocol metadata
+ * @returns {boolean}
+ */
+function isProtocolTypedData(typedData, metadata) {
+  const protocolTypes = metadata?.detection?.typedDataTypes || [];
+  if (!typedData?.types || protocolTypes.length === 0) return false;
+
+  return protocolTypes.some(t => typedData.types[t]);
+}
+
+
+/**
+ * GENERIC: Check if text contains protocol patterns using metadata
+ * @param {string} text - Text content to check
+ * @param {object} metadata - Protocol metadata
+ * @returns {boolean}
+ */
+function containsProtocolPattern(text, metadata) {
+  const patterns = metadata?.detection?.domPatterns || [];
+  return patterns.some(p => text.includes(p));
+}
+
+
+/**
+ * GENERIC: Get EIP-712 type structure from metadata
+ * @param {object} metadata - Protocol metadata
+ * @param {string} typeName - Type name to get (e.g., 'MultisigTx', 'Permit')
+ * @returns {Array} - Type definition array
+ */
+function getTypedDataStructure(metadata, typeName = 'default') {
+  return metadata?.eip712?.[typeName] || [];
+}
+
+
+// =============================================================================
+// GENERIC PROTOCOL TRANSACTION PARSING (METADATA-DRIVEN)
+// =============================================================================
+
+/**
+ * GENERIC: Parse any protocol transaction using ERC-7730 metadata
+ * Works for Universal Router, Safe MultiSend, or ANY protocol with metadata
+ * @param {string} txData - The transaction calldata
+ * @param {string} contractAddress - The contract address
+ * @param {number} chainId - The chain ID
+ * @param {string|null} transactionValue - Optional transaction value
+ * @returns {Promise<object>} - Parsed transaction with intent
+ */
+async function parseProtocolTransaction(txData, contractAddress, chainId = 1, transactionValue = null) {
+  try {
+    // Use the existing generic decoder that reads from ERC-7730 metadata
+    const decoded = await window.decodeCalldata?.(txData, contractAddress, chainId);
+
+    if (!decoded || !decoded.success) {
+      console.log('[KaiSign] Generic decode failed, returning basic info');
+      return {
+        success: false,
+        selector: txData?.slice(0, 10),
+        intent: 'Contract interaction',
+        error: decoded?.error || 'No metadata found'
+      };
+    }
+
+    return {
+      success: true,
+      selector: decoded.selector,
+      functionName: decoded.functionName,
+      functionSignature: decoded.functionSignature,
+      intent: decoded.intent,
+      params: decoded.params,
+      formatted: decoded.formatted,
+      metadata: decoded.metadata
+    };
   } catch (error) {
-    console.error('[UR-Parser] ❌ Error parsing Universal Router:', error);
-    return [];
+    console.error('[KaiSign] Protocol transaction parsing error:', error);
+    return {
+      success: false,
+      selector: txData?.slice(0, 10),
+      intent: 'Contract interaction',
+      error: error.message
+    };
   }
 }
 
 /**
- * Parse Safe MultiSend transaction data
+ * GENERIC: Get command/operation info from registry
+ * Works for Universal Router commands, Safe operations, or any protocol
+ * @param {number|string} commandByte - The command byte or operation code
+ * @param {string} protocolId - Optional protocol identifier for registry lookup
+ */
+function getCommandInfo(commandByte, protocolId = null) {
+  // Use registry loader for command lookup
+  if (window.registryLoader) {
+    const info = window.registryLoader.getCommandInfo?.(commandByte);
+    if (info) return info;
+  }
+
+  // Fallback for unknown commands
+  const byteHex = typeof commandByte === 'number'
+    ? commandByte.toString(16).padStart(2, '0')
+    : commandByte;
+
+  return {
+    name: `Command 0x${byteHex}`,
+    intent: 'Unknown operation',
+    category: 'unknown',
+    action: 'unknown'
+  };
+}
+
+/**
+ * GENERIC: Format intent description using registry templates
+ * @param {string} category - The operation category (swap, transfer, etc.)
+ * @param {object} params - Parameters to substitute into the template
+ */
+function formatIntentDescription(category, params = {}) {
+  // Try registry for intent template
+  if (window.registryLoader?.formatIntent) {
+    const formatted = window.registryLoader.formatIntent(category, params);
+    if (formatted) return formatted;
+  }
+
+  // Simple fallback formatting
+  if (category === 'swap' && params.fromToken && params.toToken) {
+    return `Swap ${params.fromToken} to ${params.toToken}`;
+  }
+  if (category === 'transfer' && params.token) {
+    return `Transfer ${params.token}`;
+  }
+  if (category === 'approval' && params.token) {
+    return `Approve ${params.token}`;
+  }
+
+  return params.intent || `${category} operation`;
+}
+
+/**
+ * GENERIC: Parse batched transaction data (multiSend or similar)
  * Format: multiSend(bytes transactions) where transactions contains multiple encoded operations
- * @param {string} txData - The transaction data starting with 0x8d80ff0a
+ * Uses metadata-driven parsing - NO hardcoded byte offsets
+ * @param {string} txData - The transaction data (must be multiSend calldata)
+ * @param {string} protocolId - Protocol ID for metadata lookup (loaded from ERC-7730 files)
  * @param {number} chainId - The chain ID for metadata lookups (default: 1)
  */
-async function parseSafeMultiSendTransaction(txData, chainId = 1) {
+async function parseBatchTransaction(txData, protocolId = 'multisend', chainId = 1) {
   try {
 
-    if (!txData || !txData.startsWith('0x8d80ff0a')) {
+    if (!txData || !matchesFunction(txData, 'multiSend')) {
       console.log('[KaiSign] Not a multiSend transaction');
       return null;
     }
-    
-    // Remove multiSend selector (0x8d80ff0a)
-    const payload = txData.slice(10);
-    
-    // Parse ABI-encoded bytes parameter
-    // First 32 bytes (64 hex chars) = offset to bytes data
-    const offset = parseInt(payload.slice(0, 64), 16) * 2;
-    
-    // Next 32 bytes = length of bytes data
-    const length = parseInt(payload.slice(offset, offset + 64), 16) * 2;
-    
-    // Extract the transactions bytes
-    const transactionsData = payload.slice(offset + 64, offset + 64 + length);
-    
-    console.log('[KaiSign] MultiSend transactions data length:', transactionsData.length);
-    
-    // Parse individual transactions
-    const operations = [];
-    let pos = 0;
-    
-    while (pos < transactionsData.length) {
-      if (pos + 40 > transactionsData.length) break; // Need at least operation + to + value
-      
-      // Each transaction: operation(1) + to(20) + value(32) + dataLength(32) + data(dataLength)
-      const operation = parseInt(transactionsData.slice(pos, pos + 2), 16);
-      const to = '0x' + transactionsData.slice(pos + 2, pos + 42);
-      const value = '0x' + transactionsData.slice(pos + 42, pos + 106);
-      const dataLength = parseInt(transactionsData.slice(pos + 106, pos + 170), 16) * 2;
-      
-      let data = '0x';
-      if (dataLength > 0 && pos + 170 + dataLength <= transactionsData.length) {
-        data = '0x' + transactionsData.slice(pos + 170, pos + 170 + dataLength);
+
+    // Get protocol metadata using generic function
+    // First try the provided protocol ID, then search all loaded metadata for batch transaction configs
+    let metadata = getProtocolMetadata(protocolId);
+
+    // If no metadata found via protocolId, try searching all loaded metadata
+    if (!metadata) {
+      const allMetadata = window.metadataService?.getAllProtocolMetadata?.() || {};
+      for (const [id, meta] of Object.entries(allMetadata)) {
+        // Check if this metadata has batch transaction configuration
+        if (meta?.parsing?.multiSendStructure || meta?.parsing?.batchTransaction || meta?.display?.formats?.['multiSend(bytes)']) {
+          metadata = meta;
+          console.log(`[KaiSign] Found batch transaction metadata from: ${id}`);
+          break;
+        }
       }
-      
-      operations.push({
-        operation: operation,
-        to: to,
-        value: value,
-        data: data,
-        selector: data.length >= 10 ? data.slice(0, 10) : null
-      });
-      
-      console.log(`[KaiSign] Extracted operation: ${operation === 0 ? 'CALL' : 'DELEGATECALL'} to ${to} with data ${data.slice(0, 20)}...`);
-      
-      // Move to next transaction
-      pos += 170 + dataLength;
     }
-    
-    console.log(`[KaiSign] Parsed ${operations.length} operations from MultiSend`);
+
+    // Log what we found for debugging
+    if (metadata) {
+      console.log('[KaiSign] Batch transaction metadata found:', {
+        hasParsingMultiSend: !!metadata?.parsing?.multiSendStructure,
+        hasOperationTypes: !!metadata?.parsing?.operationTypes
+      });
+    } else {
+      console.warn(`[KaiSign] No batch transaction metadata available for ${protocolId}`);
+      return null;
+    }
+
+    // Remove function selector (first 4 bytes / 10 hex chars)
+    const payload = txData.slice(10);
+
+    // Parse ABI-encoded bytes parameter (standard Solidity encoding)
+    // First 32 bytes = offset to bytes data, then length, then data
+    const WORD_SIZE = 64; // 32 bytes in hex
+    const offset = parseInt(payload.slice(0, WORD_SIZE), 16) * 2;
+    const length = parseInt(payload.slice(offset, offset + WORD_SIZE), 16) * 2;
+    const transactionsData = payload.slice(offset + WORD_SIZE, offset + WORD_SIZE + length);
+
+    console.log('[KaiSign] Batch transactions data length:', transactionsData.length);
+
+    // Parse using metadata-driven structure
+    const parsedTxs = parseMultiSendWithMetadata(transactionsData, metadata);
+
+    // Convert to operations format
+    const operations = parsedTxs.map(tx => {
+      const opInfo = getOperationTypeFromMetadata(tx.operation, metadata);
+      return {
+        operation: tx.operation,
+        operationType: opInfo.name,
+        operationColor: opInfo.color,
+        to: tx.to,
+        value: tx.value,
+        data: tx.data,
+        selector: tx.data && tx.data.length >= 10 ? tx.data.slice(0, 10) : null
+      };
+    });
+
+    // Log operations using metadata-driven operation names
+    operations.forEach(op => {
+      console.log(`[KaiSign] Extracted operation: ${op.operationType} to ${op.to} with data ${op.data.slice(0, 20)}...`);
+    });
+
+    console.log(`[KaiSign] Parsed ${operations.length} operations from batch transaction`);
 
     // Analyze operations to create intent (await registry loading)
     const intents = [];
     for (const op of operations) {
       if (op.selector) {
-        const intent = await getSafeOperationIntent(op, chainId);
+        const intent = await getOperationIntent(op, chainId);
         if (intent) intents.push(intent);
       }
     }
 
-    const mainIntent = intents.length > 0 ? intents.join(' + ') : `Safe Batch (${operations.length} operations)`;
-    
+    const mainIntent = intents.length > 0 ? intents.join(' + ') : `Batch Transaction (${operations.length} operations)`;
+
     return {
       operations: operations,
       intent: mainIntent,
-      type: 'safe_multisend'
+      type: 'batch_transaction'
     };
-    
+
   } catch (error) {
-    console.error('[KaiSign] Safe MultiSend parsing error:', error);
+    console.error('[KaiSign] Batch transaction parsing error:', error);
     return null;
   }
 }
 
 /**
- * Get intent for individual Safe operation
+ * GENERIC: Get intent for individual operation
  * Uses registry loader for selector lookups (no hardcoded values)
  * Now async to ensure registry is loaded
  */
-async function getSafeOperationIntent(operation, chainId = 1) {
+async function getOperationIntent(operation, chainId = 1) {
   if (!operation.selector || operation.selector === '0x') return null;
   const selector = operation.selector;
 
@@ -411,52 +723,33 @@ async function getSafeOperationIntent(operation, chainId = 1) {
     await window.registryLoader.ensureLoaded();
   }
 
-  // Debug logging
-  console.log(`[KaiSign] getSafeOperationIntent for selector: ${operation.selector}`);
-  console.log(`[KaiSign] Registry exists: ${!!window.registryLoader}`);
-  console.log(`[KaiSign] Registry loaded: ${window.registryLoader?.loaded}`);
-  console.log(`[KaiSign] Selector registry size: ${window.registryLoader?.selectorRegistry?.size}`);
-
   // Use registry loader for selector lookup
   const selectorInfo = window.registryLoader?.getSelectorInfo(operation.selector);
 
-  console.log(`[KaiSign] Selector lookup result:`, selectorInfo);
-
   if (selectorInfo) {
     const intent = selectorInfo.intent;
-    console.log(`[KaiSign] Found intent: ${intent}, category: ${selectorInfo.category}`);
 
     // Try to identify token for approval/transfer operations
     if (selectorInfo.category === 'approval' || selectorInfo.category === 'transfer') {
       const token = getTokenSymbol(operation.to);
-      console.log(`[KaiSign] Token lookup for ${operation.to}: ${token}`);
 
-      // Try to extract and format amount if available
+      // Try to extract and format amount using ABI-aware extraction
       if (operation.data && operation.data.length >= 74 && window.formatTokenAmount) {
         try {
-          // Extract amount from data (second parameter after selector and address)
-          // For transfer(address,uint256): selector(10 chars) + address(64 chars) + amount(64 chars)
-          // For approve(address,uint256): same structure
-          const amountHex = '0x' + operation.data.slice(74, 138);
-
-          // LOG THE EXTRACTED AMOUNT
-          console.log(`[KaiSign] Extracted amount hex:`, amountHex);
-          console.log(`[KaiSign] Amount length:`, amountHex.length);
-          console.log(`[KaiSign] Full operation.data:`, operation.data);
-          console.log(`[KaiSign] operation.data.length:`, operation.data.length);
+          // Use generic ABI-aware extraction based on function signature
+          // Standard ERC-20 functions: selector(4 bytes) + address(32 bytes padded) + uint256(32 bytes)
+          const SELECTOR_SIZE = 10; // 4 bytes in hex
+          const WORD_SIZE = 64; // 32 bytes in hex
+          const amountOffset = SELECTOR_SIZE + WORD_SIZE; // After selector and first param
+          const amountHex = '0x' + operation.data.slice(amountOffset, amountOffset + WORD_SIZE);
 
           if (amountHex !== '0x0' && amountHex !== '0x' && amountHex.length > 3) {
             const formattedAmount = window.formatTokenAmount(amountHex, operation.to, 1);
-            console.log(`[KaiSign] Formatted amount:`, formattedAmount);
             return `${intent} ${formattedAmount}`;
-          } else {
-            console.log(`[KaiSign] Amount is zero or invalid, using token symbol only`);
           }
         } catch (amountError) {
-          console.error('[KaiSign] Error formatting amount in Safe operation:', amountError);
+          console.error('[KaiSign] Error formatting amount:', amountError);
         }
-      } else {
-        console.log(`[KaiSign] Skipping amount formatting - data length: ${operation.data?.length}, formatTokenAmount exists: ${!!window.formatTokenAmount}`);
       }
 
       return `${intent} ${token}`;
@@ -465,17 +758,11 @@ async function getSafeOperationIntent(operation, chainId = 1) {
   }
 
   // No selector info found in registry - try metadata service as fallback
-  console.warn(`[KaiSign] No selector info found for ${selector}`);
-
-  // Fallback to metadata service via decodeCalldata
   if (window.decodeCalldata && operation.to && operation.data) {
     try {
-      console.log(`[KaiSign] Trying metadata service fallback for ${selector}`);
       const decoded = await window.decodeCalldata(operation.data, operation.to, chainId);
-      console.log(`[KaiSign] Metadata decode result:`, decoded);
 
       if (decoded.success && decoded.intent && decoded.intent !== 'Contract interaction' && decoded.intent !== 'Unknown function') {
-        console.log(`[KaiSign] Using metadata intent: ${decoded.intent}`);
         return decoded.intent;
       }
     } catch (fallbackError) {
@@ -486,29 +773,7 @@ async function getSafeOperationIntent(operation, chainId = 1) {
   return 'Contract Call';
 }
 
-/**
- * Get Universal Router command info from command byte
- * Uses registry loader for command lookups (no hardcoded values)
- */
-function getUniversalRouterCommandInfo(commandByte) {
-  // Use registry loader for command lookup
-  if (window.registryLoader) {
-    return window.registryLoader.getCommandInfo(commandByte);
-  }
-
-  // Fallback for when registry isn't loaded yet
-  return {
-    name: `UNKNOWN_CMD_0x${commandByte.toString(16).padStart(2, '0')}`,
-    intent: 'Unknown',
-    category: 'unknown',
-    action: 'unknown'
-  };
-}
-
-// Backward compatibility
-function getUniversalRouterCommandName(commandByte) {
-  return getUniversalRouterCommandInfo(commandByte).name;
-}
+// Universal Router functions DELETED - use generic getCommandInfo() instead
 
 /**
  * Enhanced token address resolution using registry loader
@@ -526,282 +791,69 @@ function resolveTokenSymbol(address) {
   return null;
 }
 
+// NOTE: Protocol-specific parsing functions have been replaced with generic metadata-driven functions
+
 /**
- * Parse Universal Router input data with proper token resolution
+ * GENERIC: Parse input data to extract parameters
+ * Works for any protocol - uses utility functions for address extraction
  */
-function parseUniversalRouterInputDataWithTokens(commandInfo, inputData) {
+function parseInputData(commandInfo, inputData) {
   if (!inputData || inputData.length < 10) return null;
-  
+
   try {
-    const category = commandInfo.category;
-    const data = inputData.slice(2); // Remove 0x
-    
-    
-    // Parse based on command category with enhanced token detection
-    switch (category) {
-      case 'swap':
-        // V3_SWAP_EXACT_IN format: recipient (address), amountIn (uint256), amountOutMin (uint256), path (bytes), payerIsUser (bool)
-        // Extract amountIn from second 32-byte slot (bytes 64-128)
-        let amountIn = null;
-        if (data.length >= 128) {
-          const amountInHex = data.slice(64, 128);
-          // Verify it's not all zeros or all f's
-          if (amountInHex && !amountInHex.match(/^0+$/) && amountInHex !== 'f'.repeat(64)) {
-            amountIn = '0x' + amountInHex;
-          }
-        }
+    const category = commandInfo?.category || 'unknown';
+    const data = inputData.startsWith('0x') ? inputData.slice(2) : inputData;
 
-        // Look for token addresses in the swap path
-        const addresses = [];
-        for (let i = 0; i < data.length; i += 64) {
-          const chunk = data.slice(i, i + 64);
-          if (chunk.length === 64 && chunk.slice(0, 24) === '000000000000000000000000') {
-            const addr = '0x' + chunk.slice(24);
-            if (addr !== '0x0000000000000000000000000000000000000000' && addr.length === 42) {
-              // Filter out obvious ABI offset addresses (small numbers, mostly zeros)
-              const isAbiOffset = addr.match(/^0x00000000000000000000000000000000000[0-9a-f]{1,5}$/i);
-              if (!isAbiOffset && addr !== '0x0000000000000000000000000000000000000000') {
-                addresses.push(addr);
-              }
-            }
-          }
-        }
+    // Extract addresses using utility function
+    const addresses = extractAddressesFromData(data);
+    const knownTokens = findKnownTokensInData(data);
+    const allTokens = [...new Set([...addresses, ...knownTokens])];
 
-        // Enhanced token search in raw hex data using registry loader
-        const knownTokenAddresses = window.registryLoader?.tokenRegistry?.tokens
-          ? Object.keys(window.registryLoader.tokenRegistry.tokens)
-          : [];
-        const foundTokens = [];
-
-        for (const tokenAddr of knownTokenAddresses) {
-          const searchAddr = tokenAddr.slice(2).toLowerCase(); // Remove 0x
-          if (data.toLowerCase().includes(searchAddr)) {
-            foundTokens.push(tokenAddr);
-          }
-        }
-
-        // Combine both methods
-        const allTokens = [...new Set([...addresses, ...foundTokens])];
-
-        if (allTokens.length >= 2) {
-          const fromTokenSymbol = resolveTokenSymbol(allTokens[0]) || allTokens[0];
-          const toTokenSymbol = resolveTokenSymbol(allTokens[1]) || allTokens[1];
-
-          return {
-            fromToken: allTokens[0],
-            toToken: allTokens[1],
-            fromSymbol: fromTokenSymbol,
-            toSymbol: toTokenSymbol,
-            amountIn: amountIn,
-            type: 'swap'
-          };
-        } else if (allTokens.length === 1) {
-          // Single token found, assume ETH as other token
-          const knownToken = resolveTokenSymbol(allTokens[0]) || allTokens[0];
-          return {
-            fromToken: 'ETH',
-            toToken: allTokens[0],
-            fromSymbol: 'ETH',
-            toSymbol: knownToken,
-            amountIn: amountIn,
-            type: 'swap'
-          };
-        }
-        break;
-        
-      case 'transfer':
-      case 'cleanup':
-        // Enhanced token detection for transfer/sweep commands
-        const transferAddresses = [];
-        for (let i = 0; i < data.length; i += 64) {
-          const chunk = data.slice(i, i + 64);
-          if (chunk.length === 64 && chunk.slice(0, 24) === '000000000000000000000000') {
-            const addr = '0x' + chunk.slice(24);
-            if (addr !== '0x0000000000000000000000000000000000000000' && addr.length === 42) {
-              // Filter out ABI offset addresses
-              const isAbiOffset = addr.match(/^0x00000000000000000000000000000000000[0-9a-f]{1,5}$/i);
-              if (!isAbiOffset && addr !== '0x0000000000000000000000000000000000000000') {
-                transferAddresses.push(addr);
-              } else {
-              }
-            }
-          }
-        }
-        
-        // Also search for known tokens in the hex data for cleanup commands (using registry)
-        const cleanupTokenAddresses = window.registryLoader?.tokenRegistry?.tokens
-          ? Object.keys(window.registryLoader.tokenRegistry.tokens)
-          : [];
-        const foundCleanupTokens = [];
-        
-        for (const tokenAddr of cleanupTokenAddresses) {
-          const searchAddr = tokenAddr.slice(2).toLowerCase(); // Remove 0x
-          if (data.toLowerCase().includes(searchAddr)) {
-            foundCleanupTokens.push(tokenAddr);
-          }
-        }
-        
-        // Combine both methods
-        const allTransferTokens = [...new Set([...transferAddresses, ...foundCleanupTokens])];
-        
-        if (allTransferTokens.length >= 1) {
-          const token = allTransferTokens[0];
-          const tokenSymbol = resolveTokenSymbol(token) || token;
-          
-          return {
-            token: token,
-            tokenSymbol: tokenSymbol,
-            recipient: allTransferTokens[1] || null,
-            type: 'transfer'
-          };
-        }
-        break;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('[Token-Parser] Error parsing input data:', error);
-    return null;
-  }
-}
-
-/**
- * Format command description with proper token symbols
- */
-function formatCommandDescriptionWithTokens(commandInfo, parsedParams, transactionValue) {
-  if (!parsedParams) {
-    return commandInfo.intent || commandInfo.name;
-  }
-  
-  try {
-    switch (parsedParams.type) {
-      case 'swap':
-        if (parsedParams.fromSymbol && parsedParams.toSymbol) {
-          return `🔄 Swap ${parsedParams.fromSymbol} to ${parsedParams.toSymbol}`;
-        }
-        break;
-        
-      case 'transfer':
-        if (parsedParams.tokenSymbol) {
-          return `📤 Transfer ${parsedParams.tokenSymbol}`;
-        }
-        break;
-    }
-    
-    // Fallback to original formatting
-    return formatCommandDescription(commandInfo, parsedParams, transactionValue);
-  } catch (error) {
-    console.error('[Format-Description] Error:', error);
-    return commandInfo.intent || commandInfo.name;
-  }
-}
-
-/**
- * Parse Universal Router input data to extract meaningful parameters (Original)
- */
-function parseUniversalRouterInputData(commandInfo, inputData) {
-  if (!inputData || inputData.length < 10) return null;
-  
-  try {
-    const category = commandInfo.category;
-    const data = inputData.slice(2); // Remove 0x
-    
-    // Parse based on command category
-    switch (category) {
-      case 'transfer':
-      case 'cleanup':
-        // TRANSFER/SWEEP: contains token address and recipient
-        const addresses = [];
-        for (let i = 0; i < data.length; i += 64) {
-          const chunk = data.slice(i, i + 64);
-          if (chunk.length === 64 && chunk.slice(0, 24) === '000000000000000000000000') {
-            const addr = '0x' + chunk.slice(24);
-            if (addr !== '0x0000000000000000000000000000000000000000' && addr.length === 42) {
-              addresses.push(addr);
-            }
-          }
-        }
-        if (addresses.length >= 2) {
-          return {
-            token: addresses[0], // First address is usually token
-            recipient: addresses[1], // Second is recipient
-            type: 'transfer'
-          };
-        }
-        break;
-        
-      case 'marketplace':
-        // SEAPORT: complex marketplace data
-        if (data.length >= 64) {
-          return {
-            marketplace: 'Seaport',
-            dataLength: data.length / 2,
-            type: 'marketplace',
-            note: 'NFT/token marketplace operation'
-          };
-        }
-        break;
-        
-      case 'swap':
-        // V3_SWAP_EXACT_IN: contains pool info, amounts, etc.
-        if (data.length >= 128) {
-          return {
-            swapType: 'exactInput',
-            token0: data.slice(24, 64) ? '0x' + data.slice(24, 64) : null,
-            token1: data.slice(88, 128) ? '0x' + data.slice(88, 128) : null,
-            amount: data.slice(128, 192) ? '0x' + data.slice(128, 192) : null,
-            type: 'swap'
-          };
-        }
-        break;
-    }
-    
-    // Direct search for known token addresses in the hex data (using registry)
-    const registryTokens = window.registryLoader?.tokenRegistry?.tokens || {};
-    const foundTokens = [];
-    const lowerData = data.toLowerCase();
-
-    for (const [fullAddr, tokenInfo] of Object.entries(registryTokens)) {
-      const tokenAddr = fullAddr.slice(2).toLowerCase(); // Remove 0x prefix
-      if (lowerData.includes(tokenAddr)) {
-        foundTokens.push({ address: fullAddr, symbol: tokenInfo.symbol });
+    // Extract amount from second 32-byte slot if present
+    let amountIn = null;
+    if (data.length >= 128) {
+      const amountInHex = data.slice(64, 128);
+      if (amountInHex && !amountInHex.match(/^0+$/) && amountInHex !== 'f'.repeat(64)) {
+        amountIn = '0x' + amountInHex;
       }
     }
-    
-    if (foundTokens.length > 0) {
+
+    // Category-based result
+    if (category === 'swap' && allTokens.length >= 2) {
       return {
-        addresses: foundTokens.map(t => t.address),
-        tokens: foundTokens,
-        type: 'token_found',
-        dataLength: data.length / 2
+        fromToken: allTokens[0],
+        toToken: allTokens[1],
+        fromSymbol: resolveTokenSymbol(allTokens[0]) || allTokens[0],
+        toSymbol: resolveTokenSymbol(allTokens[1]) || allTokens[1],
+        amountIn: amountIn,
+        type: 'swap'
       };
     }
-    
-    // Fallback: extract any valid-looking addresses
-    const addresses = [];
-    for (let i = 0; i < data.length; i += 64) {
-      const chunk = data.slice(i, i + 64);
-      if (chunk.length === 64 && chunk.slice(0, 24) === '000000000000000000000000') {
-        const addr = '0x' + chunk.slice(24);
-        if (addr.length === 42 && 
-            addr !== '0x0000000000000000000000000000000000000000' &&
-            addr.match(/^0x[a-fA-F0-9]{40}$/)) {
-          const addrNum = BigInt(addr);
-          if (addrNum > 0x100000) { // Reasonable address threshold
-            addresses.push(addr);
-          }
-        }
-      }
+
+    if (['transfer', 'cleanup', 'sweep'].includes(category) && allTokens.length >= 1) {
+      return {
+        token: allTokens[0],
+        tokenSymbol: resolveTokenSymbol(allTokens[0]) || allTokens[0],
+        recipient: allTokens[1] || null,
+        type: 'transfer'
+      };
     }
-    
-    
-    return addresses.length > 0 ? { 
-      addresses, 
-      type: 'generic',
-      dataLength: data.length / 2 
-    } : null;
-    
+
+    // Generic fallback
+    if (allTokens.length > 0) {
+      return {
+        tokens: allTokens,
+        tokenSymbols: allTokens.map(t => resolveTokenSymbol(t) || t),
+        type: category || 'generic'
+      };
+    }
+
+    return {
+      type: category || 'unknown',
+      dataLength: data.length / 2
+    };
   } catch (error) {
+    console.error('[parseInputData] Error:', error);
     return null;
   }
 }
@@ -810,7 +862,7 @@ function parseUniversalRouterInputData(commandInfo, inputData) {
 // Uses local-metadata/registry/tokens.json
 
 /**
- * Get token symbol from address
+ * GENERIC: Get token symbol from address
  * Uses registry loader for lookups (no hardcoded values)
  */
 function getTokenSymbol(address) {
@@ -823,54 +875,6 @@ function getTokenSymbol(address) {
 
   // Fallback if registry not loaded
   return address.slice(0, 6) + '...';
-}
-
-/**
- * Format command description with parsed parameters and token names
- * Uses registry loader for intent templates (no hardcoded strings)
- */
-function formatCommandDescription(commandInfo, parsedParams, transactionValue) {
-  if (!parsedParams) {
-    // For WRAP_ETH and UNWRAP_WETH, use transaction value
-    if (commandInfo.action === 'wrap' && transactionValue) {
-      const params = { amount: formatEther(transactionValue), category: 'wrap' };
-      return window.registryLoader?.formatIntent('wrap_eth', params) ||
-             `Wrap ${formatEther(transactionValue)} ETH to WETH`;
-    }
-    if (commandInfo.action === 'unwrap') {
-      return window.registryLoader?.formatIntent('unwrap_weth', { category: 'unwrap' }) ||
-             'Unwrap WETH to ETH';
-    }
-    return commandInfo.intent;
-  }
-
-  switch (parsedParams.type) {
-    case 'transfer':
-      const fromToken = getTokenSymbol(parsedParams.token);
-      const recipient = parsedParams.recipient ? parsedParams.recipient.slice(0, 6) + '...' : 'recipient';
-      return window.registryLoader?.formatIntent('transfer_to_recipient', { token: fromToken, recipient, category: 'transfer' }) ||
-             `Transfer ${fromToken} to ${recipient}`;
-
-    case 'swap':
-      const token0 = getTokenSymbol(parsedParams.token0);
-      const token1 = getTokenSymbol(parsedParams.token1);
-      return window.registryLoader?.formatIntent('swap_with_tokens', { fromToken: token0, toToken: token1, category: 'swap' }) ||
-             `Swap ${token0} to ${token1}`;
-
-    case 'marketplace':
-      return window.registryLoader?.formatIntent('marketplace_trade', { marketplace: parsedParams.marketplace, category: 'marketplace' }) ||
-             `${parsedParams.marketplace} Trade`;
-
-    case 'generic':
-      if (parsedParams.addresses.length > 0) {
-        const firstToken = getTokenSymbol(parsedParams.addresses[0]);
-        return `${commandInfo.intent} ${firstToken}`;
-      }
-      return commandInfo.intent;
-
-    default:
-      return commandInfo.intent;
-  }
 }
 
 /**
@@ -887,165 +891,7 @@ function formatEther(hexValue) {
   }
 }
 
-/**
- * Determine main transaction intent from Universal Router calls
- */
-function getMainTransactionIntent(calls, transactionValue) {
-  if (!calls || calls.length === 0) return null;
-  
-  
-  // Look for patterns in the calls
-  const hasWrapEth = calls.some(call => call.category === 'wrap');
-  const hasUnwrapWeth = calls.some(call => call.category === 'unwrap');
-  const hasSwap = calls.some(call => call.category === 'swap');
-  const hasMarketplace = calls.some(call => call.category === 'marketplace');
-  const transferCalls = calls.filter(call => call.category === 'transfer' || call.category === 'cleanup');
-  
-  
-  // Find all unique token addresses in the transaction
-  const allTokens = new Set();
-  const foundTokenSymbols = new Set();
-  
-  calls.forEach((call, index) => {
-    if (call.parsedParams) {
-      
-      // Handle enhanced parser token format
-      if (call.parsedParams.fromToken) {
-        allTokens.add(call.parsedParams.fromToken);
-        if (call.parsedParams.fromSymbol) foundTokenSymbols.add(call.parsedParams.fromSymbol);
-      }
-      if (call.parsedParams.toToken) {
-        allTokens.add(call.parsedParams.toToken);
-        if (call.parsedParams.toSymbol) foundTokenSymbols.add(call.parsedParams.toSymbol);
-      }
-      // Handle legacy parser token format
-      if (call.parsedParams.token) {
-        allTokens.add(call.parsedParams.token);
-        if (call.parsedParams.tokenSymbol) foundTokenSymbols.add(call.parsedParams.tokenSymbol);
-      }
-      if (call.parsedParams.addresses) {
-        call.parsedParams.addresses.forEach(addr => allTokens.add(addr));
-      }
-      if (call.parsedParams.tokens) {
-        call.parsedParams.tokens.forEach(token => {
-          allTokens.add(token.address);
-          foundTokenSymbols.add(token.symbol);
-        });
-      }
-    }
-  });
-  
-  // Remove WETH from tokens to find the actual target token
-  const nonWethTokens = Array.from(allTokens).filter(token => 
-    token.toLowerCase() !== '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' &&
-    token.toLowerCase() !== '0x0000000000000000000000000000000000000000'
-  );
-  
-  
-  let fromToken = 'ETH';
-  let toToken = null;
-  
-  // If we found any non-WETH tokens, prioritize known tokens (USDC, DAI, etc) over unknown ones
-  if (nonWethTokens.length > 0) {
-    // Prioritize tokens we can resolve to symbols (like USDC)
-    let targetTokenAddress = nonWethTokens[0];
-    
-    // Find a token we can actually resolve to a symbol
-    for (const token of nonWethTokens) {
-      const symbol = resolveTokenSymbol(token);
-      if (symbol && symbol !== token) { // Found a real symbol, not just the address
-        targetTokenAddress = token;
-        break;
-      }
-    }
-    
-    // Try enhanced token resolution first, fallback to legacy
-    const targetTokenSymbol = resolveTokenSymbol(targetTokenAddress) || getTokenSymbol(targetTokenAddress);
-    
-    if (hasWrapEth && !hasUnwrapWeth) {
-      // ETH → Token
-      fromToken = 'ETH';
-      toToken = targetTokenSymbol;
-    } else if (!hasWrapEth && hasUnwrapWeth) {
-      // Token → ETH
-      fromToken = targetTokenSymbol;
-      toToken = 'ETH';
-    } else if (hasWrapEth && hasUnwrapWeth) {
-      // ETH → Token → ETH (might be a trade through the token)
-      fromToken = 'ETH';
-      toToken = targetTokenSymbol;
-    } else {
-      // Direct token operation
-      toToken = targetTokenSymbol;
-    }
-  } else if (foundTokenSymbols.size > 0) {
-    // Fallback: if we have token symbols but no clear target address
-    const symbolArray = Array.from(foundTokenSymbols);
-    const targetSymbol = symbolArray.find(s => s !== 'ETH' && s !== 'WETH') || symbolArray[0];
-    
-    if (hasWrapEth && !hasUnwrapWeth) {
-      fromToken = 'ETH';
-      toToken = targetSymbol;
-    } else if (!hasWrapEth && hasUnwrapWeth) {
-      fromToken = targetSymbol;
-      toToken = 'ETH';
-    } else {
-      toToken = targetSymbol;
-    }
-  } else {
-    // Fallback: search for known tokens in the raw transaction data
-    const rawTx = calls[0]?.bytecode || '';
-    
-    // Check for USDC specifically in the transaction data
-    if (rawTx.toLowerCase().includes('a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48')) {
-      if (hasWrapEth && !hasUnwrapWeth) {
-        fromToken = 'ETH';
-        toToken = 'USDC';
-      } else if (!hasWrapEth && hasUnwrapWeth) {
-        fromToken = 'USDC';
-        toToken = 'ETH';
-      } else {
-        toToken = 'USDC';
-      }
-    }
-    
-    // Search for known token addresses in the raw transaction (using registry)
-    const searchTokens = window.registryLoader?.tokenRegistry?.tokens || {};
-
-    for (const [fullAddr, tokenInfo] of Object.entries(searchTokens)) {
-      const tokenAddr = fullAddr.slice(2).toLowerCase(); // Remove 0x prefix
-      if (rawTx.toLowerCase().includes(tokenAddr)) {
-        const tokenSymbol = tokenInfo.symbol;
-        if (hasMarketplace && !hasWrapEth && !hasUnwrapWeth) {
-          // Direct marketplace trade
-          toToken = tokenSymbol;
-          fromToken = 'Unknown';
-        } else if (hasWrapEth) {
-          fromToken = 'ETH';
-          toToken = tokenSymbol;
-        } else if (hasUnwrapWeth) {
-          fromToken = tokenSymbol;
-          toToken = 'ETH';
-        } else {
-          toToken = tokenSymbol;
-        }
-        break;
-      }
-    }
-  }
-  
-  
-  // Format the intent
-  if (hasMarketplace && (hasWrapEth || hasUnwrapWeth)) {
-    return toToken ? `Swap ${fromToken} to ${toToken}` : `Swap ${fromToken}`;
-  } else if (hasSwap) {
-    return toToken ? `Swap ${fromToken} to ${toToken}` : 'Token Swap';
-  } else if (transferCalls.length > 0 && toToken) {
-    return hasWrapEth ? `Swap ${fromToken} to ${toToken}` : `Transfer ${toToken}`;
-  }
-  
-  return null;
-}
+// NOTE: All intent extraction is now handled by parseProtocolTransaction() using ERC-7730 metadata
 
 /**
  * Get function name from selector
@@ -1063,416 +909,18 @@ function getFunctionNameFromSelector(selector) {
 // Wallet detection and hooking
 const hookedWallets = new Set();
 
-// Check if we're running on Safe
-function isSafeApp() {
-  return window.location.hostname === 'app.safe.global' || 
-         window.location.hostname.includes('safe.global');
-}
+// =============================================================================
+// GENERIC PROTOCOL DETECTION (METADATA-DRIVEN - NO PROTOCOL-SPECIFIC CODE)
+// =============================================================================
 
-// Safe-specific transaction detection
-function detectSafeTransactions() {
-  if (!isSafeApp()) return;
-  
-  // Starting Safe transaction detection
-  
-  // STRATEGY 1: Advanced DOM Observer for Safe UI
-  setupAdvancedSafeObserver();
-  
-  // STRATEGY 2: Polling for Safe transaction data in DOM
-  setupSafeTransactionPolling();
-  
-  // STRATEGY 3: Hook Safe UI button clicks
-  hookSafeSignatureButtons();
-  
-  // STRATEGY 4: Monitor Safe transaction confirmation dialogs
-  monitorSafeConfirmationDialogs();
-}
-
-function setupAdvancedSafeObserver() {
-  try {
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        // Check added nodes
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            checkSafeTransactionElements(node);
-          }
-        });
-        
-        // Check attribute changes for Safe transaction updates
-        if (mutation.type === 'attributes' && mutation.target) {
-          const target = mutation.target;
-          if (target.textContent && (
-            target.textContent.includes('0x8d80ff0a') || // multiSend selector
-            target.textContent.includes('0x9641d764') || // MultiSendCallOnly
-            target.textContent.includes('Primary type: SafeTx') ||
-            target.textContent.includes('Operation:')
-          )) {
-            extractSafeTransactionData();
-          }
-        }
-      });
-    });
-    
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class', 'data-testid', 'aria-label'],
-      characterData: true
-    });
-    
-  } catch (error) {
-    console.error('[KaiSign-Safe] Error setting up advanced Safe observer:', error);
-  }
-}
-
-function checkSafeTransactionElements(element) {
-  // Check for Safe transaction interface elements
-  const safeSelectors = [
-    '[data-testid*="transaction"]',
-    '[data-testid*="sign"]', 
-    '[class*="transaction"]',
-    '[class*="Transaction"]',
-    '[class*="signature"]',
-    '[class*="Signature"]',
-    '[aria-label*="transaction"]',
-    '[aria-label*="sign"]',
-    'pre', 'code',
-    '[class*="data"]',
-    '[class*="Data"]'
-  ];
-  
-  safeSelectors.forEach(selector => {
-    const txElements = element.querySelectorAll ? element.querySelectorAll(selector) : [];
-    if (txElements.length > 0) {
-      
-      txElements.forEach(txElement => {
-        const text = txElement.textContent || txElement.innerText || '';
-        if (text.includes('0x') && text.length > 20) {
-          extractSafeTransactionFromElement(txElement);
-        }
-      });
-    }
-  });
-}
-
-function setupSafeTransactionPolling() {
-  
-  let lastProcessedData = '';
-  
-  const pollInterval = setInterval(() => {
-    // Look for transaction data in the current DOM
-    const allText = document.body.innerText || '';
-    
-    // Check for your specific transaction pattern
-    if (allText.includes('Primary type: SafeTx') && 
-        allText.includes('To: 0x9641d') && 
-        allText.includes('Data: 0x8d80ff0a')) {
-      
-      const currentData = allText.slice(allText.indexOf('Primary type: SafeTx'), allText.indexOf('Primary type: SafeTx') + 500);
-      
-      if (currentData !== lastProcessedData) {
-        console.log('[KaiSign-Safe] Transaction found in DOM');
-        
-        lastProcessedData = currentData;
-        
-        // Extract and process the Safe transaction
-        extractSafeTransactionFromDomText(allText);
-        
-        // Clear interval once found
-        clearInterval(pollInterval);
-      }
-    }
-  }, 500);
-  
-  // Clear polling after 30 seconds to avoid infinite polling
-  setTimeout(() => {
-    clearInterval(pollInterval);
-  }, 30000);
-}
-
-function extractSafeTransactionFromDomText(domText) {
-  // Extract Safe transaction from DOM text
-  
-  try {
-    // Parse the DOM text for Safe transaction details
-    const toMatch = domText.match(/To:\s*(0x[a-fA-F0-9]{40})/);
-    const dataMatch = domText.match(/Data:\s*(0x[a-fA-F0-9]+)/);
-    const operationMatch = domText.match(/Operation:\s*(\d+)/);
-    const nonceMatch = domText.match(/Nonce:\s*(\d+)/);
-    
-    if (toMatch && dataMatch) {
-      const to = toMatch[1];
-      const data = dataMatch[1];
-      const operation = operationMatch ? parseInt(operationMatch[1]) : 0;
-      const nonce = nonceMatch ? parseInt(nonceMatch[1]) : 0;
-      
-      
-      // Create Safe transaction object
-      const safeTx = {
-        to,
-        value: '0',
-        data,
-        operation,
-        nonce
-      };
-      
-      // Create typed data structure
-      const typedData = {
-        types: {
-          SafeTx: [
-            { name: 'to', type: 'address' },
-            { name: 'value', type: 'uint256' },
-            { name: 'data', type: 'bytes' },
-            { name: 'operation', type: 'uint8' },
-            { name: 'nonce', type: 'uint256' }
-          ]
-        },
-        domain: {
-          name: 'Safe',
-          verifyingContract: '0xA1023ea549dAA39a108bC26d63bd8daA68E4a226' // Your Safe address
-        },
-        message: safeTx
-      };
-      
-      console.log('[KaiSign-Safe] Triggering Safe signature request');
-      handleSafeSignatureRequest(typedData, 'Safe User', 'Safe Wallet DOM');
-      
-      // Also trigger regular transaction processing
-      getIntentAndShow(safeTx, 'Safe Transaction (DOM)', 'Safe Wallet', { 
-        isSafeSignature: true,
-        extractedFromDom: true 
-      });
-    }
-  } catch (error) {
-    console.error('[KaiSign-Safe] Error extracting Safe transaction from DOM:', error);
-  }
-}
-
-function hookSafeSignatureButtons() {
-  
-  // Look for and hook Safe signature buttons
-  const buttonSelectors = [
-    'button[data-testid*="sign"]',
-    'button[aria-label*="sign"]', 
-    'button:contains("Sign")',
-    'button:contains("Confirm")',
-    'button:contains("Execute")',
-    '[role="button"]:contains("Sign")'
-  ];
-  
-  const hookButton = (button) => {
-    if (button._kaisignHooked) return;
-    
-    
-    const originalClick = button.onclick;
-    button.onclick = function(event) {
-      
-      // Extract transaction data before signature
-      setTimeout(() => {
-        extractSafeTransactionData();
-        extractSafeTransactionFromDomText(document.body.innerText);
-      }, 100);
-      
-      if (originalClick) {
-        return originalClick.apply(this, arguments);
-      }
-    };
-    
-    button.addEventListener('click', () => {
-      setTimeout(() => {
-        extractSafeTransactionData();
-      }, 200);
-    });
-    
-    button._kaisignHooked = true;
-  };
-  
-  // Hook existing buttons
-  buttonSelectors.forEach(selector => {
-    try {
-      document.querySelectorAll(selector).forEach(hookButton);
-    } catch (e) {
-      // Selector might not be valid, skip
-    }
-  });
-  
-  // Hook new buttons as they appear
-  const buttonObserver = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          if (node.tagName === 'BUTTON' && 
-              (node.textContent.includes('Sign') || 
-               node.textContent.includes('Confirm') ||
-               node.getAttribute('data-testid')?.includes('sign'))) {
-            hookButton(node);
-          }
-          
-          // Check child buttons
-          node.querySelectorAll && node.querySelectorAll('button').forEach(button => {
-            if (button.textContent.includes('Sign') || 
-                button.textContent.includes('Confirm') ||
-                button.getAttribute('data-testid')?.includes('sign')) {
-              hookButton(button);
-            }
-          });
-        }
-      });
-    });
-  });
-  
-  buttonObserver.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-}
-
-function monitorSafeConfirmationDialogs() {
-  
-  const dialogObserver = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          // Look for dialog/modal elements
-          if (node.matches && (
-            node.matches('[role="dialog"]') ||
-            node.matches('[class*="modal"]') ||
-            node.matches('[class*="Modal"]') ||
-            node.matches('[class*="dialog"]') ||
-            node.matches('[class*="Dialog"]'))) {
-            
-            
-            // Check if this dialog contains transaction data
-            const dialogText = node.innerText || '';
-            if (dialogText.includes('Transaction') || 
-                dialogText.includes('Sign') ||
-                dialogText.includes('0x')) {
-              
-              setTimeout(() => {
-                extractSafeTransactionFromElement(node);
-                extractSafeTransactionFromDomText(dialogText);
-              }, 500);
-            }
-          }
-        }
-      });
-    });
-  });
-  
-  dialogObserver.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-}
-
-function extractSafeTransactionFromElement(element) {
-  try {
-    const text = element.textContent || element.innerText || '';
-    
-    // Look for specific patterns in the element
-    if (text.includes('0x8d80ff0a') || text.includes('multiSend') || text.includes('Primary type: SafeTx')) {
-      extractSafeTransactionFromDomText(text);
-    }
-    
-    // Also check for data attributes
-    const dataAttrs = ['data-transaction', 'data-tx', 'data-safe-tx'];
-    dataAttrs.forEach(attr => {
-      const attrValue = element.getAttribute && element.getAttribute(attr);
-      if (attrValue && attrValue.includes('0x')) {
-        try {
-          const txData = JSON.parse(attrValue);
-          getIntentAndShow(txData, 'Safe Transaction (Attribute)', 'Safe Wallet', { 
-            isSafeSignature: true,
-            extractedFromAttribute: true 
-          });
-        } catch (e) {
-        }
-      }
-    });
-  } catch (error) {
-  }
-}
-
-// Extract Safe transaction data from the UI
-function extractSafeTransactionData() {
-  try {
-    // Look for transaction data in the Safe UI
-    const dataElements = document.querySelectorAll('[class*="data"], [class*="Data"], pre, code');
-    
-    for (const element of dataElements) {
-      const text = element.textContent || element.innerText;
-      if (text && text.includes('0x') && text.length > 50) {
-        console.log('[KaiSign] Safe transaction data detected');
-        console.log('[KaiSign] DOM text sample:', text.slice(0, 200) + '...');
-        
-        // Try to extract transaction components
-        const lines = text.split('\n');
-        let toAddress = null;
-        let data = null;
-        let value = null;
-        
-        for (const line of lines) {
-          const trimmed = line.trim();
-          console.log('[KaiSign] Checking line:', trimmed.slice(0, 100));
-          
-          if (trimmed.toLowerCase().includes('to') && trimmed.includes('0x')) {
-            const match = trimmed.match(/0x[a-fA-F0-9]{40}/);
-            if (match) {
-              toAddress = match[0];
-              console.log('[KaiSign] Found TO address:', toAddress);
-            }
-          }
-          if (trimmed.toLowerCase().includes('data') && trimmed.includes('0x')) {
-            const match = trimmed.match(/0x[a-fA-F0-9]+/);
-            if (match && match[0].length > 10) {
-              data = match[0];
-              console.log('[KaiSign] Found DATA:', data.slice(0, 50) + '...');
-            }
-          }
-          if (trimmed.toLowerCase().includes('value')) {
-            const match = trimmed.match(/0x[a-fA-F0-9]+/);
-            if (match) {
-              value = match[0];
-              console.log('[KaiSign] Found VALUE:', value);
-            }
-          }
-        }
-        
-        if (toAddress && data) {
-          console.log('[KaiSign] ✅ Safe transaction extracted - triggering popup');
-          
-          // Create transaction object and analyze
-          const tx = {
-            to: toAddress,
-            data: data,
-            value: value || '0x0'
-          };
-          
-          getIntentAndShow(tx, 'Safe Transaction', 'Safe Wallet', { 
-            isSafeSignature: true,
-            extractedFromDOM: true 
-          });
-          break;
-        } else {
-          console.log('[KaiSign] ❌ Failed to extract To/Data from Safe transaction');
-        }
-      }
-    }
-  } catch (error) {
-    console.log('[KaiSign] Safe transaction extraction failed:', error.message);
-  }
-}
+// NOTE: Protocol-specific functions have been removed
+// All transaction parsing is now done via generic parseProtocolTransaction() using ERC-7730 metadata
 
 // Wait for any wallet
 function waitForWallets() {
   // Check for different wallet providers
   detectAndHookWallets();
-  
-  // Also check for Safe-specific transactions
-  detectSafeTransactions();
-  
+
   // Keep checking for new wallets (some load late)
   setTimeout(waitForWallets, 500);
 }
@@ -1520,203 +968,9 @@ function detectAndHookWallets() {
       }
     });
   }
-  
-  // 7. CRITICAL: Safe Wallet Detection and Hooking
-  detectAndHookSafeWallet();
-  
-  // 8. Hook Safe SDK if available
-  hookSafeSDK();
-  
-  // 9. Hook Safe API calls
-  hookSafeApiCalls();
-}
 
-/**
- * CRITICAL SAFE WALLET DETECTION AND HOOKING
- * This is the missing piece that prevents Safe popup from appearing
- */
-
-function detectAndHookSafeWallet() {
-  // Detecting Safe wallet providers
-  
-  // Strategy 1: Hook window.safe (Safe Wallet Web Extension)
-  if (window.safe && !hookedWallets.has('safe-extension')) {
-    if (window.safe.request) {
-      hookWalletProvider(window.safe, 'safe-extension', 'Safe Web Extension');
-      hookedWallets.add('safe-extension');
-    }
-  }
-  
-  // Strategy 2: Hook window.SafeProvider (Safe SDK)
-  if (window.SafeProvider && !hookedWallets.has('safe-provider')) {
-    if (window.SafeProvider.request) {
-      hookWalletProvider(window.SafeProvider, 'safe-provider', 'Safe Provider');
-      hookedWallets.add('safe-provider');
-    }
-  }
-  
-  // Strategy 3: Look for Safe in ethereum providers array
-  if (window.ethereum?.providers) {
-    window.ethereum.providers.forEach((provider, index) => {
-      if (provider.isSafe || provider._metamask?.isSafe || (provider.constructor && provider.constructor.name === 'SafeProvider')) {
-        const walletKey = `safe-provider-${index}`;
-        if (!hookedWallets.has(walletKey)) {
-          hookWalletProvider(provider, walletKey, 'Safe Wallet');
-          hookedWallets.add(walletKey);
-        }
-      }
-    });
-  }
-  
-  // Strategy 4: Hook window object for Safe-specific globals
-  const safeGlobals = ['__SAFE__', 'safeConnector', 'SafeAppsSDK'];
-  safeGlobals.forEach(globalName => {
-    if (window[globalName] && typeof window[globalName] === 'object') {
-      hookSafeGlobal(window[globalName], globalName);
-    }
-  });
-  
-  // Strategy 5: Hook Safe-specific events
-  hookSafeEvents();
-}
-
-function hookSafeGlobal(safeObj, globalName) {
-  try {
-    if (safeObj.request && typeof safeObj.request === 'function') {
-      const walletKey = `safe-global-${globalName}`;
-      if (!hookedWallets.has(walletKey)) {
-        hookWalletProvider(safeObj, walletKey, `Safe ${globalName}`);
-        hookedWallets.add(walletKey);
-      }
-    }
-  } catch (error) {
-  }
-}
-
-function hookSafeEvents() {
-  // Setting up Safe event listeners
-  
-  // Listen for Safe-specific custom events
-  const safeEvents = [
-    'safe_signTypedData',
-    'safe_signMessage', 
-    'safe_signTransaction',
-    'safe_sendTransaction',
-    'safe_transactionProposal',
-    'safe_signatureRequest'
-  ];
-  
-  safeEvents.forEach(eventName => {
-    document.addEventListener(eventName, (event) => {
-      handleSafeCustomEvent(eventName, event.detail);
-    });
-  });
-  
-  // Listen for SafeAppsSDK events
-  if (window.addEventListener) {
-    window.addEventListener('message', (event) => {
-      if (event.origin === window.location.origin && event.data) {
-        const data = event.data;
-        
-        // Check for Safe Apps SDK messages
-        if (data.messageId && data.method) {
-          
-          if (data.method === 'signTypedMessage' || data.method === 'signMessage') {
-            handleSafeSdkSignRequest(data);
-          }
-        }
-      }
-    });
-  }
-}
-
-function handleSafeCustomEvent(eventName, eventData) {
-  
-  if (eventData && eventData.params) {
-    // Extract signature data from Safe custom event
-    const params = eventData.params;
-    
-    if (eventName.includes('signTypedData') && params.typedData) {
-      handleSafeSignatureRequest(params.typedData, params.address || 'Unknown', 'Safe Wallet');
-    } else if (eventName.includes('Transaction') && params.transaction) {
-      // Handle Safe transaction events
-      getIntentAndShow(params.transaction, eventName, 'Safe Wallet', { isSafeEvent: true });
-    }
-  }
-}
-
-function handleSafeSdkSignRequest(sdkData) {
-  
-  if (sdkData.params && sdkData.method === 'signTypedMessage') {
-    const typedData = sdkData.params.typedData || sdkData.params.message;
-    const address = sdkData.params.address || 'Unknown';
-    
-    if (typedData) {
-      handleSafeSignatureRequest(typedData, address, 'Safe SDK');
-    }
-  }
-}
-
-function hookSafeSDK() {
-  // Hooking Safe SDK
-  
-  // Hook SafeAppsSDK if available
-  if (window.SafeAppsSDK && !hookedWallets.has('safe-apps-sdk')) {
-    try {
-      const sdk = window.SafeAppsSDK;
-      
-      // Hook SDK methods
-      if (sdk.txs && typeof sdk.txs.signTypedMessage === 'function') {
-        const originalSignTypedMessage = sdk.txs.signTypedMessage;
-        sdk.txs.signTypedMessage = function(typedData) {
-          
-          // Process the Safe signature request
-          handleSafeSignatureRequest(typedData, 'Unknown', 'Safe Apps SDK');
-          
-          // Call original method
-          return originalSignTypedMessage.apply(this, arguments);
-        };
-      }
-      
-      hookedWallets.add('safe-apps-sdk');
-    } catch (error) {
-    }
-  }
-}
-
-function hookSafeApiCalls() {
-  // Hooking Safe API calls
-  
-  // Hook fetch for Safe API requests
-  if (window.fetch && !window._kaisignFetchHooked) {
-    const originalFetch = window.fetch;
-    
-    window.fetch = async function(url, options) {
-      // Check for Safe API calls
-      if (typeof url === 'string' && (url.includes('safe.global') || url.includes('gnosis-safe'))) {
-        
-        // Check if it's a signature-related API call
-        if (url.includes('/signatures') || url.includes('/confirm') || options?.method === 'POST') {
-          
-          // Try to extract transaction data from request body
-          if (options?.body) {
-            try {
-              const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
-              
-              if (body.safeTxHash || body.transactionHash) {
-                // This might be a signature submission - could trigger popup
-              }
-            } catch (parseError) {
-            }
-          }
-        }
-      }
-      
-      return originalFetch.apply(this, arguments);
-    };
-    
-    window._kaisignFetchHooked = true;
-  }
+  // NOTE: All wallet providers are hooked generically above
+  // Protocol-specific detection functions have been removed
 }
 
 // Get wallet name from provider
@@ -1733,307 +987,114 @@ function getWalletName(provider) {
 }
 
 /**
- * Handle Safe signature requests (eth_signTypedData_v4)
+ * GENERIC: Handle typed data signature requests (EIP-712)
+ * Works for any protocol with EIP-712 typed data (multisig, permits, etc.)
+ * Reads protocol configuration from ERC-7730 metadata
  */
-function handleSafeSignatureRequest(typedData, signerAddress, walletName) {
+async function handleTypedDataSignature(typedData, signerAddress, walletName) {
   try {
-    console.log('[KaiSign] Parsing Safe signature request:', typedData);
-    
-    // Track Safe signature activity
-    analyzeSafeSignatureActivity(typedData, signerAddress, walletName);
-    
-    // Check if this is a Safe transaction signature request
-    console.log('[KaiSign] Checking SafeTx condition:', { hasTypes: !!typedData.types, hasSafeTx: !!(typedData.types?.SafeTx) });
-    if (typedData.types && typedData.types.SafeTx) {
-      console.log('[KaiSign] ✅ SAFE TRANSACTION DETECTED - proceeding to getIntentAndShow');
-      const safeTx = typedData.message;
-      
-      // Convert Safe transaction to standard transaction format
-      const tx = {
-        to: safeTx.to,
-        value: safeTx.value || '0x0',
-        data: safeTx.data || '0x',
-        from: signerAddress
-      };
-      
-      // Add Safe-specific context with enhanced analysis
+    console.log('[KaiSign] Processing EIP-712 signature request');
+
+    // Detect protocol from typed data structure using metadata
+    const protocolInfo = detectProtocolFromTypedData(typedData);
+
+    // Extract transaction data if present in typed data
+    const txData = extractTxFromTypedData(typedData, protocolInfo);
+
+    if (txData && txData.data) {
+      // Parse the embedded transaction using generic protocol parser
+      const chainId = typedData?.domain?.chainId || 1;
+      const decoded = await parseProtocolTransaction(txData.data, txData.to, chainId, txData.value);
+
+      // Build context for display
       const context = {
-        operation: safeTx.operation,
-        safeTxGas: safeTx.safeTxGas,
-        baseGas: safeTx.baseGas,
-        gasPrice: safeTx.gasPrice,
-        gasToken: safeTx.gasToken,
-        refundReceiver: safeTx.refundReceiver,
-        nonce: safeTx.nonce,
-        isSafeSignature: true,
-        safeAddress: typedData.domain?.verifyingContract,
-        chainId: typedData.domain?.chainId,
-        safeName: typedData.domain?.name || 'Safe',
-        safeVersion: typedData.domain?.version,
-        multisigThreshold: detectMultisigThreshold(typedData),
-        operationType: safeTx.operation === 0 ? 'CALL' : 'DELEGATECALL'
+        isTypedDataSignature: true,
+        protocolId: protocolInfo?.id || 'unknown',
+        protocolName: protocolInfo?.name || 'Protocol',
+        signerAddress: signerAddress,
+        domain: typedData?.domain
       };
-      
-      
-      // Show Safe-specific notification
-      try {
-        showSafeSignatureNotification(safeTx, context, signerAddress, walletName);
-      } catch (notifError) {
-        console.error('[KaiSign] Safe notification error:', notifError);
-      }
-      
-      // Process the transaction data like a regular transaction
-      console.log('[KaiSign] 🚀 CALLING getIntentAndShow for Safe transaction:', { to: tx.to, dataLength: tx.data?.length });
-      getIntentAndShow(tx, 'eth_signTypedData_v4 (Safe Multisig)', walletName, context);
+
+      // Show transaction info with parsed intent
+      const intent = decoded?.intent || 'Signature Request - parsing...';
+      getIntentAndShow(txData, 'eth_signTypedData_v4', walletName, context);
     } else {
-      // Handle other typed data signatures (EIP-712)
-      console.log('[KaiSign] Processing EIP-712 signature:', typedData);
-      handleEIP712Signature(typedData, signerAddress, walletName);
+      // No embedded transaction - show typed data structure info
+      console.log('[KaiSign] No embedded transaction in typed data');
+      showTypedDataInfo(typedData, signerAddress, walletName);
     }
   } catch (error) {
-    console.error('[KaiSign] Error parsing Safe signature request:', error);
+    console.error('[KaiSign] Error handling typed data signature:', error);
   }
 }
 
 /**
- * Analyze Safe signature activity patterns
+ * GENERIC: Detect protocol from EIP-712 typed data structure
+ * Uses metadata to identify protocol by type names
  */
-function analyzeSafeSignatureActivity(typedData, signerAddress, walletName) {
-  const timestamp = Date.now();
-  
-  // Track Safe signature requests
-  if (!rpcActivity.patterns.safeSignatures) {
-    rpcActivity.patterns.safeSignatures = [];
+function detectProtocolFromTypedData(typedData) {
+  const types = typedData?.types || {};
+  const typeNames = Object.keys(types).filter(t => t !== 'EIP712Domain');
+
+  // Check metadata for protocol with matching type definitions
+  const allMetadata = window.metadataService?.getAllProtocolMetadata?.() || {};
+
+  for (const [protocolId, metadata] of Object.entries(allMetadata)) {
+    const typedDataConfig = metadata?.typedData || metadata?.display?.typedData;
+    if (typedDataConfig?.primaryType && typeNames.includes(typedDataConfig.primaryType)) {
+      return { id: protocolId, name: metadata.name || protocolId, config: typedDataConfig };
+    }
   }
-  
-  const signatureData = {
-    timestamp,
-    signer: signerAddress,
-    wallet: walletName,
-    safeAddress: typedData.domain?.verifyingContract,
-    chainId: typedData.domain?.chainId,
-    nonce: typedData.message?.nonce,
-    isSafeTransaction: !!(typedData.types && typedData.types.SafeTx)
+
+  // Fallback: detect by common type patterns (no protocol-specific hardcoding)
+  // Check for multisig-related type names
+  const multisigPatterns = ['multisig', 'safetx', 'gnosis', 'multisend'];
+  if (typeNames.some(t => multisigPatterns.some(p => t.toLowerCase().includes(p)))) {
+    return { id: 'multisig', name: 'Multisig Wallet' };
+  }
+  if (typeNames.some(t => t.toLowerCase().includes('permit'))) {
+    return { id: 'permit', name: 'Token Permit' };
+  }
+
+  return { id: 'eip712', name: 'EIP-712 Signature' };
+}
+
+/**
+ * GENERIC: Extract transaction data from typed data message
+ */
+function extractTxFromTypedData(typedData, protocolInfo) {
+  const message = typedData?.message;
+  if (!message) return null;
+
+  // Common patterns for embedded transaction data
+  return {
+    to: message.to || message.target || message.recipient,
+    value: message.value || message.amount || '0',
+    data: message.data || message.callData || message.input || '0x',
+    operation: message.operation
   };
-  
-  rpcActivity.patterns.safeSignatures.push(signatureData);
-  
-  // Keep only recent signatures (last 24 hours)
-  const oneDayAgo = timestamp - (24 * 60 * 60 * 1000);
-  rpcActivity.patterns.safeSignatures = rpcActivity.patterns.safeSignatures.filter(
-    sig => sig.timestamp > oneDayAgo
+}
+
+/**
+ * GENERIC: Show typed data info when no embedded transaction
+ */
+function showTypedDataInfo(typedData, signerAddress, walletName) {
+  const domain = typedData?.domain || {};
+  const primaryType = typedData?.primaryType || 'Unknown';
+
+  console.log(`[KaiSign] Typed data signature: ${primaryType}`);
+  console.log(`[KaiSign] Domain: ${domain.name || 'Unknown'} on chain ${domain.chainId || 'unknown'}`);
+
+  // Show generic signature notification
+  const message = typedData?.message || {};
+  showEnhancedTransactionInfo(
+    { to: domain.verifyingContract, data: '0x', value: '0' },
+    'eth_signTypedData_v4',
+    `${primaryType} Signature Request`,
+    walletName,
+    { success: true, functionName: primaryType, intent: `Sign ${primaryType}` },
+    []
   );
-  
-  // Detect rapid Safe signing (potential automation/bot activity)
-  const recentSignatures = rpcActivity.patterns.safeSignatures.filter(
-    sig => timestamp - sig.timestamp < 60000 // Last 1 minute
-  );
-  
-  if (recentSignatures.length > 5) {
-    rpcActivity.security.suspiciousActivity.push({
-      type: 'rapid_safe_signing',
-      count: recentSignatures.length,
-      timestamp,
-      safeAddress: typedData.domain?.verifyingContract,
-      signer: signerAddress,
-      pattern: 'potential_automation'
-    });
-  }
-  
-  // Track multisig coordination patterns
-  if (typedData.domain?.verifyingContract) {
-    trackMultisigCoordination(typedData.domain.verifyingContract, signerAddress, timestamp);
-  }
-}
-
-/**
- * Detect multisig threshold from Safe transaction data
- */
-function detectMultisigThreshold(typedData) {
-  // This would typically require additional Safe API calls
-  // For now, we'll mark it as unknown but trackable
-  return 'Unknown (requires Safe API)';
-}
-
-/**
- * Track multisig coordination patterns
- */
-function trackMultisigCoordination(safeAddress, signer, timestamp) {
-  if (!rpcActivity.patterns.multisigCoordination) {
-    rpcActivity.patterns.multisigCoordination = {};
-  }
-  
-  if (!rpcActivity.patterns.multisigCoordination[safeAddress]) {
-    rpcActivity.patterns.multisigCoordination[safeAddress] = {
-      signers: new Set(),
-      signatures: [],
-      lastActivity: null
-    };
-  }
-  
-  const coordination = rpcActivity.patterns.multisigCoordination[safeAddress];
-  coordination.signers.add(signer);
-  coordination.signatures.push({ signer, timestamp });
-  coordination.lastActivity = timestamp;
-  
-  // Keep only recent signatures
-  const oneHourAgo = timestamp - (60 * 60 * 1000);
-  coordination.signatures = coordination.signatures.filter(
-    sig => sig.timestamp > oneHourAgo
-  );
-  
-}
-
-/**
- * Handle EIP-712 signatures (non-Safe)
- */
-function handleEIP712Signature(typedData, signerAddress, walletName) {
-  console.log('[KaiSign] Processing EIP-712 signature');
-  
-  // Track EIP-712 activity
-  handleRpcMethod('eth_signTypedData_v4', [signerAddress, typedData], walletName);
-  
-  // Show EIP-712 notification
-  showEIP712Notification(typedData, signerAddress, walletName);
-}
-
-/**
- * Show Safe-specific signature notification
- */
-function showSafeSignatureNotification(safeTx, context, signerAddress, walletName) {
-  const notification = document.createElement('div');
-  notification.style.cssText = `
-    position: fixed;
-    top: 20px;
-    left: 20px;
-    width: 350px;
-    background: #2d3748;
-    color: white;
-    padding: 15px;
-    border-radius: 10px;
-    z-index: 999997;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-    border: 2px solid #4a5568;
-    border-left: 6px solid #f093fb;
-  `;
-  
-  const operationType = context.operationType || 'CALL';
-  const safeAddress = context.safeAddress || 'Unknown';
-  const operationColor = operationType === 'DELEGATECALL' ? '#ff6b6b' : '#68d391';
-  
-  notification.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-      <strong style="color: #f093fb; font-size: 13px;">🔐 Safe Multisig Signature</strong>
-      <button onclick="this.parentElement.parentElement.remove()" style="
-        background: #e53e3e;
-        color: white;
-        border: none;
-        padding: 4px 8px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 10px;
-      ">✕</button>
-    </div>
-    
-    <div style="margin-bottom: 10px;">
-      <div style="color: #68d391; font-weight: bold; margin-bottom: 4px;">
-        ${context.safeName} (${context.safeVersion || 'Unknown version'})
-      </div>
-      <div style="font-size: 10px; color: #a0aec0; word-break: break-all;">
-        Safe: ${safeAddress.slice(0, 10)}...${safeAddress.slice(-8)}
-      </div>
-    </div>
-    
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; font-size: 10px;">
-      <div><strong style="color: #ffd700;">Operation:</strong> <span style="color: ${operationColor};">${operationType}</span></div>
-      <div><strong style="color: #ffd700;">Nonce:</strong> ${context.nonce}</div>
-      <div><strong style="color: #ffd700;">To:</strong> ${safeTx.to?.slice(0, 8)}...</div>
-      <div><strong style="color: #ffd700;">Value:</strong> ${safeTx.value} ETH</div>
-    </div>
-    
-    <div style="background: #1a202c; padding: 8px; border-radius: 6px; margin-bottom: 10px;">
-      <div style="color: #63b3ed; font-size: 10px; margin-bottom: 4px;">Gas Configuration:</div>
-      <div style="font-size: 9px; color: #a0aec0;">
-        Safe Gas: ${context.safeTxGas} | Base Gas: ${context.baseGas}<br>
-        Gas Price: ${context.gasPrice} | Token: ${context.gasToken || 'ETH'}
-      </div>
-    </div>
-    
-    <div style="font-size: 10px; color: #a0aec0; text-align: center; margin-top: 10px;">
-      Signer: ${signerAddress?.slice(0, 8)}...${signerAddress?.slice(-6)} | ${walletName}
-    </div>
-  `;
-  
-  document.body.appendChild(notification);
-  
-  // Auto-remove after 12 seconds (longer for Safe signatures)
-  setTimeout(() => {
-    if (notification.parentNode) notification.remove();
-  }, 12000);
-}
-
-/**
- * Show EIP-712 signature notification
- */
-function showEIP712Notification(typedData, signerAddress, walletName) {
-  const notification = document.createElement('div');
-  notification.style.cssText = `
-    position: fixed;
-    top: 20px;
-    left: 20px;
-    width: 300px;
-    background: #2d3748;
-    color: white;
-    padding: 12px;
-    border-radius: 8px;
-    z-index: 999997;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    border-left: 4px solid #9f7aea;
-  `;
-  
-  const domain = typedData.domain || {};
-  const primaryType = typedData.primaryType || 'Unknown';
-  
-  notification.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-      <strong style="color: #9f7aea;">📝 EIP-712 Signature</strong>
-      <button onclick="this.parentElement.parentElement.remove()" style="
-        background: #e53e3e;
-        color: white;
-        border: none;
-        padding: 2px 6px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 9px;
-      ">✕</button>
-    </div>
-    
-    <div style="margin-bottom: 8px;">
-      <div style="color: #b794f6; font-weight: bold;">${primaryType}</div>
-      <div style="font-size: 10px; color: #a0aec0;">
-        ${domain.name || 'Unknown dApp'} ${domain.version ? `v${domain.version}` : ''}
-      </div>
-    </div>
-    
-    <div style="font-size: 10px; color: #a0aec0;">
-      ${domain.verifyingContract ? `Contract: ${domain.verifyingContract.slice(0, 10)}...` : ''}
-      ${domain.chainId ? `| Chain: ${domain.chainId}` : ''}
-    </div>
-    
-    <div style="margin-top: 8px; font-size: 10px; color: #a0aec0; text-align: center;">
-      ${walletName} | ${signerAddress?.slice(0, 8)}...${signerAddress?.slice(-6)}
-    </div>
-  `;
-  
-  document.body.appendChild(notification);
-  
-  setTimeout(() => {
-    if (notification.parentNode) notification.remove();
-  }, 8000);
 }
 
 /**
@@ -2094,13 +1155,13 @@ const ETHEREUM_RPC_METHODS = {
     'wallet_switchEthereumChain' // Switch chains
   ],
   
-  // Safe Wallet specific methods
-  SAFE: [
-    'safe_setSettings',         // Safe settings changes
-    'safe_getSettings',         // Get Safe settings
+  // Wallet extension methods (snaps, plugins, custom methods)
+  WALLET_EXTENSIONS: [
     'wallet_invokeSnap',        // Snap invocation (MetaMask Snaps)
     'wallet_requestSnaps',      // Request Snap permissions
-    'wallet_getSnaps'           // Get installed snaps
+    'wallet_getSnaps',          // Get installed snaps
+    'wallet_registerOnboarding', // Wallet onboarding
+    'wallet_watchAsset'         // Add custom token
   ]
 };
 
@@ -2294,17 +1355,16 @@ function showRpcActivityNotification(method, params, category, walletName) {
     border-left: 4px solid #3182ce;
   `;
   
-  // Format method description
-  const methodDescriptions = {
-    'wallet_addEthereumChain': '🔗 Adding Custom Network',
-    'wallet_switchEthereumChain': '🔄 Switching Networks',
-    'eth_requestAccounts': '👤 Requesting Account Access',
-    'eth_subscribe': '📡 Setting Up Real-time Subscription',
-    'eth_sendRawTransaction': '📤 Broadcasting Raw Transaction',
-    'eth_unsubscribe': '📡 Cancelling Subscription'
+  // Format method description - use registry for method descriptions
+  const getMethodDescription = (method) => {
+    const desc = window.registryLoader?.getMethodDescription?.(method);
+    if (desc) return desc;
+    // Fallback to readable method name without hardcoded emojis
+    const methodParts = method.split('_');
+    return methodParts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
   };
-  
-  const description = methodDescriptions[method] || `📋 ${method}`;
+
+  const description = getMethodDescription(method);
   
   notification.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -2357,7 +1417,7 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
       if (isTransactionMethod(args.method)) {
         // Transaction and signature methods
         if (args.method === 'eth_signTypedData_v4') {
-          // Handle Safe signature requests
+          // Handle EIP-712 typed data signature requests
           const typedDataRaw = args.params?.[1];
           const address = args.params?.[0];
           
@@ -2366,13 +1426,13 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
             let typedData;
             try {
               typedData = typeof typedDataRaw === 'string' ? JSON.parse(typedDataRaw) : typedDataRaw;
-              console.log('[KaiSign] 🔧 Parsed typedData:', { hasTypes: !!typedData.types, hasSafeTx: !!(typedData.types?.SafeTx) });
+              console.log('[KaiSign] Parsed typedData:', { hasTypes: !!typedData.types, primaryType: typedData.primaryType });
             } catch (e) {
               console.error('[KaiSign] Failed to parse typedData:', e);
               typedData = typedDataRaw;
             }
             
-            handleSafeSignatureRequest(typedData, address, walletName);
+            handleTypedDataSignature(typedData, address, walletName);
           }
         } else if (args.method === 'personal_sign') {
           // Handle personal message signing
@@ -2403,145 +1463,135 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   let decodedResult = null;
   let extractedBytecodes = [];
   
-  // SAFE SIGNATURE REQUEST HANDLING - CHECK FIRST
-  if (context && context.isSafeSignature) {
-    console.log('[KaiSign] Safe signature context detected - checking transaction data');
-    intent = '🔒 Safe Signature Request - parsing transaction...';
+  // TYPED DATA SIGNATURE CONTEXT - CHECK FIRST
+  if (context && context.isTypedDataSignature) {
+    const protocolName = context.protocolName || 'Protocol';
+    console.log(`[KaiSign] ${protocolName} signature context detected - checking transaction data`);
+    intent = `${protocolName} Signature - parsing transaction...`;
     showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
-    
-    // Add Safe context to method display
-    method = `${method} (Safe Multi-Sig)`;
-    console.log('[KaiSign] Safe transaction data selector:', tx.data ? tx.data.slice(0, 10) : 'no data');
+
+    // Add protocol context to method display if multi-sig
+    if (context.protocolId === 'multisig' || context.protocolName?.toLowerCase().includes('multisig')) {
+      method = `${method} (Multi-Sig)`;
+    }
+    console.log('[KaiSign] Typed data transaction selector:', tx.data ? tx.data.slice(0, 10) : 'no data');
   }
-  
-  // UNIVERSAL ROUTER SPECIFIC PARSING - CHECK FIRST, TAKES PRECEDENCE
-  
-  if (tx.data && tx.data.startsWith('0x3593564c')) {
-    
-    // Force immediate popup update with Universal Router detection
-    intent = 'Universal Router detected - parsing...';
+
+  // =============================================================================
+  // GENERIC PROTOCOL DETECTION - ALL PARSING VIA ERC-7730 METADATA
+  // =============================================================================
+
+  // BATCH TRANSACTION DETECTION (multiSend, execTransaction, execute, etc.)
+  // All protocols use the same generic parsing flow
+  const selector = tx.data?.slice(0, 10);
+
+  if (tx.data && (matchesFunction(tx.data, 'execute') || matchesFunction(tx.data, 'execTransaction') || matchesFunction(tx.data, 'multiSend'))) {
+    console.log('[KaiSign] Batch/Protocol transaction detected - selector:', selector);
+    intent = 'Parsing transaction...';
     showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
-    
+
     try {
-      const universalRouterCalls = await parseUniversalRouterTransaction(tx.data, tx.value);
-      
-      if (universalRouterCalls && universalRouterCalls.length > 0) {
-        extractedBytecodes = universalRouterCalls;
-        
-        // Set intent specifically for Universal Router with detected tokens
-        const mainIntent = getMainTransactionIntent(universalRouterCalls, tx.value);
-        intent = mainIntent || `Universal Router: ${universalRouterCalls.length} atomic calls`;
+      // Determine chainId - use mainnet (1) as default
+      const chainId = context?.chainId || tx.chainId || 1;
+
+      // GENERIC: Use ERC-7730 metadata to parse ANY protocol transaction
+      // Try recursive decoder first for full nested intent resolution
+      let decoded;
+      if (window.decodeCalldataRecursive) {
+        console.log('[KaiSign] Using recursive calldata decoder');
+        decoded = await window.decodeCalldataRecursive(tx.data, tx.to, chainId);
+      } else {
+        // Fallback to non-recursive decoder
+        decoded = await parseProtocolTransaction(tx.data, tx.to, chainId, tx.value);
+      }
+
+      if (decoded && decoded.success) {
+        // Use aggregated intent if available (includes nested intents)
+        intent = decoded.aggregatedIntent || decoded.intent || 'Contract interaction';
         decodedResult = {
           success: true,
-          functionName: 'execute(bytes,bytes[],uint256)',
-          selector: '0x3593564c',
+          functionName: decoded.functionName || 'Protocol Transaction',
+          selector: selector,
           intent: intent,
-          universalRouter: true,
-          atomicCalls: universalRouterCalls.length
+          protocolTransaction: true,
+          nestedIntents: decoded.nestedIntents || [],
+          ...decoded
         };
-        
-        // Show final popup with Universal Router data
-        showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
-        return; // Skip ALL other decoding for Universal Router
-      } else {
-      }
-    } catch (urError) {
-      console.error('[KaiSign] UR Error details:', urError);
-    }
-  }
-  
-  // SAFE TRANSACTION DETECTION - CHECK SECOND
-  // Safe execTransaction (0x6a761202) or direct multiSend (0x8d80ff0a)
-  if (tx.data && (tx.data.startsWith('0x6a761202') || tx.data.startsWith('0x8d80ff0a'))) {
-    console.log('[KaiSign] ✅ SAFE PARSING SECTION REACHED - selector:', tx.data.slice(0, 10));
-    intent = 'Safe transaction detected - parsing...';
-    showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
-    
-    try {
-      let multiSendData = null;
-      
-      // Direct multiSend call
-      if (tx.data.startsWith('0x8d80ff0a')) {
-        multiSendData = tx.data;
-      }
-      // Safe execTransaction - need to extract embedded multiSend data
-      else if (tx.data.startsWith('0x6a761202')) {
-        // Look for multiSend selector (0x8d80ff0a) in the transaction data
-        // We need to find it at word boundaries (every 2 hex chars) to avoid partial matches
-        console.log('[KaiSign] Searching for MultiSend selector in execTransaction data');
-        
-        let multiSendIndex = -1;
-        let searchStart = 0;
-        
-        // Search for 8d80ff0a, but ensure it's at proper hex alignment
-        while ((multiSendIndex = tx.data.indexOf('8d80ff0a', searchStart)) !== -1) {
-          // Check if this index is at a proper hex word boundary
-          // Transaction data starts with 0x, so valid positions are: 2, 4, 6, 8, etc.
-          const hexPosition = multiSendIndex - 2; // Account for 0x prefix
-          if (hexPosition >= 0 && hexPosition % 2 === 0) {
-            // This is a valid alignment, check if it looks like a function selector
-            const potentialData = '0x' + tx.data.slice(multiSendIndex);
-            if (potentialData.startsWith('0x8d80ff0a')) {
-              console.log('[KaiSign] Found properly aligned MultiSend selector at position:', multiSendIndex);
-              break;
+
+        // LOG RAW NESTED DECODES - NO FLATTENING
+        if (decoded.nestedDecodes && decoded.nestedDecodes.length > 0) {
+          console.log('[KaiSign] RAW nestedDecodes from recursive decoder:', JSON.stringify(decoded.nestedDecodes, null, 2));
+          // BYPASS flattenNestedDecodes - just log raw data
+          extractedBytecodes = [];
+        }
+
+        // If this is a batch transaction (multiSend), also extract operations
+        // Protocol ID is determined from contract address via metadata service
+        if (matchesFunction(tx.data, 'multiSend')) {
+          const protocolId = window.metadataService?.getProtocolIdBySelector?.(selector) || 'multisend';
+          const batchResult = await parseBatchTransaction(tx.data, protocolId, chainId);
+          if (batchResult && batchResult.operations) {
+            // Merge with recursive decode results if not already present
+            if (extractedBytecodes.length === 0) {
+              extractedBytecodes = await Promise.all(batchResult.operations.map(async (op, i) => ({
+                bytecode: op.data,
+                selector: op.selector,
+                depth: 2,
+                index: i + 1,
+                target: op.to,
+                functionName: `Operation ${i + 1}`,
+                intent: await getOperationIntent(op, chainId),
+                type: 'batch_operation',
+                value: op.value !== '0x0' ? op.value : null
+              })));
+            }
+            intent = batchResult.intent || intent;
+            decodedResult.operations = batchResult.operations.length;
+          }
+        }
+
+        // If execTransaction contains embedded multiSend, extract it
+        if (matchesFunction(tx.data, 'execTransaction') && containsSelector(tx.data, 'multiSend')) {
+          const multiSendSelector = getKnownSelector('multiSend');
+          if (multiSendSelector) {
+            const lowerData = tx.data.toLowerCase();
+            const selectorPattern = multiSendSelector.slice(2).toLowerCase();
+            const multiSendIndex = lowerData.indexOf(selectorPattern);
+
+            if (multiSendIndex !== -1 && multiSendIndex % 2 === 0) {
+              const embeddedMultiSend = '0x' + tx.data.slice(multiSendIndex);
+              if (matchesFunction(embeddedMultiSend, 'multiSend')) {
+                const protocolId = window.metadataService?.getProtocolIdBySelector?.(multiSendSelector) || 'multisend';
+                const batchResult = await parseBatchTransaction(embeddedMultiSend, protocolId, chainId);
+                if (batchResult && batchResult.operations) {
+                  // Merge with recursive decode results if not already present
+                  if (extractedBytecodes.length === 0) {
+                    extractedBytecodes = await Promise.all(batchResult.operations.map(async (op, i) => ({
+                      bytecode: op.data,
+                      selector: op.selector,
+                      depth: 2,
+                      index: i + 1,
+                      target: op.to,
+                      functionName: `Operation ${i + 1}`,
+                      intent: await getOperationIntent(op, chainId),
+                      type: 'batch_operation',
+                      value: op.value !== '0x0' ? op.value : null
+                    })));
+                  }
+                  intent = batchResult.intent || intent;
+                  decodedResult.operations = batchResult.operations.length;
+                }
+              }
             }
           }
-          searchStart = multiSendIndex + 1;
         }
-        
-        if (multiSendIndex !== -1) {
-          // Extract the multiSend call data starting from the properly aligned selector
-          multiSendData = '0x' + tx.data.slice(multiSendIndex);
-          console.log('[KaiSign] Extracted MultiSend data:', multiSendData.slice(0, 20) + '...');
-          
-          // Final verification
-          if (!multiSendData.startsWith('0x8d80ff0a')) {
-            console.error('[KaiSign] CRITICAL: MultiSend data extraction failed');
-            console.log('[KaiSign] Expected: 0x8d80ff0a, Got:', multiSendData.slice(0, 12));
-            multiSendData = null; // Clear invalid data
-          }
-        }
+
+        console.log(`[KaiSign] Protocol transaction: ${intent}`);
+        showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
+        return; // Skip other decoding
       }
-      
-      if (multiSendData) {
-        // Determine chainId - use mainnet (1) as default for Safe transactions
-        const chainId = context?.chainId || 1;
-        console.log('[KaiSign] Calling parseSafeMultiSendTransaction with chainId:', chainId);
-        console.log('[KaiSign] Calling parseSafeMultiSendTransaction with:', multiSendData.slice(0, 50) + '...');
-        const multiSendResult = await parseSafeMultiSendTransaction(multiSendData, chainId);
-        console.log('[KaiSign] parseSafeMultiSendTransaction result:', multiSendResult);
-        
-        if (multiSendResult) {
-          intent = multiSendResult.intent;
-          decodedResult = {
-            success: true,
-            functionName: 'Safe Transaction',
-            selector: tx.data.slice(0, 10),
-            intent: intent,
-            safeTransaction: true,
-            operations: multiSendResult.operations.length
-          };
-          
-          // Convert operations to extractedBytecodes format for display
-          extractedBytecodes = await Promise.all(multiSendResult.operations.map(async (op, i) => ({
-            bytecode: op.data,
-            selector: op.selector,
-            depth: 2,
-            index: i + 1,
-            target: op.to,
-            functionName: `Operation ${i + 1}`,
-            intent: await getSafeOperationIntent(op, chainId),
-            type: 'safe_operation',
-            value: op.value !== '0x0' ? op.value : null
-          })));
-          
-          console.log(`[KaiSign] Safe: ${intent}`);
-          showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
-          return; // Skip other decoding for Safe transactions
-        }
-      }
-    } catch (safeError) {
-      console.error('[KaiSign] Safe transaction parsing error:', safeError);
+    } catch (protocolError) {
+      console.error('[KaiSign] Protocol transaction parsing error:', protocolError);
     }
   }
   
@@ -2549,12 +1599,16 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
   
   // Use EXACT decoder from Snaps repo
-  
+
   if (window.decodeCalldata && tx.data && tx.to) {
     try {
-      // Use Sepolia chain ID for KaiSign contract
-      const chainId = tx.to.toLowerCase() === '0x4dfea0c2b472a14cd052a8f9df9f19fa5cf03719' ? 11155111 : 1;
-      
+      // Get chainId from transaction context or window.ethereum
+      let chainId = tx.chainId || context?.chainId;
+      if (!chainId && window.ethereum?.chainId) {
+        chainId = parseInt(window.ethereum.chainId, 16);
+      }
+      chainId = chainId || 1; // Default to mainnet if unknown
+
       const decoded = await window.decodeCalldata(tx.data, tx.to, chainId);
       
       // Try to extract nested bytecodes using enhanced decoder
@@ -2694,10 +1748,11 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     </div>
   ` : '';
 
+  // Show all nested calls - NO COMPRESSION
   const extractedSection = extractedBytecodes.length > 0 ? `
     <div class="kaisign-section purple">
       <div class="kaisign-section-header">
-        <span class="kaisign-section-title purple">Nested Calls (${extractedBytecodes.length})</span>
+        <span class="kaisign-section-title purple">Nested Calls (${extractedBytecodes.length} RAW)</span>
       </div>
       ${generateBytecodeTree(extractedBytecodes)}
     </div>
@@ -2851,110 +1906,44 @@ async function parseGenericNestedBytecode(data) {
   return extractedCalls;
 }
 
+
 // Helper function to generate bytecode tree structure
 window.generateBytecodeTree = function(bytecodes) {
-  if (!bytecodes || bytecodes.length === 0) return '<div style="color: #a0aec0;">No nested bytecodes found</div>';
-  
-  // Sort by depth and original order to maintain proper tree structure
-  const sortedBytecodes = [...bytecodes].sort((a, b) => {
-    const depthDiff = (a.depth || 1) - (b.depth || 1);
-    if (depthDiff !== 0) return depthDiff;
-    return (a.index || 0) - (b.index || 0);
+  if (!bytecodes || bytecodes.length === 0) return '';
+
+  // LOG ALL ENTRIES TO DEBUG DUPLICATES
+  console.log('[KaiSign] generateBytecodeTree received', bytecodes.length, 'entries:');
+  bytecodes.forEach((bc, i) => {
+    console.log(`  [${i}] selector=${bc.selector} target=${bc.target} fn=${bc.functionName} depth=${bc.depth}`);
   });
-  
-  function getTreeSymbol(depth, isLast, hasNextSibling) {
-    const symbols = {
-      1: '🔗',  // Root level
-      2: '├─ 🔧', // First nested level
-      3: '│  ├─ ⚙️', // Second nested level
-      4: '│  │  ├─ 🔩', // Third nested level
-      5: '│  │  │  ├─ 🧰' // Deep nested level
-    };
-    return symbols[Math.min(depth, 5)] || '│  '.repeat(depth - 1) + '├─ 🔹';
-  }
-  
+
   function getDepthColor(depth) {
-    const colors = ['#ffd700', '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#f093fb'];
+    const colors = ['#ffd700', '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4'];
     return colors[(depth - 1) % colors.length];
   }
-  
-  function formatBytecode(bytecode, maxLength = 100) {
-    if (!bytecode) return 'No bytecode';
-    const truncated = bytecode.length > maxLength ? bytecode.slice(0, maxLength) + '...' : bytecode;
-    return truncated;
-  }
-  
+
   return `
-    <div style="background: #000; padding: 12px; border-radius: 6px; margin: 8px 0;">
-      <div style="color: #68d391; font-size: 11px; margin-bottom: 8px; font-weight: bold;">
-        📊 TRANSACTION EXECUTION TREE (${sortedBytecodes.length} atomic calls)
+    <div style="background: #1a1a2e; padding: 10px; border-radius: 6px; margin: 8px 0;">
+      <div style="color: #68d391; font-size: 10px; margin-bottom: 6px; font-weight: bold;">
+        📊 Call Stack (${bytecodes.length} operation${bytecodes.length > 1 ? 's' : ''})
       </div>
-      ${sortedBytecodes.map((bytecode, i) => {
-        const depth = bytecode.depth || 1;
+      ${bytecodes.map((bc, i) => {
+        const depth = bc.depth || 1;
         const color = getDepthColor(depth);
-        const treeSymbol = getTreeSymbol(depth);
-        const isLast = i === sortedBytecodes.length - 1;
-        
+        const indent = '  '.repeat(Math.max(0, depth - 1));
+        const connector = depth > 1 ? '└─ ' : '';
+
         return `
-          <div style="margin: 4px 0; padding: 6px; background: #1a202c; border-radius: 4px; border-left: 4px solid ${color};">
-            <!-- Tree Structure Line -->
-            <div style="font-family: 'Courier New', monospace; color: ${color}; font-size: 11px; margin-bottom: 4px;">
-              ${'  '.repeat(Math.max(0, depth - 1))}${treeSymbol} <span style="color: #ffd700; font-weight: bold;">${bytecode.selector || bytecode.functionName || `Call #${i + 1}`}</span>
-              <span style="color: #a0aec0; font-size: 9px; margin-left: 8px;">[Level ${depth}]</span>
+          <div style="margin: 3px 0; padding: 4px 8px; background: #0d0d1a; border-radius: 3px; border-left: 3px solid ${color};">
+            <div style="font-family: monospace; font-size: 10px;">
+              <span style="color: #666;">${indent}${connector}</span>
+              <span style="color: ${color}; font-weight: bold;">${bc.functionName || bc.selector || 'call'}</span>
+              ${bc.target ? `<span style="color: #666;"> → ${bc.target.slice(0, 6)}...${bc.target.slice(-4)}</span>` : ''}
             </div>
-            
-            <!-- Function Details with Intent -->
-            <div style="margin-left: ${depth * 16}px; font-size: 10px; color: #a0aec0; margin-bottom: 4px;">
-              ${bytecode.target ? `<span style="color: #63b3ed;">📍 To: ${bytecode.target.slice(0, 8)}...${bytecode.target.slice(-6)}</span>` : ''}
-              ${bytecode.functionName ? `<span style="color: #68d391; margin-left: 8px;">🔧 ${bytecode.functionName}</span>` : ''}
-              ${bytecode.intent ? `<br><span style="color: #ffd700; font-weight: bold; margin-left: ${depth * 16}px;">💡 ${bytecode.intent}</span>` : ''}
-              ${bytecode.category ? `<span style="color: #9f7aea; margin-left: 8px;">📂 ${bytecode.category}</span>` : ''}
-              ${bytecode.value ? `<span style="color: #ffd700; margin-left: 8px;">💰 ${(bytecode.tokenAddress && window.formatTokenAmount) ? window.formatTokenAmount(bytecode.value, bytecode.tokenAddress, 1) : bytecode.value}</span>` : ''}
-            </div>
-            
-            <!-- Bytecode Data with Copy Button -->
-            <div style="margin-left: ${depth * 16}px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <span style="color: #9f7aea; font-size: 9px; font-weight: bold;">RAW BYTECODE:</span>
-                <button onclick="copyToClipboard('${(bytecode.bytecode || '').replace(/'/g, "\\'")}', this)" style="
-                  background: #38a169;
-                  color: white;
-                  border: none;
-                  padding: 2px 6px;
-                  border-radius: 3px;
-                  cursor: pointer;
-                  font-size: 8px;
-                ">📋 Copy</button>
-              </div>
-              <div style="
-                background: #000;
-                padding: 6px;
-                border-radius: 3px;
-                word-break: break-all;
-                max-height: 60px;
-                overflow-y: auto;
-                font-size: 8px;
-                color: #e2e8f0;
-                border-left: 2px solid ${color};
-              ">
-                ${formatBytecode(bytecode.bytecode)}
-              </div>
-            </div>
-            
-            <!-- Parameter Information -->
-            ${bytecode.params ? `
-              <div style="margin-left: ${depth * 16}px; margin-top: 4px;">
-                <span style="color: #f093fb; font-size: 9px;">📊 PARAMS: ${typeof bytecode.params === 'object' ? JSON.stringify(bytecode.params).slice(0, 80) + '...' : bytecode.params}</span>
-              </div>
-            ` : ''}
+            ${bc.intent ? `<div style="margin-left: ${depth * 12}px; font-size: 9px; color: #ffd700;">${bc.intent}</div>` : ''}
           </div>
         `;
       }).join('')}
-      
-      <!-- Tree Footer -->
-      <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #4a5568; color: #68d391; font-size: 9px; text-align: center;">
-        🌳 Complete nested bytecode separation achieved - Ready for clear signing metadata replacement
-      </div>
     </div>
   `;
 };
@@ -3089,8 +2078,8 @@ window.showRpcDashboard = function() {
     ...rpcActivity.security.suspiciousActivity
   ];
   
-  // Safe signatures analysis
-  const safeSignatures = rpcActivity.patterns.safeSignatures || [];
+  // Typed data signatures analysis (EIP-712)
+  const typedDataSignatures = rpcActivity.patterns.typedDataSignatures || rpcActivity.patterns.safeSignatures || [];
   const multisigCoordination = rpcActivity.patterns.multisigCoordination || {};
   
   dashboard.innerHTML = `
@@ -3118,8 +2107,8 @@ window.showRpcDashboard = function() {
         <div style="color: #a0aec0; font-size: 12px;">Unique Methods</div>
       </div>
       <div style="background: #2d3748; padding: 15px; border-radius: 8px; border-left: 4px solid #f093fb;">
-        <div style="color: #f093fb; font-size: 24px; font-weight: bold;">${safeSignatures.length}</div>
-        <div style="color: #a0aec0; font-size: 12px;">Safe Signatures</div>
+        <div style="color: #f093fb; font-size: 24px; font-weight: bold;">${typedDataSignatures.length}</div>
+        <div style="color: #a0aec0; font-size: 12px;">EIP-712 Signatures</div>
       </div>
       <div style="background: #2d3748; padding: 15px; border-radius: 8px; border-left: 4px solid ${securityConcerns.length > 0 ? '#ff6b6b' : '#68d391'};">
         <div style="color: ${securityConcerns.length > 0 ? '#ff6b6b' : '#68d391'}; font-size: 24px; font-weight: bold;">${securityConcerns.length}</div>
@@ -3164,15 +2153,15 @@ window.showRpcDashboard = function() {
       </div>
     ` : ''}
     
-    <!-- Safe Multisig Activity -->
+    <!-- Multisig Activity -->
     ${Object.keys(multisigCoordination).length > 0 ? `
       <div style="margin-bottom: 25px;">
-        <h3 style="color: #f093fb; margin-bottom: 15px;">🔐 Safe Multisig Coordination</h3>
+        <h3 style="color: #f093fb; margin-bottom: 15px;">🔐 Multisig Coordination</h3>
         <div style="background: #2d3748; padding: 15px; border-radius: 8px;">
-          ${Object.entries(multisigCoordination).map(([safeAddress, coordination]) => `
+          ${Object.entries(multisigCoordination).map(([contractAddress, coordination]) => `
             <div style="margin-bottom: 15px; padding: 10px; background: #1a202c; border-radius: 6px;">
               <div style="color: #f093fb; font-weight: bold; margin-bottom: 6px;">
-                Safe: ${safeAddress.slice(0, 10)}...${safeAddress.slice(-8)}
+                Contract: ${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}
               </div>
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 10px;">
                 <div><strong>Signers:</strong> ${coordination.signers.size}</div>
@@ -3342,7 +2331,7 @@ window.exportTransactionData = function(calldata, analyzedData) {
 };
 
 // Expose functions globally for testing
-window.parseUniversalRouterTransaction = parseUniversalRouterTransaction;
+window.parseProtocolTransaction = parseProtocolTransaction;  // Generic protocol parser
 window.getIntentAndShow = getIntentAndShow;
 
 // Expose RPC monitoring functions globally
@@ -3364,9 +2353,9 @@ window.kaisignRpc = {
   getPrivacyConcerns: () => rpcActivity.security.privacyConcerns,
   getMevIndicators: () => rpcActivity.security.mevIndicators,
   
-  // Safe multisig helpers  
-  getSafeSignatures: () => rpcActivity.patterns.safeSignatures || [],
-  getMultisigCoordination: () => rpcActivity.patterns.multisigCoordination || {},
+  // Signature helpers (generic - works for any protocol)
+  getSignatures: () => rpcActivity.patterns.signatures || [],
+  getCoordination: () => rpcActivity.patterns.coordination || {},
   
   // Statistics
   getStats: () => ({
@@ -3393,7 +2382,7 @@ Now monitoring ALL Ethereum RPC methods including:
 • Transaction methods (eth_sendTransaction, eth_signTypedData_v4, etc.)
 • Query methods (eth_call, eth_getBalance, eth_getLogs, etc.)
 • Network methods (eth_chainId, eth_blockNumber, eth_gasPrice, etc.)
-• Safe multisig signatures with enhanced tracking
+• EIP-712 signature tracking
 • Security & privacy pattern detection
 
 Quick access commands:
@@ -3403,129 +2392,16 @@ Quick access commands:
 - window.kaisignRpc.simulateMethod('eth_getBalance', ['0x123...']) - Test RPC method
 
 Features:
-✅ Safe multisig signature analysis
-✅ MEV/frontrunning detection  
+✅ Generic protocol transaction parsing (ERC-7730 metadata-driven)
+✅ MEV/frontrunning detection
 ✅ Privacy concern monitoring
 ✅ Comprehensive RPC call tracking
 ✅ Real-time security alerts
 ✅ Transaction history integration
 `);
 
-// ULTIMATE SAFE WALLET HOOK - THE MISSING PIECE!
-// This hooks into Safe's internal postMessage communication
-setupUltimateSafeHook();
-
 // Start wallet detection
 waitForWallets();
-
-/**
- * ULTIMATE SAFE WALLET HOOK
- * This is the CRITICAL missing piece that will finally capture Safe signatures!
- */
-function setupUltimateSafeHook() {
-  
-  // Hook postMessage for Safe iframe communication
-  if (window.postMessage && !window._kaisignSafeMessageHooked) {
-    const originalPostMessage = window.postMessage;
-    
-    window.postMessage = function(message, targetOrigin, transfer) {
-      // Check for Safe-related messages
-      if (message && typeof message === 'object') {
-        // PostMessage intercepted - analyzing...
-        
-        if (message.method === 'signTypedMessage' || 
-            message.method === 'eth_signTypedData_v4' ||
-            (message.data && message.data.method === 'signTypedMessage')) {
-          
-          console.log('[KaiSign-Safe] Safe signature detected');
-          
-          // Extract typed data from the message
-          const typedData = message.params?.typedData || 
-                           message.data?.params?.typedData || 
-                           message.typedData ||
-                           message.params?.[1];
-          
-          if (typedData) {
-            handleSafeSignatureRequest(typedData, 'Safe User', 'Safe PostMessage');
-          }
-        }
-      }
-      
-      return originalPostMessage.apply(this, arguments);
-    };
-    
-    window._kaisignSafeMessageHooked = true;
-  }
-  
-  // Hook addEventListener for Safe events
-  if (!window._kaisignSafeEventHooked) {
-    const originalAddEventListener = window.addEventListener;
-    
-    window.addEventListener = function(type, listener, options) {
-      // Wrap the original listener to intercept Safe events
-      if (typeof listener === 'function') {
-        const wrappedListener = function(event) {
-          // Check if this is a Safe-related event
-          if (event && event.data && (
-            event.data.method === 'signTypedMessage' ||
-            event.data.method === 'eth_signTypedData_v4' ||
-            (event.data.params && event.data.params.typedData)
-          )) {
-            
-            const typedData = event.data.params?.typedData || event.data.typedData;
-            if (typedData) {
-              handleSafeSignatureRequest(typedData, 'Safe User', 'Safe Event');
-            }
-          }
-          
-          // Call the original listener
-          return listener.apply(this, arguments);
-        };
-        
-        return originalAddEventListener.call(this, type, wrappedListener, options);
-      }
-      
-      return originalAddEventListener.call(this, type, listener, options);
-    };
-    
-    window._kaisignSafeEventHooked = true;
-  }
-  
-  // Hook XMLHttpRequest for Safe API calls
-  if (!window._kaisignSafeXHRHooked) {
-    const originalXHRSend = XMLHttpRequest.prototype.send;
-    
-    XMLHttpRequest.prototype.send = function(data) {
-      // Check if this XHR is to Safe API and contains signature data
-      if (this._url && this._url.includes('safe') && data) {
-        
-        try {
-          const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-          if (parsedData && parsedData.signature) {
-          }
-        } catch (e) {
-          // Not JSON, that's okay
-        }
-      }
-      
-      return originalXHRSend.apply(this, arguments);
-    };
-    
-    // Also hook open to capture URL
-    const originalXHROpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
-      this._url = url;
-      return originalXHROpen.apply(this, arguments);
-    };
-    
-    window._kaisignSafeXHRHooked = true;
-  }
-  
-  // CRITICAL: Hook into Safe's signature confirmation flow
-  if (isSafeApp()) {
-    // Safe app detected - monitoring will be handled by existing Safe hooks
-  }
-}
 
 
 
