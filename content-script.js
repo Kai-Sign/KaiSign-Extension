@@ -986,6 +986,169 @@ function getWalletName(provider) {
   return 'Unknown Wallet';
 }
 
+// Cache for Permit2 data - stores intent details by EIP-712 struct hash
+// This allows SafeMessage to display Permit2 details when the original data was seen
+window.kaisignPermit2Cache = window.kaisignPermit2Cache || new Map();
+
+
+/**
+ * Parse Permit2 typed data and extract meaningful details
+ */
+function parsePermit2TypedData(typedData) {
+  const primaryType = typedData.primaryType;
+  const message = typedData.message;
+
+  if (!message) return null;
+
+  // Handle PermitWitnessTransferFrom (UniswapX Dutch Auction)
+  if (primaryType === 'PermitWitnessTransferFrom' && message.witness) {
+    const permitted = message.permitted || {};
+    const witness = message.witness || {};
+    const outputs = witness.outputs || [];
+    const outputToken = outputs[0]?.token;
+    const outputAmount = outputs[0]?.startAmount;
+
+    // Format amounts (USDC has 6 decimals, ETH has 18)
+    const inputToken = permitted.token || witness.inputToken;
+    const inputAmount = permitted.amount || witness.inputStartAmount;
+
+    // Check if output is ETH (zero address)
+    const isOutputETH = outputToken === '0x0000000000000000000000000000000000000000';
+
+    return {
+      intent: 'UniswapX Swap Order (via Safe)',
+      details: [
+        `Sell: ${formatTokenAmount(inputAmount, inputToken)} ${getTokenSymbol(inputToken)}`,
+        `Buy: ${formatTokenAmount(outputAmount, isOutputETH ? 'ETH' : outputToken)} ${isOutputETH ? 'ETH' : getTokenSymbol(outputToken)}`,
+        `Reactor: ${formatAddressShort(witness.info?.reactor || message.spender)}`,
+        `Deadline: ${formatPermit2Timestamp(message.deadline)}`
+      ]
+    };
+  }
+
+  // Handle PermitSingle
+  if (primaryType === 'PermitSingle' && message.details) {
+    return {
+      intent: 'Permit2 Token Approval (via Safe)',
+      details: [
+        `Token: ${formatAddressShort(message.details.token)}`,
+        `Amount: ${formatPermit2Amount(message.details.amount)}`,
+        `Spender: ${formatAddressShort(message.spender)}`,
+        `Expires: ${formatPermit2Timestamp(message.details.expiration)}`
+      ]
+    };
+  }
+
+  // Handle PermitBatch
+  if (primaryType === 'PermitBatch' && Array.isArray(message.details)) {
+    const tokenCount = message.details.length;
+    const tokenList = message.details.slice(0, 3).map((d, i) =>
+      `Token ${i + 1}: ${formatAddressShort(d.token)} (${formatPermit2Amount(d.amount)})`
+    );
+    if (tokenCount > 3) tokenList.push(`... and ${tokenCount - 3} more`);
+
+    return {
+      intent: `Permit2 Batch Approval (${tokenCount} tokens via Safe)`,
+      details: [`Spender: ${formatAddressShort(message.spender)}`, ...tokenList]
+    };
+  }
+
+  // Handle PermitTransferFrom
+  if (primaryType === 'PermitTransferFrom' && message.permitted) {
+    return {
+      intent: 'Permit2 Transfer (via Safe)',
+      details: [
+        `Token: ${formatAddressShort(message.permitted.token)}`,
+        `Amount: ${formatPermit2Amount(message.permitted.amount)}`,
+        `Spender: ${formatAddressShort(message.spender)}`,
+        `Deadline: ${formatPermit2Timestamp(message.deadline)}`
+      ]
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Get token symbol from address (known tokens)
+ */
+function getTokenSymbol(address) {
+  if (!address) return 'Unknown';
+  const addr = address.toLowerCase();
+  const knownTokens = {
+    '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC',
+    '0xdac17f958d2ee523a2206206994597c13d831ec7': 'USDT',
+    '0x6b175474e89094c44da98b954eedeac495271d0f': 'DAI',
+    '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 'WETH',
+    '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 'WBTC',
+    '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984': 'UNI',
+    '0x514910771af9ca656af840dff83e8264ecf986ca': 'LINK',
+    '0x0000000000000000000000000000000000000000': 'ETH'
+  };
+  return knownTokens[addr] || formatAddressShort(address);
+}
+
+/**
+ * Format token amount based on token decimals
+ */
+function formatTokenAmount(amount, tokenOrSymbol) {
+  if (!amount) return '0';
+  const amtStr = amount.toString();
+
+  // Determine decimals based on token
+  let decimals = 18; // Default ETH decimals
+  const token = typeof tokenOrSymbol === 'string' ? tokenOrSymbol.toLowerCase() : '';
+
+  if (token === 'eth' || token === '0x0000000000000000000000000000000000000000') {
+    decimals = 18;
+  } else if (token === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' || // USDC
+             token === '0xdac17f958d2ee523a2206206994597c13d831ec7') { // USDT
+    decimals = 6;
+  } else if (token === '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599') { // WBTC
+    decimals = 8;
+  }
+
+  try {
+    const bn = BigInt(amtStr);
+    const divisor = BigInt(10 ** decimals);
+    const whole = bn / divisor;
+    const frac = bn % divisor;
+    const fracStr = frac.toString().padStart(decimals, '0').slice(0, 4);
+    return `${whole}.${fracStr}`;
+  } catch {
+    return amtStr;
+  }
+}
+
+// Helper formatters for Permit2
+function formatAddressShort(addr) {
+  if (!addr) return 'Unknown';
+  return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+}
+
+function formatPermit2Amount(amount) {
+  if (!amount) return '0';
+  const amtStr = amount.toString();
+  // Check for unlimited (max uint160 or max uint256)
+  if (amtStr.length > 45 || amtStr === '1461501637330902918203684832716283019655932542975') {
+    return 'Unlimited';
+  }
+  return amtStr;
+}
+
+function formatPermit2Timestamp(ts) {
+  if (!ts) return 'N/A';
+  try {
+    const timestamp = parseInt(ts.toString());
+    if (timestamp === 0) return 'Immediately';
+    if (timestamp === 281474976710655 || timestamp > 4102444800) return 'Never';
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString();
+  } catch {
+    return ts.toString();
+  }
+}
+
 /**
  * Check if primaryType is a Permit2 type
  */
@@ -1197,25 +1360,46 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
           }
         }
 
-        // For Permit2 types, extract meaningful intents from the message fields
-        if (isPermit2Type(primaryType)) {
+        // For Permit2 types AND any typed data with parseable structure, extract intents
+        console.log('[KaiSign] Checking typed data:', primaryType);
+        const parsedIntent = parsePermit2TypedData(typedData);
+        if (parsedIntent) {
+          console.log('[KaiSign] Parsed typed data intent:', parsedIntent);
+          displayData.intent = parsedIntent.intent;
+          displayData.nestedIntents = parsedIntent.details;
+        } else if (isPermit2Type(primaryType)) {
+          // Fallback to old extraction for basic Permit2 types
           const permit2Intent = extractPermit2Intent(typedData, primaryType);
           if (permit2Intent) {
             displayData.intent = permit2Intent.intent;
             displayData.nestedIntents = permit2Intent.details;
-            console.log('[KaiSign] Permit2 intents:', permit2Intent);
           }
         }
 
-        // For SafeMessage, provide context about the wrapped signature
+        // For SafeMessage, show the hash info with decode option
         if (primaryType === 'SafeMessage') {
           const messageHash = typedData?.message?.message;
-          displayData.intent = 'Sign Safe Message';
-          displayData.nestedIntents = [
-            'This is a Safe-wrapped signature request',
-            `Message Hash: ${messageHash ? messageHash.slice(0, 18) + '...' + messageHash.slice(-8) : 'Unknown'}`
-          ];
           console.log('[KaiSign] SafeMessage hash:', messageHash);
+
+          // Check if we have cached the original typed data for this hash
+          const cachedData = window.kaisignTypedDataCache?.get(messageHash);
+          if (cachedData) {
+            console.log('[KaiSign] Found cached typed data for SafeMessage:', cachedData.primaryType);
+            const parsed = parsePermit2TypedData(cachedData);
+            if (parsed) {
+              displayData.intent = `Safe Sign: ${parsed.intent}`;
+              displayData.nestedIntents = parsed.details;
+            }
+          } else {
+            displayData.intent = 'Sign Safe Message';
+            displayData.nestedIntents = [
+              'Safe-wrapped off-chain signature',
+              `Hash: ${messageHash ? messageHash.slice(0, 18) + '...' + messageHash.slice(-8) : 'Unknown'}`
+            ];
+            // Mark that this needs decode option
+            displayData.showDecodeOption = true;
+            displayData.messageHash = messageHash;
+          }
         }
 
         showEIP712TypedDataDisplay(typedData, displayData, walletName);
@@ -1339,6 +1523,26 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     `;
   }
 
+  // Build decode section for SafeMessage
+  let decodeSection = '';
+  if (displayData.showDecodeOption) {
+    decodeSection = `
+      <div class="kaisign-section" id="kaisign-decode-section">
+        <div class="kaisign-section-header">
+          <span class="kaisign-section-title">Decode Original Message</span>
+        </div>
+        <div class="kaisign-decode-content">
+          <p style="font-size: 12px; color: #8b949e; margin: 0 0 10px 0;">
+            Copy the typed data JSON from Safe and paste below to decode:
+          </p>
+          <div id="kaisign-decode-input-container"></div>
+          <button id="kaisign-decode-btn" class="kaisign-btn kaisign-btn-primary" style="margin-top: 8px; width: 100%;">Decode Message</button>
+          <div id="kaisign-decode-result" style="margin-top: 10px;"></div>
+        </div>
+      </div>
+    `;
+  }
+
   // Create popup using same structure as execute transaction
   const popup = document.createElement('div');
   popup.id = 'kaisign-popup';
@@ -1385,6 +1589,7 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     <div class="kaisign-popup-content">
       ${intentsSection}
       ${fieldsSection}
+      ${decodeSection}
     </div>
 
     <div class="kaisign-action-bar">
@@ -1395,6 +1600,162 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   `;
 
   document.body.appendChild(popup);
+
+  // Save EIP-712 signature to transaction history
+  try {
+    const transactionData = {
+      id: Date.now().toString(),
+      method: 'eth_signTypedData_v4',
+      time: new Date().toISOString(),
+      to: domain.verifyingContract,
+      value: '0',
+      data: '0x',
+      intent: displayData.intent || 'Sign Message',
+      decodedResult: {
+        success: true,
+        functionName: displayData.primaryType,
+        protocolName: domain.name || 'EIP-712',
+        nestedIntents: displayData.nestedIntents
+      },
+      isEIP712: true,
+      primaryType: displayData.primaryType,
+      domainName: domain.name
+    };
+
+    window.postMessage({
+      type: 'KAISIGN_SAVE_TX',
+      data: transactionData
+    }, '*');
+
+    console.log('[KaiSign] EIP-712 signature saved to history');
+  } catch (error) {
+    console.error('[KaiSign] Error saving EIP-712 signature:', error);
+  }
+
+  // Add decode button handler if decode section exists
+  if (displayData.showDecodeOption) {
+    const container = document.getElementById('kaisign-decode-input-container');
+    const decodeBtn = document.getElementById('kaisign-decode-btn');
+    const decodeResult = document.getElementById('kaisign-decode-result');
+
+    // Create iframe to completely isolate textarea from Safe's event listeners
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'width: 100%; height: 90px; border: none; background: transparent;';
+    iframe.setAttribute('sandbox', 'allow-same-origin');
+    container.appendChild(iframe);
+
+    // Wait for iframe to load then add textarea
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    iframeDoc.open();
+    iframeDoc.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { background: transparent; }
+          textarea {
+            width: 100%;
+            height: 80px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e6edf3;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            resize: none;
+            outline: none;
+          }
+          textarea:focus { border-color: #58a6ff; }
+        </style>
+      </head>
+      <body>
+        <textarea id="decode-input" placeholder="Paste typed data JSON here..."></textarea>
+      </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    const decodeInput = iframeDoc.getElementById('decode-input');
+
+    if (decodeBtn && decodeResult && decodeInput) {
+      decodeBtn.addEventListener('click', () => {
+        const inputText = decodeInput.value.trim();
+        if (!inputText) {
+          decodeResult.innerHTML = '<div style="color: #f85149;">Please paste the typed data JSON</div>';
+          return;
+        }
+
+        try {
+          const typedData = JSON.parse(inputText);
+
+          if (!typedData.primaryType || !typedData.message) {
+            decodeResult.innerHTML = '<div style="color: #f85149;">Invalid typed data: missing primaryType or message</div>';
+            return;
+          }
+
+          console.log('[KaiSign] Decoding pasted typed data:', typedData.primaryType);
+
+          // Parse the typed data
+          const parsed = parsePermit2TypedData(typedData);
+
+          if (parsed) {
+            // Update the popup with decoded info
+            const intentEl = popup.querySelector('.kaisign-intent');
+            if (intentEl) {
+              intentEl.textContent = `Safe Sign: ${parsed.intent}`;
+            }
+
+            // Replace intents section
+            const contentEl = popup.querySelector('.kaisign-popup-content');
+            if (contentEl) {
+              const newIntentsHtml = `
+                <div class="kaisign-section purple">
+                  <div class="kaisign-section-header">
+                    <span class="kaisign-section-title purple">Decoded Actions (${parsed.details.length})</span>
+                  </div>
+                  <div class="kaisign-intents-list">
+                    ${parsed.details.map((detail, i) => `
+                      <div class="kaisign-intent-row">
+                        <span class="kaisign-intent-num">${i + 1}.</span>
+                        <span class="kaisign-intent-text">${detail}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              `;
+
+              // Remove decode section and add decoded intents
+              const decodeSection = document.getElementById('kaisign-decode-section');
+              if (decodeSection) {
+                decodeSection.outerHTML = newIntentsHtml;
+              }
+            }
+
+            console.log('[KaiSign] Successfully decoded:', parsed);
+          } else {
+            // Show raw message fields if we can't parse it specifically
+            const msg = typedData.message;
+            const details = Object.entries(msg).slice(0, 5).map(([k, v]) => {
+              const val = typeof v === 'object' ? JSON.stringify(v).slice(0, 50) + '...' : String(v).slice(0, 50);
+              return `${k}: ${val}`;
+            });
+
+            decodeResult.innerHTML = `
+              <div style="color: #3fb950; margin-bottom: 8px;">Type: ${typedData.primaryType}</div>
+              <div style="font-size: 11px; color: #8b949e;">
+                ${details.map(d => `<div>${d}</div>`).join('')}
+              </div>
+            `;
+          }
+        } catch (e) {
+          console.error('[KaiSign] Decode error:', e);
+          decodeResult.innerHTML = `<div style="color: #f85149;">Invalid JSON: ${e.message}</div>`;
+        }
+      });
+    }
+  }
 
   // Auto-remove after 30 seconds (same as execute popup)
   setTimeout(() => {
@@ -1480,8 +1841,11 @@ const ETHEREUM_RPC_METHODS = {
   // Transaction methods
   TRANSACTION: [
     'eth_sendTransaction',
-    'eth_signTransaction', 
+    'eth_signTransaction',
     'eth_sendRawTransaction',
+    'eth_signTypedData',
+    'eth_signTypedData_v1',
+    'eth_signTypedData_v3',
     'eth_signTypedData_v4',
     'personal_sign'
   ],
@@ -1790,22 +2154,33 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
       // Handle different method categories
       if (isTransactionMethod(args.method)) {
         // Transaction and signature methods
-        if (args.method === 'eth_signTypedData_v4') {
-          // Handle EIP-712 typed data signature requests
+        if (args.method.startsWith('eth_signTypedData')) {
+          // Handle ALL EIP-712 typed data signature requests (v1, v3, v4, etc.)
           const typedDataRaw = args.params?.[1];
           const address = args.params?.[0];
-          
+
+          console.log('[KaiSign] EIP-712 request via:', args.method);
+
           if (typedDataRaw) {
             // Parse JSON string if needed
             let typedData;
             try {
               typedData = typeof typedDataRaw === 'string' ? JSON.parse(typedDataRaw) : typedDataRaw;
               console.log('[KaiSign] Parsed typedData:', { hasTypes: !!typedData.types, primaryType: typedData.primaryType });
+
+              // Cache ALL typed data by a content-based key for later lookup
+              // This helps when Safe wraps Permit2 in SafeMessage
+              if (typedData.primaryType && typedData.primaryType !== 'SafeMessage' && typedData.primaryType !== 'SafeTx') {
+                const cacheKey = JSON.stringify(typedData.message);
+                window.kaisignTypedDataCache = window.kaisignTypedDataCache || new Map();
+                window.kaisignTypedDataCache.set(cacheKey, typedData);
+                console.log('[KaiSign] Cached typed data:', typedData.primaryType);
+              }
             } catch (e) {
               console.error('[KaiSign] Failed to parse typedData:', e);
               typedData = typedDataRaw;
             }
-            
+
             handleTypedDataSignature(typedData, address, walletName);
           }
         } else if (args.method === 'personal_sign') {
