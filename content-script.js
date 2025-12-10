@@ -987,6 +987,162 @@ function getWalletName(provider) {
 }
 
 /**
+ * Check if primaryType is a Permit2 type
+ */
+function isPermit2Type(primaryType) {
+  const permit2Types = [
+    'PermitSingle',
+    'PermitBatch',
+    'PermitTransferFrom',
+    'PermitBatchTransferFrom',
+    'PermitWitnessTransferFrom',
+    'PermitBatchWitnessTransferFrom'
+  ];
+  return permit2Types.includes(primaryType);
+}
+
+/**
+ * Extract meaningful intents from Permit2 typed data
+ */
+function extractPermit2Intent(typedData, primaryType) {
+  const message = typedData?.message;
+  if (!message) return null;
+
+  // Helper to format address
+  const formatAddr = (addr) => addr ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : 'Unknown';
+
+  // Helper to format amount (check for unlimited)
+  const formatAmt = (amount) => {
+    if (!amount) return '0';
+    const amtStr = amount.toString();
+    // Check for max uint256 (unlimited approval)
+    if (amtStr === '115792089237316195423570985008687907853269984665640564039457584007913129639935' ||
+        amtStr.startsWith('11579208923731619542357') ||
+        (amtStr.length > 70)) {
+      return 'Unlimited';
+    }
+    // Try to show in readable format
+    try {
+      const bn = BigInt(amtStr);
+      if (bn > BigInt('1000000000000000000000000')) {
+        return 'Large Amount';
+      }
+      return amtStr;
+    } catch {
+      return amtStr;
+    }
+  };
+
+  // Helper to format timestamp
+  const formatTime = (ts) => {
+    if (!ts) return 'No expiry';
+    try {
+      const timestamp = parseInt(ts.toString());
+      if (timestamp === 0 || timestamp === 2147483647 || timestamp > 4102444800) {
+        return 'Never expires';
+      }
+      const date = new Date(timestamp * 1000);
+      return date.toLocaleString();
+    } catch {
+      return ts.toString();
+    }
+  };
+
+  switch (primaryType) {
+    case 'PermitSingle': {
+      const details = message.details || {};
+      return {
+        intent: 'Approve Token via Permit2',
+        details: [
+          `Token: ${formatAddr(details.token)}`,
+          `Amount: ${formatAmt(details.amount)}`,
+          `Spender: ${formatAddr(message.spender)}`,
+          `Expires: ${formatTime(details.expiration)}`
+        ]
+      };
+    }
+
+    case 'PermitBatch': {
+      const detailsArr = message.details || [];
+      const tokenCount = Array.isArray(detailsArr) ? detailsArr.length : 0;
+      const tokenList = Array.isArray(detailsArr)
+        ? detailsArr.map((d, i) => `Token ${i + 1}: ${formatAddr(d.token)} (${formatAmt(d.amount)})`).slice(0, 3)
+        : [];
+      if (tokenCount > 3) tokenList.push(`... and ${tokenCount - 3} more`);
+
+      return {
+        intent: `Approve ${tokenCount} Tokens via Permit2`,
+        details: [
+          `Spender: ${formatAddr(message.spender)}`,
+          ...tokenList
+        ]
+      };
+    }
+
+    case 'PermitTransferFrom': {
+      const permitted = message.permitted || {};
+      return {
+        intent: 'Transfer Token via Permit2',
+        details: [
+          `Token: ${formatAddr(permitted.token)}`,
+          `Amount: ${formatAmt(permitted.amount)}`,
+          `Spender: ${formatAddr(message.spender)}`,
+          `Deadline: ${formatTime(message.deadline)}`
+        ]
+      };
+    }
+
+    case 'PermitWitnessTransferFrom': {
+      const permitted = message.permitted || {};
+      const witness = message.witness || {};
+      // Check for UniswapX V2DutchOrder witness
+      const isUniswapX = witness.info || witness.baseInputToken || witness.baseOutputs;
+
+      if (isUniswapX) {
+        const outputs = witness.baseOutputs || [];
+        const outputToken = outputs[0]?.token;
+        return {
+          intent: 'UniswapX Swap Order (Permit2)',
+          details: [
+            `Input Token: ${formatAddr(permitted.token)}`,
+            `Input Amount: ${formatAmt(permitted.amount)}`,
+            outputToken ? `Output Token: ${formatAddr(outputToken)}` : null,
+            `Deadline: ${formatTime(message.deadline)}`
+          ].filter(Boolean)
+        };
+      }
+
+      return {
+        intent: 'Permit2 with Witness Data',
+        details: [
+          `Token: ${formatAddr(permitted.token)}`,
+          `Amount: ${formatAmt(permitted.amount)}`,
+          `Spender: ${formatAddr(message.spender)}`,
+          `Deadline: ${formatTime(message.deadline)}`
+        ]
+      };
+    }
+
+    case 'PermitBatchTransferFrom':
+    case 'PermitBatchWitnessTransferFrom': {
+      const permitted = message.permitted || [];
+      const tokenCount = Array.isArray(permitted) ? permitted.length : 0;
+      return {
+        intent: `Batch Transfer ${tokenCount} Tokens via Permit2`,
+        details: [
+          `Tokens: ${tokenCount}`,
+          `Spender: ${formatAddr(message.spender)}`,
+          `Deadline: ${formatTime(message.deadline)}`
+        ]
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
+/**
  * GENERIC: Handle typed data signature requests (EIP-712)
  * Works for any protocol with EIP-712 typed data (multisig, permits, etc.)
  * Reads protocol configuration from ERC-7730 metadata
@@ -994,14 +1150,86 @@ function getWalletName(provider) {
 async function handleTypedDataSignature(typedData, signerAddress, walletName) {
   try {
     console.log('[KaiSign] Processing EIP-712 signature request');
+    console.log('[KaiSign] Primary type:', typedData?.primaryType);
+    console.log('[KaiSign] Domain:', typedData?.domain?.name, typedData?.domain?.verifyingContract);
 
-    // Detect protocol from typed data structure using metadata
+    // STEP 1: Try to use EIP-712 metadata for rich display
+    const primaryType = typedData?.primaryType;
+    const verifyingContract = typedData?.domain?.verifyingContract;
+
+    if (window.getEIP712Metadata) {
+      const eip712Metadata = await window.getEIP712Metadata(verifyingContract, primaryType);
+
+      if (eip712Metadata) {
+        console.log('[KaiSign] Found EIP-712 metadata for', primaryType);
+        const displayData = window.formatEIP712Display(typedData, eip712Metadata);
+
+        // For SafeTx, decode the nested transaction data to show real intents
+        if (primaryType === 'SafeTx' && typedData?.message?.data && typedData.message.data !== '0x') {
+          const chainId = typedData?.domain?.chainId || 1;
+          const targetAddress = typedData?.message?.to;
+
+          console.log('[KaiSign] SafeTx has nested data, decoding intents...');
+
+          // Use recursive decoder for full intent resolution
+          let nestedIntents = [];
+          if (window.decodeCalldataRecursive && targetAddress) {
+            try {
+              const decoded = await window.decodeCalldataRecursive(typedData.message.data, targetAddress, chainId);
+              if (decoded?.success) {
+                // Use aggregatedIntent or collect nested intents
+                if (decoded.nestedIntents?.length > 0) {
+                  nestedIntents = decoded.nestedIntents;
+                } else if (decoded.intent && decoded.intent !== 'Contract interaction') {
+                  nestedIntents = [decoded.intent];
+                }
+
+                // Update display with real intents
+                if (nestedIntents.length > 0) {
+                  displayData.intent = `Sign Safe Transaction → ${nestedIntents.join(' + ')}`;
+                  displayData.nestedIntents = nestedIntents;
+                  console.log('[KaiSign] SafeTx decoded intents:', nestedIntents);
+                }
+              }
+            } catch (e) {
+              console.error('[KaiSign] Error decoding SafeTx data:', e);
+            }
+          }
+        }
+
+        // For Permit2 types, extract meaningful intents from the message fields
+        if (isPermit2Type(primaryType)) {
+          const permit2Intent = extractPermit2Intent(typedData, primaryType);
+          if (permit2Intent) {
+            displayData.intent = permit2Intent.intent;
+            displayData.nestedIntents = permit2Intent.details;
+            console.log('[KaiSign] Permit2 intents:', permit2Intent);
+          }
+        }
+
+        // For SafeMessage, provide context about the wrapped signature
+        if (primaryType === 'SafeMessage') {
+          const messageHash = typedData?.message?.message;
+          displayData.intent = 'Sign Safe Message';
+          displayData.nestedIntents = [
+            'This is a Safe-wrapped signature request',
+            `Message Hash: ${messageHash ? messageHash.slice(0, 18) + '...' + messageHash.slice(-8) : 'Unknown'}`
+          ];
+          console.log('[KaiSign] SafeMessage hash:', messageHash);
+        }
+
+        showEIP712TypedDataDisplay(typedData, displayData, walletName);
+        return;
+      }
+    }
+
+    // STEP 2: Detect protocol from typed data structure using existing logic
     const protocolInfo = detectProtocolFromTypedData(typedData);
 
     // Extract transaction data if present in typed data
     const txData = extractTxFromTypedData(typedData, protocolInfo);
 
-    if (txData && txData.data) {
+    if (txData && txData.data && txData.data !== '0x' && txData.data.length > 2) {
       // Parse the embedded transaction using generic protocol parser
       const chainId = typedData?.domain?.chainId || 1;
       const decoded = await parseProtocolTransaction(txData.data, txData.to, chainId, txData.value);
@@ -1019,13 +1247,159 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
       const intent = decoded?.intent || 'Signature Request - parsing...';
       getIntentAndShow(txData, 'eth_signTypedData_v4', walletName, context);
     } else {
-      // No embedded transaction - show typed data structure info
+      // No embedded transaction - show typed data structure info with generic display
       console.log('[KaiSign] No embedded transaction in typed data');
       showTypedDataInfo(typedData, signerAddress, walletName);
     }
   } catch (error) {
     console.error('[KaiSign] Error handling typed data signature:', error);
   }
+}
+
+/**
+ * Show EIP-712 typed data with rich metadata-driven display
+ * Uses same popup structure as execute transaction for consistency
+ */
+function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
+  console.log('[KaiSign] Showing EIP-712 display:', displayData);
+
+  // Remove old popup if exists
+  const old = document.getElementById('kaisign-popup');
+  if (old) old.remove();
+
+  const domain = typedData?.domain || {};
+
+  // Helper to escape HTML
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  // Helper to truncate address
+  const truncateAddress = (addr) => {
+    if (!addr || addr.length < 12) return addr || 'N/A';
+    return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+  };
+
+  // Build nested intents section if present
+  let intentsSection = '';
+  if (displayData.nestedIntents?.length > 0) {
+    intentsSection = `
+      <div class="kaisign-section purple">
+        <div class="kaisign-section-header">
+          <span class="kaisign-section-title purple">Transaction Actions (${displayData.nestedIntents.length})</span>
+        </div>
+        <div class="kaisign-intents-list">
+          ${displayData.nestedIntents.map((intent, i) => `
+            <div class="kaisign-intent-row">
+              <span class="kaisign-intent-num">${i + 1}.</span>
+              <span class="kaisign-intent-text">${escapeHtml(intent)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // Build fields section
+  let fieldsSection = '';
+  if (displayData.fields?.length > 0) {
+    fieldsSection = `
+      <div class="kaisign-section">
+        <div class="kaisign-section-header">
+          <span class="kaisign-section-title">Message Details</span>
+        </div>
+        <div class="kaisign-fields-list">
+          ${displayData.fields.map(field => {
+            if (field.isArray && field.items) {
+              return `
+                <div class="kaisign-field-row">
+                  <span class="kaisign-field-label">${escapeHtml(field.label)}:</span>
+                  <span class="kaisign-field-value">${escapeHtml(field.value)}</span>
+                </div>
+                ${field.items.map(item => `
+                  <div class="kaisign-field-subrow">
+                    ${(item.fields || []).map(sf => `
+                      <span class="kaisign-subfield-label">${escapeHtml(sf.label)}:</span>
+                      <span class="kaisign-subfield-value">${escapeHtml(sf.value)}</span>
+                    `).join(' ')}
+                  </div>
+                `).join('')}
+              `;
+            }
+            return `
+              <div class="kaisign-field-row">
+                <span class="kaisign-field-label">${escapeHtml(field.label)}:</span>
+                <span class="kaisign-field-value">${escapeHtml(field.value)}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // Create popup using same structure as execute transaction
+  const popup = document.createElement('div');
+  popup.id = 'kaisign-popup';
+  popup.className = 'kaisign-popup';
+
+  popup.innerHTML = `
+    <div class="kaisign-warning">
+      DEMONSTRATION VERSION - USE AT YOUR OWN RISK
+    </div>
+
+    <div class="kaisign-popup-header">
+      <div class="kaisign-popup-logo">
+        <span class="kaisign-popup-logo-icon">KS</span>
+        <div>
+          <div class="kaisign-popup-title">KaiSign Analysis</div>
+          <div class="kaisign-popup-subtitle">${escapeHtml(walletName)} | EIP-712 Signature</div>
+        </div>
+      </div>
+      <button class="kaisign-close-btn" onclick="this.closest('.kaisign-popup').remove()">✕</button>
+    </div>
+
+    <div class="kaisign-intent-section">
+      <div class="kaisign-intent">${escapeHtml(displayData.intent || 'Sign Message')}</div>
+      <div class="kaisign-details-grid">
+        <div class="kaisign-detail-item">
+          <span class="kaisign-detail-label">App: </span>
+          <span class="kaisign-detail-value">${escapeHtml(domain.name || 'Unknown')}</span>
+        </div>
+        <div class="kaisign-detail-item">
+          <span class="kaisign-detail-label">Contract: </span>
+          <span class="kaisign-detail-value">${truncateAddress(domain.verifyingContract)}</span>
+        </div>
+        <div class="kaisign-detail-item">
+          <span class="kaisign-detail-label">Type: </span>
+          <span class="kaisign-detail-value">${escapeHtml(displayData.primaryType || 'Unknown')}</span>
+        </div>
+        <div class="kaisign-detail-item">
+          <span class="kaisign-detail-label">Chain: </span>
+          <span class="kaisign-detail-value">${escapeHtml(domain.chainId || '1')}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="kaisign-popup-content">
+      ${intentsSection}
+      ${fieldsSection}
+    </div>
+
+    <div class="kaisign-action-bar">
+      <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
+      <button class="kaisign-btn kaisign-btn-secondary" onclick="this.closest('.kaisign-popup').remove()">Close</button>
+      <button class="kaisign-btn kaisign-btn-purple" onclick="showRpcDashboard()">RPC Activity</button>
+    </div>
+  `;
+
+  document.body.appendChild(popup);
+
+  // Auto-remove after 30 seconds (same as execute popup)
+  setTimeout(() => {
+    if (popup.parentNode) popup.remove();
+  }, 30000);
 }
 
 /**
@@ -1521,70 +1895,12 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         // LOG RAW NESTED DECODES - NO FLATTENING
         if (decoded.nestedDecodes && decoded.nestedDecodes.length > 0) {
           console.log('[KaiSign] RAW nestedDecodes from recursive decoder:', JSON.stringify(decoded.nestedDecodes, null, 2));
-          // BYPASS flattenNestedDecodes - just log raw data
+          // BYPASS flattenNestedDecodes - recursive decoder handles everything
           extractedBytecodes = [];
         }
 
-        // If this is a batch transaction (multiSend), also extract operations
-        // Protocol ID is determined from contract address via metadata service
-        if (matchesFunction(tx.data, 'multiSend')) {
-          const protocolId = window.metadataService?.getProtocolIdBySelector?.(selector) || 'multisend';
-          const batchResult = await parseBatchTransaction(tx.data, protocolId, chainId);
-          if (batchResult && batchResult.operations) {
-            // Merge with recursive decode results if not already present
-            if (extractedBytecodes.length === 0) {
-              extractedBytecodes = await Promise.all(batchResult.operations.map(async (op, i) => ({
-                bytecode: op.data,
-                selector: op.selector,
-                depth: 2,
-                index: i + 1,
-                target: op.to,
-                functionName: `Operation ${i + 1}`,
-                intent: await getOperationIntent(op, chainId),
-                type: 'batch_operation',
-                value: op.value !== '0x0' ? op.value : null
-              })));
-            }
-            intent = batchResult.intent || intent;
-            decodedResult.operations = batchResult.operations.length;
-          }
-        }
-
-        // If execTransaction contains embedded multiSend, extract it
-        if (matchesFunction(tx.data, 'execTransaction') && containsSelector(tx.data, 'multiSend')) {
-          const multiSendSelector = getKnownSelector('multiSend');
-          if (multiSendSelector) {
-            const lowerData = tx.data.toLowerCase();
-            const selectorPattern = multiSendSelector.slice(2).toLowerCase();
-            const multiSendIndex = lowerData.indexOf(selectorPattern);
-
-            if (multiSendIndex !== -1 && multiSendIndex % 2 === 0) {
-              const embeddedMultiSend = '0x' + tx.data.slice(multiSendIndex);
-              if (matchesFunction(embeddedMultiSend, 'multiSend')) {
-                const protocolId = window.metadataService?.getProtocolIdBySelector?.(multiSendSelector) || 'multisend';
-                const batchResult = await parseBatchTransaction(embeddedMultiSend, protocolId, chainId);
-                if (batchResult && batchResult.operations) {
-                  // Merge with recursive decode results if not already present
-                  if (extractedBytecodes.length === 0) {
-                    extractedBytecodes = await Promise.all(batchResult.operations.map(async (op, i) => ({
-                      bytecode: op.data,
-                      selector: op.selector,
-                      depth: 2,
-                      index: i + 1,
-                      target: op.to,
-                      functionName: `Operation ${i + 1}`,
-                      intent: await getOperationIntent(op, chainId),
-                      type: 'batch_operation',
-                      value: op.value !== '0x0' ? op.value : null
-                    })));
-                  }
-                  intent = batchResult.intent || intent;
-                  decodedResult.operations = batchResult.operations.length;
-                }
-              }
-            }
-          }
-        }
+        // NOTE: Removed redundant parseBatchTransaction calls - recursive decoder handles all nested decoding
+        // The intent is already correctly aggregated in decoded.aggregatedIntent
 
         console.log(`[KaiSign] Protocol transaction: ${intent}`);
         showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
