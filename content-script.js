@@ -1607,9 +1607,12 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
       id: Date.now().toString(),
       method: 'eth_signTypedData_v4',
       time: new Date().toISOString(),
+      // Original EIP-712 typed data (unmodified)
       to: domain.verifyingContract,
       value: '0',
-      data: '0x',
+      data: '0x', // EIP-712 has no bytecode, data is in eip712TypedData field
+      eip712TypedData: typedData, // Store complete original typed data
+      // Decoded/analyzed data (for display only)
       intent: displayData.intent || 'Sign Message',
       decodedResult: {
         success: true,
@@ -1628,6 +1631,7 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     }, '*');
 
     console.log('[KaiSign] EIP-712 signature saved to history');
+    console.log('[KaiSign] EIP-712 data size:', JSON.stringify(typedData).length, 'chars');
   } catch (error) {
     console.error('[KaiSign] Error saving EIP-712 signature:', error);
   }
@@ -2363,9 +2367,18 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       id: Date.now().toString(),
       method: method,
       time: new Date().toISOString(),
+      // Original transaction data from dApp (unmodified)
       to: tx.to,
+      from: tx.from,
       value: tx.value,
-      data: tx.data,
+      data: tx.data, // Original raw bytecode from dApp
+      gas: tx.gas,
+      gasPrice: tx.gasPrice,
+      maxFeePerGas: tx.maxFeePerGas,
+      maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+      nonce: tx.nonce,
+      chainId: tx.chainId,
+      // Decoded/analyzed data (for display only, not for sending)
       intent: intent,
       decodedResult: decodedResult,
       extractedBytecodes: extractedBytecodes
@@ -2378,6 +2391,8 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     }, '*');
 
     console.log('[KaiSign] Transaction sent to bridge for saving');
+    console.log('[KaiSign] tx.data length:', tx.data ? tx.data.length : 0, 'bytes');
+    console.log('[KaiSign] tx.data preview:', tx.data ? tx.data.slice(0, 66) : 'none');
   } catch (error) {
     console.error('[KaiSign] Error sending transaction to bridge:', error);
   }

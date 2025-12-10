@@ -498,9 +498,19 @@ Value: ${tx.value || '0x0'}
 Time: ${tx.time ? new Date(tx.time).toLocaleString() : 'N/A'}
   `.trim();
 
+  // For EIP-712 signatures, copy the complete typed data JSON
+  // For regular transactions, copy the raw bytecode
+  let dataToCopy;
+  if (tx.isEIP712 && tx.eip712TypedData) {
+    dataToCopy = JSON.stringify(tx.eip712TypedData, null, 2);
+  } else {
+    dataToCopy = tx.data || '0x';
+  }
+
   // Copy data to clipboard
-  navigator.clipboard.writeText(tx.data || '').then(() => {
-    alert(details + '\n\nTransaction data copied to clipboard!');
+  navigator.clipboard.writeText(dataToCopy).then(() => {
+    const dataType = tx.isEIP712 ? 'EIP-712 typed data' : 'Transaction bytecode';
+    alert(details + `\n\n${dataType} copied to clipboard!`);
   }).catch(() => {
     alert(details);
   });
