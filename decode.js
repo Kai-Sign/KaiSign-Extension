@@ -1,5 +1,95 @@
 // Pure dynamic decoder - NO HARDCODED METADATA
-// KaiSign dynamic decoder
+// KaiSign dynamic decoder v2.1 - FIXED formatTokenAmount
+console.log('[decode.js] VERSION 2.1 LOADED - formatTokenAmount FIXED');
+
+// Simple keccak256 implementation for selector calculation
+// Uses SubtleCrypto when available, falls back to simple hash
+function keccak256Simple(message) {
+  // Try to use ethers if available
+  if (typeof window !== 'undefined') {
+    if (window.ethers?.keccak256 && window.ethers?.toUtf8Bytes) {
+      try { return window.ethers.keccak256(window.ethers.toUtf8Bytes(message)); } catch {}
+    }
+    if (window.ethers?.utils?.keccak256 && window.ethers?.utils?.toUtf8Bytes) {
+      try { return window.ethers.utils.keccak256(window.ethers.utils.toUtf8Bytes(message)); } catch {}
+    }
+  }
+
+  // Minimal keccak256 implementation
+  const KECCAK_ROUNDS = 24;
+  const KECCAK_RC = [
+    0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an, 0x8000000080008000n,
+    0x000000000000808bn, 0x0000000080000001n, 0x8000000080008081n, 0x8000000000008009n,
+    0x000000000000008an, 0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
+    0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n, 0x8000000000008003n,
+    0x8000000000008002n, 0x8000000000000080n, 0x000000000000800an, 0x800000008000000an,
+    0x8000000080008081n, 0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n
+  ];
+  const KECCAK_ROTC = [1,3,6,10,15,21,28,36,45,55,2,14,27,41,56,8,25,43,62,18,39,61,20,44];
+  const KECCAK_PILN = [10,7,11,17,18,3,5,16,8,21,24,4,15,23,19,13,12,2,20,14,22,9,6,1];
+
+  function rotl64(x, y) { return ((x << BigInt(y)) | (x >> BigInt(64 - y))) & 0xffffffffffffffffn; }
+
+  function keccakF(state) {
+    for (let round = 0; round < KECCAK_ROUNDS; round++) {
+      const c = new Array(5).fill(0n);
+      for (let x = 0; x < 5; x++) c[x] = state[x] ^ state[x+5] ^ state[x+10] ^ state[x+15] ^ state[x+20];
+      for (let x = 0; x < 5; x++) {
+        const t = c[(x+4)%5] ^ rotl64(c[(x+1)%5], 1);
+        for (let y = 0; y < 25; y += 5) state[x+y] ^= t;
+      }
+      let t = state[1];
+      for (let i = 0; i < 24; i++) {
+        const j = KECCAK_PILN[i];
+        const tmp = state[j];
+        state[j] = rotl64(t, KECCAK_ROTC[i]);
+        t = tmp;
+      }
+      for (let y = 0; y < 25; y += 5) {
+        const t0 = state[y], t1 = state[y+1], t2 = state[y+2], t3 = state[y+3], t4 = state[y+4];
+        state[y] = t0 ^ (~t1 & t2); state[y+1] = t1 ^ (~t2 & t3);
+        state[y+2] = t2 ^ (~t3 & t4); state[y+3] = t3 ^ (~t4 & t0); state[y+4] = t4 ^ (~t0 & t1);
+      }
+      state[0] ^= KECCAK_RC[round];
+    }
+  }
+
+  const encoder = new TextEncoder();
+  const input = encoder.encode(message);
+  const rate = 136, capacity = 64;
+  const blockSize = rate;
+  const state = new Array(25).fill(0n);
+
+  const padded = new Uint8Array(Math.ceil((input.length + 1) / blockSize) * blockSize);
+  padded.set(input);
+  padded[input.length] = 0x01;
+  padded[padded.length - 1] |= 0x80;
+
+  for (let i = 0; i < padded.length; i += blockSize) {
+    for (let j = 0; j < blockSize && j < 200; j += 8) {
+      if (i + j + 8 <= padded.length) {
+        let val = 0n;
+        for (let k = 0; k < 8; k++) val |= BigInt(padded[i + j + k]) << BigInt(k * 8);
+        state[Math.floor(j / 8)] ^= val;
+      }
+    }
+    keccakF(state);
+  }
+
+  let hash = '0x';
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 8; j++) {
+      hash += ((state[i] >> BigInt(j * 8)) & 0xffn).toString(16).padStart(2, '0');
+    }
+  }
+  return hash;
+}
+
+// Calculate function selector from signature
+function calculateSelector(signature) {
+  const hash = keccak256Simple(signature);
+  return hash.slice(0, 10);
+}
 
 // Enhanced ABI decoder - supports all Solidity types including bytes, bytes[], arrays
 // NO HARDCODED SELECTORS - all type handling is generic
@@ -239,89 +329,15 @@ async function decodeCalldata(data, contractAddress, chainId) {
     const selector = data.slice(0, 10);
 
     // Pass selector to metadata lookup for proxy detection (e.g., Safe proxies)
-    const metadata = await getContractMetadata(contractAddress, chainId, selector);
+    let metadata = await getContractMetadata(contractAddress, chainId, selector);
 
-    // If no contract-specific metadata, try registry fallback
+    // If no metadata from subgraph, return failure
     if (!metadata) {
-      if (window.registryLoader?.selectorRegistry) {
-        const selectorInfo = window.registryLoader.selectorRegistry.get(selector);
-        if (selectorInfo?.signature) {
-          // Get token info if available
-          const tokenInfo = window.registryLoader?.tokenRegistry?.get(contractAddress.toLowerCase());
-          const tokenSymbol = tokenInfo?.symbol || 'tokens';
-          const tokenDecimals = tokenInfo?.decimals || 18;
-
-          const result = {
-            success: true,
-            selector,
-            functionName: selectorInfo.name,
-            functionSignature: selectorInfo.signature,
-            intent: selectorInfo.intent || selectorInfo.name,
-            params: {},
-            formatted: {},
-            rawParams: data.slice(10),
-            source: 'registry',
-            tokenInfo
-          };
-
-          // Try to decode params using signature
-          const sigMatch = selectorInfo.signature.match(/^(\w+)\(([^)]*)\)$/);
-          if (sigMatch && sigMatch[2]) {
-            const paramTypes = sigMatch[2].split(',').map(t => t.trim());
-            // Known param names for common functions
-            const paramNames = {
-              'approve': ['spender', 'amount'],
-              'transfer': ['to', 'amount'],
-              'transferFrom': ['from', 'to', 'amount']
-            };
-            const names = paramNames[selectorInfo.name] || paramTypes.map((t, i) => `param${i}`);
-
-            try {
-              const minimalAbi = {
-                type: 'function',
-                name: selectorInfo.name,
-                inputs: paramTypes.map((t, i) => ({ type: t, name: names[i] || `param${i}` }))
-              };
-              const iface = new SimpleInterface([minimalAbi]);
-              const decoded = iface.decodeFunctionData(selectorInfo.name, data);
-              if (decoded) {
-                decoded.forEach((val, i) => {
-                  const name = names[i] || `param${i}`;
-                  const type = paramTypes[i];
-                  result.params[name] = val;
-
-                  // Format based on type
-                  if (type === 'address') {
-                    result.formatted[name] = { label: toTitleCase(name), value: val, format: 'address' };
-                  } else if (type === 'uint256' && name === 'amount') {
-                    // Format amount with token info - use contractAddress for token lookup
-                    const formattedAmount = formatTokenAmount(val, contractAddress, chainId);
-                    result.formatted[name] = { label: 'Amount', value: formattedAmount, format: 'token' };
-                  } else {
-                    result.formatted[name] = { label: toTitleCase(name), value: String(val), format: 'raw' };
-                  }
-                });
-
-                // Build better intent with token info
-                if (selectorInfo.name === 'approve' && result.params.amount) {
-                  const amt = formatTokenAmount(result.params.amount, contractAddress, chainId);
-                  result.intent = `Approve ${amt}`;
-                } else if (selectorInfo.name === 'transfer' && result.params.amount) {
-                  const amt = formatTokenAmount(result.params.amount, contractAddress, chainId);
-                  result.intent = `Transfer ${amt}`;
-                }
-              }
-            } catch (e) { /* ignore decode errors */ }
-          }
-          return result;
-        }
-      }
-
       return {
         success: false,
         selector,
         intent: 'Contract interaction',
-        error: 'No metadata found'
+        error: 'No metadata found in subgraph'
       };
     }
     
@@ -336,25 +352,15 @@ async function decodeCalldata(data, contractAddress, chainId) {
           const types = (item.inputs || []).map(input => input.type).join(',');
           const signature = `${item.name}(${types})`;
 
-          // Calculate selector if not stored
-          let calculatedSelector = null;
-          if (typeof window !== 'undefined') {
-            if (window.ethereum?.utils?.keccak256) {
-              try { calculatedSelector = window.ethereum.utils.keccak256(signature).slice(0, 10); } catch {}
-            }
-            if (!calculatedSelector && window.web3?.utils) {
-              try { calculatedSelector = window.web3.utils.keccak256(signature).slice(0, 10); } catch {}
-            }
-            if (!calculatedSelector && window.ethers?.utils) {
-              try { calculatedSelector = window.ethers.utils.keccak256(window.ethers.utils.toUtf8Bytes(signature)).slice(0, 10); } catch {}
-            }
-          }
+          // Use stored selector or calculate it
+          const expectedSelector = item.selector || calculateSelector(signature);
+          console.log('[Decode] Checking function:', signature, 'selector:', expectedSelector, 'vs', selector);
 
-          const expectedSelector = item.selector || calculatedSelector;
           if (expectedSelector === selector) {
             functionSignature = signature;
             functionName = item.name;
             abiFunction = item;
+            console.log('[Decode] ✅ MATCHED function:', signature);
             break;
           }
         }
@@ -380,8 +386,12 @@ async function decodeCalldata(data, contractAddress, chainId) {
     let format = metadata.display?.formats?.[functionSignature] || metadata.display?.formats?.[functionName];
 
     if (format) {
-      // Handle ERC-7730 intent format with nested containers
-      if (format.intent?.format && Array.isArray(format.intent.format)) {
+      // Handle ERC-7730 intent formats
+      if (format.intent?.template) {
+        // Most common: intent.template string
+        intent = format.intent.template;
+      } else if (format.intent?.format && Array.isArray(format.intent.format)) {
+        // Complex format with nested containers
         for (const item of format.intent.format) {
           if (item.type === 'container' && item.fields) {
             for (const field of item.fields) {
@@ -404,6 +414,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
             fieldInfo[field.path] = {
               label: field.label || field.path,
               format: field.format || 'raw',
+              params: field.params || {},  // Store decimals, symbol, etc.
               // Store calldata target reference for recursive decoding
               type: field.type || 'raw',
               calldataTarget: field.type === 'calldata' ? field.to : null
@@ -451,26 +462,54 @@ async function decodeCalldata(data, contractAddress, chainId) {
         const input = inputs[i];
         const value = decodedData[i];
         const paramName = input.name || `param${i}`;
-        
-        let formattedValue;
-        if (value && typeof value === 'object' && '_isBigNumber' in value) {
-          formattedValue = value.toString();
-        } else if (typeof value === 'object' && value !== null) {
-          formattedValue = JSON.stringify(value);
-        } else {
-          formattedValue = String(value || '');
-        }
-        
-        params[paramName] = formattedValue;
-        
+
         // Get field info from metadata if available
         const fieldDef = fieldInfo[paramName];
-        
+
+        let rawValue;
+        if (value && typeof value === 'object' && '_isBigNumber' in value) {
+          rawValue = value.toString();
+        } else if (typeof value === 'object' && value !== null) {
+          rawValue = JSON.stringify(value);
+        } else {
+          rawValue = String(value || '');
+        }
+
+        // Apply formatting based on field definition
+        let displayValue = rawValue;
+        if (fieldDef?.format === 'amount' && fieldDef.params?.decimals) {
+          // Format with decimals
+          const decimals = fieldDef.params.decimals;
+          const symbol = fieldDef.params.symbol || '';
+          console.log(`[Decode] Formatting ${paramName}: rawValue="${rawValue}" (type: ${typeof rawValue}), decimals=${decimals} (type: ${typeof decimals}), symbol=${symbol}`);
+          console.log('[Decode] formatTokenAmount function:', formatTokenAmount.toString().substring(0, 200));
+          // INLINE FORMAT - bypass function entirely
+          try {
+            const dec = Number(decimals);
+            const value = BigInt(rawValue);
+            const divisor = BigInt(10) ** BigInt(dec);
+            const integerPart = value / divisor;
+            const fractionalPart = value % divisor;
+            let fractionalStr = fractionalPart.toString().padStart(dec, '0');
+            fractionalStr = fractionalStr.replace(/0+$/, '') || '0';
+            if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
+            displayValue = symbol ? `${integerPart}.${fractionalStr} ${symbol}` : `${integerPart}.${fractionalStr}`;
+            console.log(`[Decode] INLINE formatted: "${displayValue}"`);
+          } catch (e) {
+            console.error('[Decode] Inline format error:', e);
+            displayValue = rawValue;
+          }
+        }
+
+        params[paramName] = rawValue;
+
         formatted[paramName] = {
           label: fieldDef?.label || toTitleCase(paramName),
-          value: formattedValue,
-          format: fieldDef?.format || (input.type === 'address' ? 'address' : 
-                                       input.type === 'uint256' ? 'token' : 'raw')
+          value: displayValue,
+          rawValue: rawValue,
+          format: fieldDef?.format || (input.type === 'address' ? 'address' :
+                                       input.type === 'uint256' ? 'token' : 'raw'),
+          params: fieldDef?.params || {}
         };
       }
     } else {
@@ -508,6 +547,50 @@ async function decodeCalldata(data, contractAddress, chainId) {
 }
 
 // Helper functions
+
+/**
+ * Format token amount with decimals
+ * @param {string} rawValue - Raw integer value as string
+ * @param {number} decimals - Number of decimals
+ * @param {string} symbol - Token symbol
+ * @returns {string} - Formatted amount like "1.5 USDC"
+ */
+function formatTokenAmount(rawValue, decimals, symbol) {
+  console.log('[formatTokenAmount] CALLED with:', { rawValue, decimals, symbol, rawValueType: typeof rawValue, decimalsType: typeof decimals });
+  try {
+    // Ensure decimals is a number
+    const dec = Number(decimals);
+    console.log('[formatTokenAmount] dec after Number():', dec);
+    if (isNaN(dec) || dec < 0) {
+      console.warn('[formatTokenAmount] Invalid decimals:', decimals);
+      return rawValue;
+    }
+
+    const value = BigInt(rawValue);
+    console.log('[formatTokenAmount] value as BigInt:', value.toString());
+    const divisor = BigInt(10) ** BigInt(dec);
+    console.log('[formatTokenAmount] divisor:', divisor.toString());
+    const integerPart = value / divisor;
+    const fractionalPart = value % divisor;
+    console.log('[formatTokenAmount] integerPart:', integerPart.toString(), 'fractionalPart:', fractionalPart.toString());
+
+    // Format fractional part with leading zeros
+    let fractionalStr = fractionalPart.toString().padStart(dec, '0');
+    console.log('[formatTokenAmount] fractionalStr after padStart:', fractionalStr);
+    // Trim trailing zeros but keep at least 2 decimal places for display
+    fractionalStr = fractionalStr.replace(/0+$/, '') || '0';
+    if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
+    console.log('[formatTokenAmount] fractionalStr final:', fractionalStr);
+
+    const formatted = `${integerPart}.${fractionalStr}`;
+    const result = symbol ? `${formatted} ${symbol}` : formatted;
+    console.log('[formatTokenAmount] RESULT:', result);
+    return result;
+  } catch (e) {
+    console.error('[formatTokenAmount] Error:', e, 'rawValue:', rawValue, 'decimals:', decimals);
+    return rawValue;
+  }
+}
 
 /**
  * Substitute template variables in intent string
@@ -655,69 +738,7 @@ async function getContractMetadata(contractAddress, chainId, selector = null) {
   return await window.metadataService.getContractMetadata(contractAddress, chainId, selector);
 }
 
-/**
- * Format token amount from wei to human-readable format
- * @param {string|number} rawAmount - Amount in wei (hex or decimal)
- * @param {string} tokenAddress - Token contract address
- * @param {number} chainId - Chain ID
- * @returns {string} - Formatted amount with symbol (e.g., "1.5 WETH")
- */
-function formatTokenAmount(rawAmount, tokenAddress, chainId = 1) {
-  if (!rawAmount || rawAmount === '0x0' || rawAmount === '0') {
-    return '0';
-  }
-
-  try {
-    // Convert hex to decimal if needed
-    let amountBN;
-    if (typeof rawAmount === 'string' && rawAmount.startsWith('0x')) {
-      amountBN = BigInt(rawAmount);
-    } else if (typeof rawAmount === 'string') {
-      amountBN = BigInt(rawAmount);
-    } else {
-      amountBN = BigInt(rawAmount.toString());
-    }
-
-    // Get token info from registry - use existing singleton instance
-    const registryLoader = window.registryLoader;
-    let decimals = 18;
-    let symbol = 'TOKEN';
-
-    if (registryLoader) {
-      decimals = registryLoader.getTokenDecimals(tokenAddress, chainId) || 18;
-      symbol = registryLoader.getTokenSymbol(tokenAddress, chainId) || 'TOKEN';
-    } else {
-      console.warn('[KaiSign] Registry loader not available for token formatting');
-    }
-
-    // Check for unlimited approval (max uint256)
-    const MAX_UINT256 = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
-    if (amountBN === MAX_UINT256) {
-      return `Unlimited ${symbol}`;
-    }
-
-    // Convert wei to human-readable
-    const divisor = BigInt(10 ** decimals);
-    const wholePart = amountBN / divisor;
-    const fractionalPart = amountBN % divisor;
-
-    // Format with up to 6 decimal places
-    const fractionalStr = fractionalPart.toString().padStart(decimals, '0');
-    const trimmedFractional = fractionalStr.slice(0, 6).replace(/0+$/, '');
-
-    let formatted = wholePart.toString();
-    if (trimmedFractional) {
-      formatted += '.' + trimmedFractional;
-    }
-
-    return `${formatted} ${symbol}`;
-  } catch (error) {
-    console.error('[KaiSign] Error formatting token amount:', error);
-    return rawAmount.toString();
-  }
-}
-
-// Export globally
+// Export globally - formatTokenAmount is defined earlier with (rawValue, decimals, symbol) signature
 window.decodeCalldata = decodeCalldata;
 window.formatTokenAmount = formatTokenAmount;
 
