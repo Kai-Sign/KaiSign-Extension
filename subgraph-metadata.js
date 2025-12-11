@@ -33,10 +33,58 @@ class SubgraphMetadataService {
   }
 
   /**
+   * Get implementation address from proxy contract storage
+   * Checks EIP-1967 and other common proxy patterns
+   * @param {string} proxyAddress - Proxy contract address
+   * @returns {Promise<string|null>} Implementation address or null
+   */
+  async getImplementationAddress(proxyAddress) {
+    // EIP-1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1
+    const EIP1967_IMPL_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+    // Safe proxy uses a different slot - masterCopy at slot 0
+    const SAFE_MASTER_COPY_SLOT = '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+    const slots = [EIP1967_IMPL_SLOT, SAFE_MASTER_COPY_SLOT];
+
+    for (const slot of slots) {
+      try {
+        const result = await this.ethGetStorageAt(proxyAddress, slot);
+        if (result && result !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+          // Extract address from 32-byte slot (last 20 bytes)
+          const implAddress = '0x' + result.slice(-40).toLowerCase();
+          if (implAddress !== '0x0000000000000000000000000000000000000000') {
+            console.log('[KaiSign API] Found implementation at slot', slot, ':', implAddress);
+            return implAddress;
+          }
+        }
+      } catch (e) {
+        console.warn('[KaiSign API] Failed to read slot', slot, e.message);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Call eth_getStorageAt via window.ethereum
+   * @param {string} address - Contract address
+   * @param {string} slot - Storage slot
+   * @returns {Promise<string>} Storage value
+   */
+  async ethGetStorageAt(address, slot) {
+    if (typeof window !== 'undefined' && window.ethereum) {
+      return await window.ethereum.request({
+        method: 'eth_getStorageAt',
+        params: [address, slot, 'latest']
+      });
+    }
+    throw new Error('No ethereum provider');
+  }
+
+  /**
    * Get contract metadata from KaiSign proxy API
    * @param {string} address - Contract address
    * @param {number} chainId - Chain ID
-   * @param {string} selector - Optional function selector for better matching
+   * @param {string} selector - Optional function selector
    * @returns {Promise<Object>} ERC-7730 metadata
    */
   async getContractMetadata(address, chainId, selector) {
@@ -53,11 +101,35 @@ class SubgraphMetadataService {
     try {
       console.log('[KaiSign API] Fetching metadata for:', normalizedAddress, 'chain:', chainId);
 
-      // Fetch via KaiSign API /contract endpoint with chainId query parameter
+      // Fetch via KaiSign API /contract endpoint
       const apiUrl = `https://kai-sign-production.up.railway.app/api/py/contract/${normalizedAddress}?chain_id=${chainId}`;
 
       const rawData = await this.fetchViaBackground(apiUrl);
-      const metadata = JSON.parse(rawData);
+      const response = JSON.parse(rawData);
+
+      // Extract metadata from API response
+      if (!response.success || !response.metadata) {
+        // Direct lookup failed - try to find implementation address
+        console.log('[KaiSign API] Direct lookup failed, checking for proxy implementation...');
+        const implAddress = await this.getImplementationAddress(normalizedAddress);
+
+        if (implAddress && implAddress !== normalizedAddress) {
+          console.log('[KaiSign API] Found implementation:', implAddress, '- fetching metadata');
+          const implMetadata = await this.getContractMetadataDirectly(implAddress, chainId);
+
+          // Cache for original proxy address too
+          this.metadataCache.set(cacheKey, {
+            data: implMetadata,
+            timestamp: Date.now()
+          });
+
+          return implMetadata;
+        }
+
+        throw new Error(response.error || 'No metadata in response');
+      }
+
+      const metadata = response.metadata;
 
       // Cache result
       this.metadataCache.set(cacheKey, {
@@ -70,8 +142,28 @@ class SubgraphMetadataService {
 
     } catch (error) {
       console.error('[KaiSign API] Failed to fetch metadata:', error);
-      throw new Error(`⚠️ KaiSign API unavailable: ${error.message}`);
+      throw new Error(`No metadata found for contract ${normalizedAddress} on chain ${chainId}`);
     }
+  }
+
+  /**
+   * Direct metadata lookup without proxy detection (to avoid recursion)
+   * @param {string} address - Contract address
+   * @param {number} chainId - Chain ID
+   * @returns {Promise<Object>} ERC-7730 metadata
+   */
+  async getContractMetadataDirectly(address, chainId) {
+    const normalizedAddress = address.toLowerCase();
+    const apiUrl = `https://kai-sign-production.up.railway.app/api/py/contract/${normalizedAddress}?chain_id=${chainId}`;
+
+    const rawData = await this.fetchViaBackground(apiUrl);
+    const response = JSON.parse(rawData);
+
+    if (!response.success || !response.metadata) {
+      throw new Error(response.error || 'No metadata in response');
+    }
+
+    return response.metadata;
   }
 
   /**
@@ -123,7 +215,7 @@ class SubgraphMetadataService {
   /**
    * Get EIP-712 typed data metadata
    * @param {string} verifyingContract - Verifying contract address
-   * @param {string} primaryType - Primary type (e.g., "PermitSingle", "SafeTx")
+   * @param {string} primaryType - Primary type (e.g., "PermitSingle", "Order")
    * @returns {Promise<Object>} EIP-712 metadata
    */
   async getEIP712Metadata(verifyingContract, primaryType) {
@@ -229,8 +321,12 @@ class SubgraphMetadataService {
 const metadataService = new SubgraphMetadataService({
   subgraphUrl: 'https://api.studio.thegraph.com/query/117022/kaisign-subgraph/version/latest',
   blobscanBaseUrl: 'https://api.blobscan.com', // Mainnet default, chain-specific URLs in constructor
-  cacheTTL: 5 * 60 * 1000 // 5 minutes
+  cacheTTL: 60 * 1000 // 1 minute cache - shorter to get fresh metadata faster
 });
+
+// Clear cache on init to ensure fresh metadata after extension reload
+metadataService.clearCache();
+console.log('[KaiSign] Cache auto-cleared on init');
 
 // Expose globally
 window.metadataService = metadataService;
@@ -242,4 +338,11 @@ window.getContractMetadata = (address, chainId, selector) =>
 window.getEIP712Metadata = (verifyingContract, primaryType) =>
   metadataService.getEIP712Metadata(verifyingContract, primaryType);
 
+// Expose cache control for debugging
+window.clearMetadataCache = () => {
+  metadataService.clearCache();
+  console.log('[KaiSign] Metadata cache cleared');
+};
+
 console.log('[KaiSign] Subgraph metadata service ready');
+console.log('[KaiSign] To clear cache, run: clearMetadataCache()');

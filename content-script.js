@@ -133,9 +133,9 @@ function flattenNestedDecodesToBytecodes(nestedDecodes, depth = 1) {
   const result = [];
 
   for (const entry of nestedDecodes) {
-    // Handle multiSend operations
-    if (entry.result?.params?.transactions_multiSend?.operations) {
-      const ops = entry.result.params.transactions_multiSend.operations;
+    // Handle multicall operations
+    if (entry.result?.params?.transactions_multicall?.operations) {
+      const ops = entry.result.params.transactions_multicall.operations;
       for (const op of ops) {
         if (op.decoded) {
           // Build formatted params string
@@ -601,126 +601,42 @@ function getWalletName(provider) {
 }
 
 // Cache for Permit2 data - stores intent details by EIP-712 struct hash
-// This allows SafeMessage to display Permit2 details when the original data was seen
+// This allows wrapper messages to display original intent details when the original data was seen
 window.kaisignPermit2Cache = window.kaisignPermit2Cache || new Map();
 
 
 /**
- * Parse Permit2 typed data and extract meaningful details
+ * Parse typed data - GENERIC, metadata-driven
+ * Returns null to trigger metadata lookup for proper formatting
  */
 function parsePermit2TypedData(typedData) {
-  const primaryType = typedData.primaryType;
-  const message = typedData.message;
-
-  if (!message) return null;
-
-  // Handle PermitWitnessTransferFrom (UniswapX Dutch Auction)
-  if (primaryType === 'PermitWitnessTransferFrom' && message.witness) {
-    const permitted = message.permitted || {};
-    const witness = message.witness || {};
-    const outputs = witness.outputs || [];
-    const outputToken = outputs[0]?.token;
-    const outputAmount = outputs[0]?.startAmount;
-
-    // Format amounts (USDC has 6 decimals, ETH has 18)
-    const inputToken = permitted.token || witness.inputToken;
-    const inputAmount = permitted.amount || witness.inputStartAmount;
-
-    // Check if output is ETH (zero address)
-    const isOutputETH = outputToken === '0x0000000000000000000000000000000000000000';
-
-    return {
-      intent: 'UniswapX Swap Order (via Safe)',
-      details: [
-        `Sell: ${formatTokenAmount(inputAmount, inputToken)} ${getTokenSymbol(inputToken)}`,
-        `Buy: ${formatTokenAmount(outputAmount, isOutputETH ? 'ETH' : outputToken)} ${isOutputETH ? 'ETH' : getTokenSymbol(outputToken)}`,
-        `Reactor: ${formatAddressShort(witness.info?.reactor || message.spender)}`,
-        `Deadline: ${formatPermit2Timestamp(message.deadline)}`
-      ]
-    };
-  }
-
-  // Handle PermitSingle
-  if (primaryType === 'PermitSingle' && message.details) {
-    return {
-      intent: 'Permit2 Token Approval (via Safe)',
-      details: [
-        `Token: ${formatAddressShort(message.details.token)}`,
-        `Amount: ${formatPermit2Amount(message.details.amount)}`,
-        `Spender: ${formatAddressShort(message.spender)}`,
-        `Expires: ${formatPermit2Timestamp(message.details.expiration)}`
-      ]
-    };
-  }
-
-  // Handle PermitBatch
-  if (primaryType === 'PermitBatch' && Array.isArray(message.details)) {
-    const tokenCount = message.details.length;
-    const tokenList = message.details.slice(0, 3).map((d, i) =>
-      `Token ${i + 1}: ${formatAddressShort(d.token)} (${formatPermit2Amount(d.amount)})`
-    );
-    if (tokenCount > 3) tokenList.push(`... and ${tokenCount - 3} more`);
-
-    return {
-      intent: `Permit2 Batch Approval (${tokenCount} tokens via Safe)`,
-      details: [`Spender: ${formatAddressShort(message.spender)}`, ...tokenList]
-    };
-  }
-
-  // Handle PermitTransferFrom
-  if (primaryType === 'PermitTransferFrom' && message.permitted) {
-    return {
-      intent: 'Permit2 Transfer (via Safe)',
-      details: [
-        `Token: ${formatAddressShort(message.permitted.token)}`,
-        `Amount: ${formatPermit2Amount(message.permitted.amount)}`,
-        `Spender: ${formatAddressShort(message.spender)}`,
-        `Deadline: ${formatPermit2Timestamp(message.deadline)}`
-      ]
-    };
-  }
-
+  // No hardcoded type handling - let metadata drive the display
+  // Return null to trigger metadata-based formatting
   return null;
 }
 
 /**
- * Get token symbol from address (known tokens)
+ * Get token symbol - GENERIC, no hardcoded mappings
+ * Token symbols should come from metadata
  */
 function getTokenSymbol(address) {
-  if (!address) return 'Unknown';
-  const addr = address.toLowerCase();
-  const knownTokens = {
-    '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC',
-    '0xdac17f958d2ee523a2206206994597c13d831ec7': 'USDT',
-    '0x6b175474e89094c44da98b954eedeac495271d0f': 'DAI',
-    '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 'WETH',
-    '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 'WBTC',
-    '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984': 'UNI',
-    '0x514910771af9ca656af840dff83e8264ecf986ca': 'LINK',
-    '0x0000000000000000000000000000000000000000': 'ETH'
-  };
-  return knownTokens[addr] || formatAddressShort(address);
+  if (!address) return 'Unknown Token';
+  // No hardcoded token mappings - metadata should provide symbols
+  // Return formatted address as fallback
+  return formatAddressShort(address);
 }
 
 /**
- * Format token amount based on token decimals
+ * Format token amount - GENERIC, no hardcoded decimals
+ * Assumes 18 decimals as safe default when unknown
  */
 function formatTokenAmount(amount, tokenOrSymbol) {
   if (!amount) return '0';
   const amtStr = amount.toString();
 
-  // Determine decimals based on token
-  let decimals = 18; // Default ETH decimals
-  const token = typeof tokenOrSymbol === 'string' ? tokenOrSymbol.toLowerCase() : '';
-
-  if (token === 'eth' || token === '0x0000000000000000000000000000000000000000') {
-    decimals = 18;
-  } else if (token === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' || // USDC
-             token === '0xdac17f958d2ee523a2206206994597c13d831ec7') { // USDT
-    decimals = 6;
-  } else if (token === '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599') { // WBTC
-    decimals = 8;
-  }
+  // No hardcoded token-specific decimals
+  // Default to 18 decimals (most common ERC-20 standard)
+  const decimals = 18;
 
   try {
     const bn = BigInt(amtStr);
@@ -764,164 +680,27 @@ function formatPermit2Timestamp(ts) {
 }
 
 /**
- * Check if primaryType is a Permit2 type
+ * Check if primaryType is a permit type - GENERIC
+ * No hardcoded type list - checks for common patterns
  */
 function isPermit2Type(primaryType) {
-  const permit2Types = [
-    'PermitSingle',
-    'PermitBatch',
-    'PermitTransferFrom',
-    'PermitBatchTransferFrom',
-    'PermitWitnessTransferFrom',
-    'PermitBatchWitnessTransferFrom'
-  ];
-  return permit2Types.includes(primaryType);
+  // No hardcoded type list - check if type name contains 'Permit'
+  return primaryType && primaryType.toLowerCase().includes('permit');
 }
 
 /**
- * Extract meaningful intents from Permit2 typed data
+ * Extract intents from typed data - GENERIC, metadata-driven
+ * No hardcoded type-specific logic
  */
 function extractPermit2Intent(typedData, primaryType) {
-  const message = typedData?.message;
-  if (!message) return null;
-
-  // Helper to format address
-  const formatAddr = (addr) => addr ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : 'Unknown';
-
-  // Helper to format amount (check for unlimited)
-  const formatAmt = (amount) => {
-    if (!amount) return '0';
-    const amtStr = amount.toString();
-    // Check for max uint256 (unlimited approval)
-    if (amtStr === '115792089237316195423570985008687907853269984665640564039457584007913129639935' ||
-        amtStr.startsWith('11579208923731619542357') ||
-        (amtStr.length > 70)) {
-      return 'Unlimited';
-    }
-    // Try to show in readable format
-    try {
-      const bn = BigInt(amtStr);
-      if (bn > BigInt('1000000000000000000000000')) {
-        return 'Large Amount';
-      }
-      return amtStr;
-    } catch {
-      return amtStr;
-    }
-  };
-
-  // Helper to format timestamp
-  const formatTime = (ts) => {
-    if (!ts) return 'No expiry';
-    try {
-      const timestamp = parseInt(ts.toString());
-      if (timestamp === 0 || timestamp === 2147483647 || timestamp > 4102444800) {
-        return 'Never expires';
-      }
-      const date = new Date(timestamp * 1000);
-      return date.toLocaleString();
-    } catch {
-      return ts.toString();
-    }
-  };
-
-  switch (primaryType) {
-    case 'PermitSingle': {
-      const details = message.details || {};
-      return {
-        intent: 'Approve Token via Permit2',
-        details: [
-          `Token: ${formatAddr(details.token)}`,
-          `Amount: ${formatAmt(details.amount)}`,
-          `Spender: ${formatAddr(message.spender)}`,
-          `Expires: ${formatTime(details.expiration)}`
-        ]
-      };
-    }
-
-    case 'PermitBatch': {
-      const detailsArr = message.details || [];
-      const tokenCount = Array.isArray(detailsArr) ? detailsArr.length : 0;
-      const tokenList = Array.isArray(detailsArr)
-        ? detailsArr.map((d, i) => `Token ${i + 1}: ${formatAddr(d.token)} (${formatAmt(d.amount)})`).slice(0, 3)
-        : [];
-      if (tokenCount > 3) tokenList.push(`... and ${tokenCount - 3} more`);
-
-      return {
-        intent: `Approve ${tokenCount} Tokens via Permit2`,
-        details: [
-          `Spender: ${formatAddr(message.spender)}`,
-          ...tokenList
-        ]
-      };
-    }
-
-    case 'PermitTransferFrom': {
-      const permitted = message.permitted || {};
-      return {
-        intent: 'Transfer Token via Permit2',
-        details: [
-          `Token: ${formatAddr(permitted.token)}`,
-          `Amount: ${formatAmt(permitted.amount)}`,
-          `Spender: ${formatAddr(message.spender)}`,
-          `Deadline: ${formatTime(message.deadline)}`
-        ]
-      };
-    }
-
-    case 'PermitWitnessTransferFrom': {
-      const permitted = message.permitted || {};
-      const witness = message.witness || {};
-      // Check for UniswapX V2DutchOrder witness
-      const isUniswapX = witness.info || witness.baseInputToken || witness.baseOutputs;
-
-      if (isUniswapX) {
-        const outputs = witness.baseOutputs || [];
-        const outputToken = outputs[0]?.token;
-        return {
-          intent: 'UniswapX Swap Order (Permit2)',
-          details: [
-            `Input Token: ${formatAddr(permitted.token)}`,
-            `Input Amount: ${formatAmt(permitted.amount)}`,
-            outputToken ? `Output Token: ${formatAddr(outputToken)}` : null,
-            `Deadline: ${formatTime(message.deadline)}`
-          ].filter(Boolean)
-        };
-      }
-
-      return {
-        intent: 'Permit2 with Witness Data',
-        details: [
-          `Token: ${formatAddr(permitted.token)}`,
-          `Amount: ${formatAmt(permitted.amount)}`,
-          `Spender: ${formatAddr(message.spender)}`,
-          `Deadline: ${formatTime(message.deadline)}`
-        ]
-      };
-    }
-
-    case 'PermitBatchTransferFrom':
-    case 'PermitBatchWitnessTransferFrom': {
-      const permitted = message.permitted || [];
-      const tokenCount = Array.isArray(permitted) ? permitted.length : 0;
-      return {
-        intent: `Batch Transfer ${tokenCount} Tokens via Permit2`,
-        details: [
-          `Tokens: ${tokenCount}`,
-          `Spender: ${formatAddr(message.spender)}`,
-          `Deadline: ${formatTime(message.deadline)}`
-        ]
-      };
-    }
-
-    default:
-      return null;
-  }
+  // No hardcoded type handling - let metadata drive the display
+  // Return null to trigger metadata-based formatting
+  return null;
 }
 
 /**
  * GENERIC: Handle typed data signature requests (EIP-712)
- * Works for any protocol with EIP-712 typed data (multisig, permits, etc.)
+ * Works for any protocol with EIP-712 typed data (permits, batch operations, etc.)
  * Reads protocol configuration from ERC-7730 metadata
  */
 async function handleTypedDataSignature(typedData, signerAddress, walletName) {
@@ -941,12 +720,13 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
         console.log('[KaiSign] Found EIP-712 metadata for', primaryType);
         const displayData = window.formatEIP712Display(typedData, eip712Metadata);
 
-        // For SafeTx, decode the nested transaction data to show real intents
-        if (primaryType === 'SafeTx' && typedData?.message?.data && typedData.message.data !== '0x') {
+        // Generic: decode nested transaction data if present (works for any typed data with embedded calldata)
+        // Look for common patterns: message.data + message.to (calldata to contract)
+        if (typedData?.message?.data && typedData.message.data !== '0x' && typedData?.message?.to) {
           const chainId = typedData?.domain?.chainId || 1;
-          const targetAddress = typedData?.message?.to;
+          const targetAddress = typedData.message.to;
 
-          console.log('[KaiSign] SafeTx has nested data, decoding intents...');
+          console.log('[KaiSign] Typed data has nested calldata, decoding intents...');
 
           // Use recursive decoder for full intent resolution
           let nestedIntents = [];
@@ -965,15 +745,16 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
 
                 // Update display with real intents
                 if (nestedIntents.length > 0) {
-                  displayData.intent = `Sign Safe Transaction → ${nestedIntents.join(' + ')}`;
+                  const domainName = typedData?.domain?.name || 'Protocol';
+                  displayData.intent = `Sign ${domainName} Transaction → ${nestedIntents.join(' + ')}`;
                   displayData.nestedIntents = nestedIntents;
-                  console.log('[KaiSign] SafeTx decoded intents:', nestedIntents);
+                  console.log('[KaiSign] Typed data decoded intents:', nestedIntents);
                 }
               } else {
                 console.warn('[KaiSign] Recursive decode failed:', decoded?.error);
               }
             } catch (e) {
-              console.error('[KaiSign] Error decoding SafeTx data:', e);
+              console.error('[KaiSign] Error decoding typed data calldata:', e);
             }
           } else {
             console.warn('[KaiSign] decodeCalldataRecursive not available or no targetAddress');
@@ -996,24 +777,28 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
           }
         }
 
-        // For SafeMessage, show the hash info with decode option
-        if (primaryType === 'SafeMessage') {
-          const messageHash = typedData?.message?.message;
-          console.log('[KaiSign] SafeMessage hash:', messageHash);
+        // Generic: handle wrapper messages that contain a hash of another message
+        // Pattern: message.message is a hash (bytes32) of the original typed data
+        if (typedData?.message?.message && typeof typedData.message.message === 'string' &&
+            typedData.message.message.startsWith('0x') && typedData.message.message.length === 66) {
+          const messageHash = typedData.message.message;
+          console.log('[KaiSign] Wrapper message hash:', messageHash);
 
           // Check if we have cached the original typed data for this hash
           const cachedData = window.kaisignTypedDataCache?.get(messageHash);
           if (cachedData) {
-            console.log('[KaiSign] Found cached typed data for SafeMessage:', cachedData.primaryType);
+            console.log('[KaiSign] Found cached typed data for wrapper message:', cachedData.primaryType);
             const parsed = parsePermit2TypedData(cachedData);
             if (parsed) {
-              displayData.intent = `Safe Sign: ${parsed.intent}`;
+              const domainName = typedData?.domain?.name || 'Protocol';
+              displayData.intent = `${domainName} Sign: ${parsed.intent}`;
               displayData.nestedIntents = parsed.details;
             }
           } else {
-            displayData.intent = 'Sign Safe Message';
+            const domainName = typedData?.domain?.name || 'Protocol';
+            displayData.intent = `Sign ${domainName} Message`;
             displayData.nestedIntents = [
-              'Safe-wrapped off-chain signature',
+              'Wrapped off-chain signature',
               `Hash: ${messageHash ? messageHash.slice(0, 18) + '...' + messageHash.slice(-8) : 'Unknown'}`
             ];
             // Mark that this needs decode option
@@ -1143,7 +928,7 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     `;
   }
 
-  // Build decode section for SafeMessage
+  // Build decode section for wrapper messages
   let decodeSection = '';
   if (displayData.showDecodeOption) {
     decodeSection = `
@@ -1153,7 +938,7 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
         </div>
         <div class="kaisign-decode-content">
           <p style="font-size: 12px; color: #8b949e; margin: 0 0 10px 0;">
-            Copy the typed data JSON from Safe and paste below to decode:
+            Paste the original typed data JSON below to decode:
           </p>
           <div id="kaisign-decode-input-container"></div>
           <button id="kaisign-decode-btn" class="kaisign-btn kaisign-btn-primary" style="margin-top: 8px; width: 100%;">Decode Message</button>
@@ -1406,15 +1191,12 @@ function detectProtocolFromTypedData(typedData) {
   }
 
   // Fallback: detect by common type patterns (no protocol-specific hardcoding)
-  // Check for multisig-related type names
-  const multisigPatterns = ['multisig', 'safetx', 'gnosis', 'multisend'];
-  if (typeNames.some(t => multisigPatterns.some(p => t.toLowerCase().includes(p)))) {
-    return { id: 'multisig', name: 'Multisig Wallet' };
-  }
+  // Check for permit-related type names
   if (typeNames.some(t => t.toLowerCase().includes('permit'))) {
     return { id: 'permit', name: 'Token Permit' };
   }
 
+  // Generic fallback - let metadata drive detection
   return { id: 'eip712', name: 'EIP-712 Signature' };
 }
 
@@ -1790,9 +1572,11 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
               typedData = typeof typedDataRaw === 'string' ? JSON.parse(typedDataRaw) : typedDataRaw;
               console.log('[KaiSign] Parsed typedData:', { hasTypes: !!typedData.types, primaryType: typedData.primaryType });
 
-              // Cache ALL typed data by a content-based key for later lookup
-              // This helps when Safe wraps Permit2 in SafeMessage
-              if (typedData.primaryType && typedData.primaryType !== 'SafeMessage' && typedData.primaryType !== 'SafeTx') {
+              // Cache typed data by content-based key for later lookup
+              // Skip caching wrapper types that contain nested messages (detected by having 'message' field with embedded typed data)
+              const isWrapperType = typedData.message?.message !== undefined ||
+                                    (typedData.message?.data && typedData.message?.to);
+              if (typedData.primaryType && !isWrapperType) {
                 const cacheKey = JSON.stringify(typedData.message);
                 window.kaisignTypedDataCache = window.kaisignTypedDataCache || new Map();
                 window.kaisignTypedDataCache.set(cacheKey, typedData);
@@ -1841,10 +1625,6 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
     intent = `${protocolName} Signature - parsing transaction...`;
     showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
 
-    // Add protocol context to method display if multi-sig
-    if (context.protocolId === 'multisig' || context.protocolName?.toLowerCase().includes('multisig')) {
-      method = `${method} (Multi-Sig)`;
-    }
     console.log('[KaiSign] Typed data transaction selector:', tx.data ? tx.data.slice(0, 10) : 'no data');
   }
 
@@ -2400,7 +2180,7 @@ window.showRpcDashboard = function() {
   
   // Typed data signatures analysis (EIP-712)
   const typedDataSignatures = rpcActivity.patterns.typedDataSignatures || rpcActivity.patterns.safeSignatures || [];
-  const multisigCoordination = rpcActivity.patterns.multisigCoordination || {};
+  const batchCoordination = rpcActivity.patterns.batchCoordination || rpcActivity.patterns.multisigCoordination || {};
   
   dashboard.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #4a5568; padding-bottom: 15px;">
@@ -2473,12 +2253,12 @@ window.showRpcDashboard = function() {
       </div>
     ` : ''}
     
-    <!-- Multisig Activity -->
-    ${Object.keys(multisigCoordination).length > 0 ? `
+    <!-- Batch Coordination Activity -->
+    ${Object.keys(batchCoordination).length > 0 ? `
       <div style="margin-bottom: 25px;">
-        <h3 style="color: #f093fb; margin-bottom: 15px;">🔐 Multisig Coordination</h3>
+        <h3 style="color: #f093fb; margin-bottom: 15px;">🔐 Batch Coordination</h3>
         <div style="background: #2d3748; padding: 15px; border-radius: 8px;">
-          ${Object.entries(multisigCoordination).map(([contractAddress, coordination]) => `
+          ${Object.entries(batchCoordination).map(([contractAddress, coordination]) => `
             <div style="margin-bottom: 15px; padding: 10px; background: #1a202c; border-radius: 6px;">
               <div style="color: #f093fb; font-weight: bold; margin-bottom: 6px;">
                 Contract: ${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}

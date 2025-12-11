@@ -1,6 +1,7 @@
 /**
  * EIP-712 Decoder - Subgraph Only
  * Parse and format typed structured data using metadata from subgraph
+ * NO HARDCODED CONTRACT ADDRESSES - all detection via metadata
  */
 
 console.log('[KaiSign] Loading EIP-712 decoder (subgraph-only)...');
@@ -8,13 +9,10 @@ console.log('[KaiSign] Loading EIP-712 decoder (subgraph-only)...');
 // Cache for EIP-712 metadata
 const eip712MetadataCache = new Map();
 
-// Known Permit2 verifying contract address
-const PERMIT2_ADDRESS = '0x000000000022d473030f116ddee9f6b43ac78ba3';
-
 /**
  * Get EIP-712 metadata from subgraph
  * @param {string} verifyingContract - Verifying contract address
- * @param {string} primaryType - Primary type (e.g., "PermitSingle", "SafeTx")
+ * @param {string} primaryType - Primary type (e.g., "PermitSingle", "Order")
  * @returns {Promise<Object|null>} Metadata or null
  */
 async function getEIP712Metadata(verifyingContract, primaryType) {
