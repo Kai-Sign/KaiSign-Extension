@@ -120,6 +120,63 @@
 })();
 
 // =============================================================================
+// HELPER: Flatten nested decodes to bytecodes format for UI
+// =============================================================================
+
+/**
+ * Convert nested decodes from recursive decoder into flat bytecodes array for UI
+ * @param {Array} nestedDecodes - Nested decode results
+ * @param {number} depth - Current depth level
+ * @returns {Array} Flat array of bytecode entries with formatted values
+ */
+function flattenNestedDecodesToBytecodes(nestedDecodes, depth = 1) {
+  const result = [];
+
+  for (const entry of nestedDecodes) {
+    // Handle multiSend operations
+    if (entry.result?.params?.transactions_multiSend?.operations) {
+      const ops = entry.result.params.transactions_multiSend.operations;
+      for (const op of ops) {
+        if (op.decoded) {
+          // Build formatted params string
+          let paramsStr = '';
+          if (op.decoded.formatted) {
+            const parts = [];
+            for (const [key, info] of Object.entries(op.decoded.formatted)) {
+              if (info.value && info.label) {
+                parts.push(`${info.label}: ${info.value}`);
+              }
+            }
+            paramsStr = parts.join(' | ');
+          }
+
+          result.push({
+            selector: op.selector,
+            functionName: op.decoded.functionName || op.decoded.function,
+            target: op.to,
+            intent: op.decoded.intent,
+            depth: depth + 1,
+            formattedParams: paramsStr,
+            formatted: op.decoded.formatted
+          });
+
+          // Recurse if this operation has nested decodes
+          if (op.decoded.nestedDecodes && op.decoded.nestedDecodes.length > 0) {
+            result.push(...flattenNestedDecodesToBytecodes(op.decoded.nestedDecodes, depth + 2));
+          }
+        }
+      }
+    }
+    // Handle direct nested decodes
+    else if (entry.result?.nestedDecodes) {
+      result.push(...flattenNestedDecodesToBytecodes(entry.result.nestedDecodes, depth + 1));
+    }
+  }
+
+  return result;
+}
+
+// =============================================================================
 // UNIVERSAL ROUTER TRANSACTION PARSER (ETHERS.JS APPROACH)
 // =============================================================================
 
@@ -167,68 +224,6 @@ class SimpleABIDecoder {
       return null;
     }
   }
-}
-
-// Token lookups now use registryLoader (loaded from local-metadata/registry/tokens.json)
-// See registry-loader.js for implementation
-// NOTE: Universal Router ABI removed - now loaded from metadata via window.metadataService
-
-// =============================================================================
-// SELECTOR UTILITIES - Get selectors from registry instead of hardcoding
-// =============================================================================
-
-/**
- * Get selector for a known function from the registry
- * @param {string} functionName - e.g., 'multiSend', 'execute', 'execTransaction'
- * @returns {string|null} - The selector or null if not found
- */
-function getKnownSelector(functionName) {
-  // Use registryLoader if available
-  if (window.registryLoader) {
-    const selector = window.registryLoader.getSelectorByName?.(functionName);
-    if (selector) return selector;
-  }
-  return null;
-}
-
-/**
- * Check if transaction data matches a known function by name
- * Uses registry lookup instead of hardcoded selectors
- */
-function matchesFunction(txData, functionName) {
-  if (!txData || txData.length < 10) return false;
-  const selector = txData.slice(0, 10).toLowerCase();
-
-  // Check registry for this function name
-  if (window.registryLoader) {
-    const knownSelector = window.registryLoader.getSelectorByName?.(functionName);
-    if (knownSelector && selector === knownSelector.toLowerCase()) return true;
-
-    // Also check selector info for function name
-    const selectorInfo = window.registryLoader.getSelectorInfo?.(selector);
-    if (selectorInfo?.name?.toLowerCase().includes(functionName.toLowerCase())) return true;
-  }
-
-  return false;
-}
-
-/**
- * Check if data contains a known selector anywhere (for nested calls)
- */
-function containsSelector(data, functionName) {
-  if (!data) return false;
-  const lowerData = data.toLowerCase();
-
-  if (window.registryLoader) {
-    const selector = window.registryLoader.getSelectorByName?.(functionName);
-    if (selector) {
-      // Remove 0x prefix for search
-      const selectorWithout0x = selector.slice(2).toLowerCase();
-      return lowerData.includes(selectorWithout0x);
-    }
-  }
-
-  return false;
 }
 
 // =============================================================================
@@ -282,226 +277,20 @@ function extractAddressesFromData(data) {
 }
 
 /**
- * Search for known token addresses in hex data using registry
+ * Search for token addresses in hex data
+ * Token info comes from metadata, not local registry
  */
 function findKnownTokensInData(data) {
-  const foundTokens = [];
-  const lowerData = data.toLowerCase();
-
-  const knownTokens = window.registryLoader?.tokenRegistry?.tokens || {};
-  for (const tokenAddr of Object.keys(knownTokens)) {
-    const searchAddr = tokenAddr.slice(2).toLowerCase();
-    if (lowerData.includes(searchAddr)) {
-      foundTokens.push(tokenAddr);
-    }
-  }
-
-  return foundTokens;
+  // Token detection now happens via metadata from subgraph
+  // This function returns empty - actual token info comes from contract metadata
+  return [];
 }
 
 // =============================================================================
 // GENERIC ABI DECODER UTILITIES - Metadata-driven parsing
 // =============================================================================
 
-/**
- * GENERIC: Get protocol metadata from registry or embedded globals
- * NO hardcoded protocol names - searches dynamically
- */
-function getProtocolMetadata(protocolId) {
-  // Try registry first
-  const fromRegistry = window.metadataService?.getProtocolMetadata?.(protocolId);
-  if (fromRegistry) return fromRegistry;
-
-  // Try embedded metadata by exact name convention
-  const embeddedByExactName = window[`${protocolId}Metadata`];
-  if (embeddedByExactName) return embeddedByExactName;
-
-  // Search all window properties for metadata objects with matching capabilities
-  // This finds ANY embedded metadata without hardcoding protocol names
-  for (const key of Object.keys(window)) {
-    if (key.endsWith('Metadata') && typeof window[key] === 'object' && window[key] !== null) {
-      const meta = window[key];
-      // Check if this metadata has the structure we need
-      if (meta.parsing?.multiSendStructure || meta.context?.contract?.abi) {
-        return meta;
-      }
-    }
-  }
-
-  return null;
-}
-
-
-/**
- * Get type size in bytes for ABI types
- * @param {string} type - Solidity type (e.g., 'uint8', 'address', 'uint256')
- * @returns {number} - Size in bytes
- */
-function getTypeSize(type) {
-  if (type === 'address') return 20;
-  if (type === 'bool' || type === 'uint8' || type === 'int8') return 1;
-  if (type.startsWith('uint') || type.startsWith('int')) {
-    const bits = parseInt(type.replace(/[^0-9]/g, '')) || 256;
-    return bits / 8;
-  }
-  if (type.startsWith('bytes') && !type.includes('[]')) {
-    const size = parseInt(type.replace('bytes', ''));
-    if (!isNaN(size)) return size;
-  }
-  // Dynamic types (bytes, string, arrays) return 32 for the offset pointer
-  return 32;
-}
-
-/**
- * Check if a type is dynamic (variable length)
- */
-function isDynamicType(type) {
-  return type === 'bytes' || type === 'string' || type.endsWith('[]');
-}
-
-/**
- * Extract a field value from hex data based on field definition
- * @param {string} data - Hex data (without 0x prefix)
- * @param {number} pos - Current position in hex string
- * @param {object} field - Field definition from metadata
- * @returns {object} - { value, nextPos }
- */
-function extractFieldFromData(data, pos, field) {
-  const hexSize = field.size * 2; // Convert bytes to hex chars
-
-  if (field.type === 'uint8' || field.type === 'int8') {
-    const value = parseInt(data.slice(pos, pos + hexSize), 16);
-    return { value, nextPos: pos + hexSize };
-  }
-
-  if (field.type === 'address') {
-    const value = '0x' + data.slice(pos, pos + hexSize);
-    return { value, nextPos: pos + hexSize };
-  }
-
-  if (field.type === 'uint256' || field.type === 'uint128' || field.type === 'uint64' || field.type === 'uint32') {
-    const value = '0x' + data.slice(pos, pos + hexSize);
-    return { value, nextPos: pos + hexSize };
-  }
-
-  if (field.type === 'bytes' && field.sizeField) {
-    // Variable length bytes - size comes from another field
-    const value = '0x' + data.slice(pos, pos + hexSize);
-    return { value, nextPos: pos + hexSize };
-  }
-
-  // Default: extract as hex
-  const value = '0x' + data.slice(pos, pos + hexSize);
-  return { value, nextPos: pos + hexSize };
-}
-
-/**
- * Parse multiSend transactions using metadata-driven structure
- * @param {string} transactionsData - Raw transactions bytes (without 0x prefix)
- * @param {object} metadata - Protocol multiSend metadata
- * @returns {Array} - Parsed transactions
- */
-function parseMultiSendWithMetadata(transactionsData, metadata) {
-  const structure = metadata?.parsing?.multiSendStructure;
-  if (!structure || !structure.fields) {
-    console.error('[MultiSend] No parsing structure in metadata');
-    return [];
-  }
-
-  const transactions = [];
-  let pos = 0;
-
-  while (pos < transactionsData.length) {
-    // Check minimum data remaining
-    const minSize = structure.fields
-      .filter(f => !f.sizeField)
-      .reduce((sum, f) => sum + f.size * 2, 0);
-
-    if (pos + minSize > transactionsData.length) break;
-
-    const tx = {};
-    let currentPos = pos;
-
-    for (const field of structure.fields) {
-      if (field.sizeField) {
-        // Variable length field - use size from another field
-        const dataLength = tx[field.sizeField];
-        if (dataLength > 0) {
-          tx[field.name] = '0x' + transactionsData.slice(currentPos, currentPos + dataLength);
-          currentPos += dataLength;
-        } else {
-          tx[field.name] = '0x';
-        }
-      } else {
-        const result = extractFieldFromData(transactionsData, currentPos, field);
-        tx[field.name] = result.value;
-        currentPos = result.nextPos;
-
-        // If this is the dataLength field, convert to hex char count
-        if (field.name === 'dataLength') {
-          tx.dataLength = parseInt(tx.dataLength, 16) * 2;
-        }
-      }
-    }
-
-    transactions.push(tx);
-    pos = currentPos;
-  }
-
-  return transactions;
-}
-
-/**
- * Get operation type info from metadata
- * @param {number} operation - Operation code (0 or 1)
- * @param {object} metadata - Protocol metadata
- * @returns {object} - { name, color, description }
- */
-function getOperationTypeFromMetadata(operation, metadata) {
-  const opTypes = metadata?.parsing?.operationTypes;
-  if (opTypes && opTypes[operation]) {
-    return opTypes[operation];
-  }
-  // Fallback
-  return { name: `Operation ${operation}`, color: '#a0aec0', description: 'Unknown operation' };
-}
-
-/**
- * GENERIC: Check if typed data matches protocol patterns using metadata
- * Works for any protocol (Safe, Uniswap Permit, etc.)
- * @param {object} typedData - EIP-712 typed data
- * @param {object} metadata - Protocol metadata
- * @returns {boolean}
- */
-function isProtocolTypedData(typedData, metadata) {
-  const protocolTypes = metadata?.detection?.typedDataTypes || [];
-  if (!typedData?.types || protocolTypes.length === 0) return false;
-
-  return protocolTypes.some(t => typedData.types[t]);
-}
-
-
-/**
- * GENERIC: Check if text contains protocol patterns using metadata
- * @param {string} text - Text content to check
- * @param {object} metadata - Protocol metadata
- * @returns {boolean}
- */
-function containsProtocolPattern(text, metadata) {
-  const patterns = metadata?.detection?.domPatterns || [];
-  return patterns.some(p => text.includes(p));
-}
-
-
-/**
- * GENERIC: Get EIP-712 type structure from metadata
- * @param {object} metadata - Protocol metadata
- * @param {string} typeName - Type name to get (e.g., 'MultisigTx', 'Permit')
- * @returns {Array} - Type definition array
- */
-function getTypedDataStructure(metadata, typeName = 'default') {
-  return metadata?.eip712?.[typeName] || [];
-}
+// Dead code removed - all parsing now handled by decode.js and recursive-decoder.js
 
 
 // =============================================================================
@@ -560,20 +349,14 @@ async function parseProtocolTransaction(txData, contractAddress, chainId = 1, tr
  * @param {string} protocolId - Optional protocol identifier for registry lookup
  */
 function getCommandInfo(commandByte, protocolId = null) {
-  // Use registry loader for command lookup
-  if (window.registryLoader) {
-    const info = window.registryLoader.getCommandInfo?.(commandByte);
-    if (info) return info;
-  }
-
-  // Fallback for unknown commands
+  // Command info comes from metadata - return generic info
   const byteHex = typeof commandByte === 'number'
     ? commandByte.toString(16).padStart(2, '0')
     : commandByte;
 
   return {
     name: `Command 0x${byteHex}`,
-    intent: 'Unknown operation',
+    intent: 'Operation',
     category: 'unknown',
     action: 'unknown'
   };
@@ -585,13 +368,7 @@ function getCommandInfo(commandByte, protocolId = null) {
  * @param {object} params - Parameters to substitute into the template
  */
 function formatIntentDescription(category, params = {}) {
-  // Try registry for intent template
-  if (window.registryLoader?.formatIntent) {
-    const formatted = window.registryLoader.formatIntent(category, params);
-    if (formatted) return formatted;
-  }
-
-  // Simple fallback formatting
+  // Intent formatting based on category
   if (category === 'swap' && params.fromToken && params.toToken) {
     return `Swap ${params.fromToken} to ${params.toToken}`;
   }
@@ -606,158 +383,13 @@ function formatIntentDescription(category, params = {}) {
 }
 
 /**
- * GENERIC: Parse batched transaction data (multiSend or similar)
- * Format: multiSend(bytes transactions) where transactions contains multiple encoded operations
- * Uses metadata-driven parsing - NO hardcoded byte offsets
- * @param {string} txData - The transaction data (must be multiSend calldata)
- * @param {string} protocolId - Protocol ID for metadata lookup (loaded from ERC-7730 files)
- * @param {number} chainId - The chain ID for metadata lookups (default: 1)
- */
-async function parseBatchTransaction(txData, protocolId = 'multisend', chainId = 1) {
-  try {
-
-    if (!txData || !matchesFunction(txData, 'multiSend')) {
-      console.log('[KaiSign] Not a multiSend transaction');
-      return null;
-    }
-
-    // Get protocol metadata using generic function
-    // First try the provided protocol ID, then search all loaded metadata for batch transaction configs
-    let metadata = getProtocolMetadata(protocolId);
-
-    // If no metadata found via protocolId, try searching all loaded metadata
-    if (!metadata) {
-      const allMetadata = window.metadataService?.getAllProtocolMetadata?.() || {};
-      for (const [id, meta] of Object.entries(allMetadata)) {
-        // Check if this metadata has batch transaction configuration
-        if (meta?.parsing?.multiSendStructure || meta?.parsing?.batchTransaction || meta?.display?.formats?.['multiSend(bytes)']) {
-          metadata = meta;
-          console.log(`[KaiSign] Found batch transaction metadata from: ${id}`);
-          break;
-        }
-      }
-    }
-
-    // Log what we found for debugging
-    if (metadata) {
-      console.log('[KaiSign] Batch transaction metadata found:', {
-        hasParsingMultiSend: !!metadata?.parsing?.multiSendStructure,
-        hasOperationTypes: !!metadata?.parsing?.operationTypes
-      });
-    } else {
-      console.warn(`[KaiSign] No batch transaction metadata available for ${protocolId}`);
-      return null;
-    }
-
-    // Remove function selector (first 4 bytes / 10 hex chars)
-    const payload = txData.slice(10);
-
-    // Parse ABI-encoded bytes parameter (standard Solidity encoding)
-    // First 32 bytes = offset to bytes data, then length, then data
-    const WORD_SIZE = 64; // 32 bytes in hex
-    const offset = parseInt(payload.slice(0, WORD_SIZE), 16) * 2;
-    const length = parseInt(payload.slice(offset, offset + WORD_SIZE), 16) * 2;
-    const transactionsData = payload.slice(offset + WORD_SIZE, offset + WORD_SIZE + length);
-
-    console.log('[KaiSign] Batch transactions data length:', transactionsData.length);
-
-    // Parse using metadata-driven structure
-    const parsedTxs = parseMultiSendWithMetadata(transactionsData, metadata);
-
-    // Convert to operations format
-    const operations = parsedTxs.map(tx => {
-      const opInfo = getOperationTypeFromMetadata(tx.operation, metadata);
-      return {
-        operation: tx.operation,
-        operationType: opInfo.name,
-        operationColor: opInfo.color,
-        to: tx.to,
-        value: tx.value,
-        data: tx.data,
-        selector: tx.data && tx.data.length >= 10 ? tx.data.slice(0, 10) : null
-      };
-    });
-
-    // Log operations using metadata-driven operation names
-    operations.forEach(op => {
-      console.log(`[KaiSign] Extracted operation: ${op.operationType} to ${op.to} with data ${op.data.slice(0, 20)}...`);
-    });
-
-    console.log(`[KaiSign] Parsed ${operations.length} operations from batch transaction`);
-
-    // Analyze operations to create intent (await registry loading)
-    const intents = [];
-    for (const op of operations) {
-      if (op.selector) {
-        const intent = await getOperationIntent(op, chainId);
-        if (intent) intents.push(intent);
-      }
-    }
-
-    const mainIntent = intents.length > 0 ? intents.join(' + ') : `Batch Transaction (${operations.length} operations)`;
-
-    return {
-      operations: operations,
-      intent: mainIntent,
-      type: 'batch_transaction'
-    };
-
-  } catch (error) {
-    console.error('[KaiSign] Batch transaction parsing error:', error);
-    return null;
-  }
-}
-
-/**
  * GENERIC: Get intent for individual operation
- * Uses registry loader for selector lookups (no hardcoded values)
- * Now async to ensure registry is loaded
+ * Uses metadata from subgraph for decoding
  */
 async function getOperationIntent(operation, chainId = 1) {
   if (!operation.selector || operation.selector === '0x') return null;
-  const selector = operation.selector;
 
-  // Ensure registry is loaded before lookup
-  if (window.registryLoader && !window.registryLoader.loaded) {
-    console.log(`[KaiSign] Waiting for registry to load...`);
-    await window.registryLoader.ensureLoaded();
-  }
-
-  // Use registry loader for selector lookup
-  const selectorInfo = window.registryLoader?.getSelectorInfo(operation.selector);
-
-  if (selectorInfo) {
-    const intent = selectorInfo.intent;
-
-    // Try to identify token for approval/transfer operations
-    if (selectorInfo.category === 'approval' || selectorInfo.category === 'transfer') {
-      const token = getTokenSymbol(operation.to);
-
-      // Try to extract and format amount using ABI-aware extraction
-      if (operation.data && operation.data.length >= 74 && window.formatTokenAmount) {
-        try {
-          // Use generic ABI-aware extraction based on function signature
-          // Standard ERC-20 functions: selector(4 bytes) + address(32 bytes padded) + uint256(32 bytes)
-          const SELECTOR_SIZE = 10; // 4 bytes in hex
-          const WORD_SIZE = 64; // 32 bytes in hex
-          const amountOffset = SELECTOR_SIZE + WORD_SIZE; // After selector and first param
-          const amountHex = '0x' + operation.data.slice(amountOffset, amountOffset + WORD_SIZE);
-
-          if (amountHex !== '0x0' && amountHex !== '0x' && amountHex.length > 3) {
-            const formattedAmount = window.formatTokenAmount(amountHex, operation.to, 1);
-            return `${intent} ${formattedAmount}`;
-          }
-        } catch (amountError) {
-          console.error('[KaiSign] Error formatting amount:', amountError);
-        }
-      }
-
-      return `${intent} ${token}`;
-    }
-    return intent;
-  }
-
-  // No selector info found in registry - try metadata service as fallback
+  // Use metadata service for decoding
   if (window.decodeCalldata && operation.to && operation.data) {
     try {
       const decoded = await window.decodeCalldata(operation.data, operation.to, chainId);
@@ -765,8 +397,8 @@ async function getOperationIntent(operation, chainId = 1) {
       if (decoded.success && decoded.intent && decoded.intent !== 'Contract interaction' && decoded.intent !== 'Unknown function') {
         return decoded.intent;
       }
-    } catch (fallbackError) {
-      console.warn(`[KaiSign] Metadata fallback failed:`, fallbackError.message);
+    } catch (decodeError) {
+      console.warn(`[KaiSign] Decode failed:`, decodeError.message);
     }
   }
 
@@ -776,19 +408,14 @@ async function getOperationIntent(operation, chainId = 1) {
 // Universal Router functions DELETED - use generic getCommandInfo() instead
 
 /**
- * Enhanced token address resolution using registry loader
- * No hardcoded values - uses local-metadata/registry/tokens.json
+ * Token address resolution - returns address snippet as fallback
+ * Token info comes from metadata
  */
 function resolveTokenSymbol(address) {
   if (!address) return null;
-
-  // Use registry loader for token lookup
-  if (window.registryLoader) {
-    const info = window.registryLoader.getTokenInfo(address);
-    return info?.symbol || null;
-  }
-
-  return null;
+  // Token info should come from metadata
+  // Return shortened address as fallback
+  return address.slice(0, 6) + '...' + address.slice(-4);
 }
 
 // NOTE: Protocol-specific parsing functions have been replaced with generic metadata-driven functions
@@ -858,22 +485,13 @@ function parseInputData(commandInfo, inputData) {
   }
 }
 
-// Token metadata now loaded from registry (see registry-loader.js)
-// Uses local-metadata/registry/tokens.json
-
 /**
- * GENERIC: Get token symbol from address
- * Uses registry loader for lookups (no hardcoded values)
+ * Get token symbol from address
+ * Token info comes from metadata via subgraph
  */
 function getTokenSymbol(address) {
   if (!address) return 'TOKEN';
-
-  // Use registry loader for token lookup
-  if (window.registryLoader) {
-    return window.registryLoader.getTokenSymbol(address);
-  }
-
-  // Fallback if registry not loaded
+  // Return shortened address - token info comes from metadata
   return address.slice(0, 6) + '...';
 }
 
@@ -895,15 +513,11 @@ function formatEther(hexValue) {
 
 /**
  * Get function name from selector
- * Uses registry loader for lookups (no hardcoded values)
+ * Function info comes from metadata
  */
 function getFunctionNameFromSelector(selector) {
-  // Use registry loader for selector lookup
-  if (window.registryLoader) {
-    return window.registryLoader.getFunctionName(selector);
-  }
-
-  return 'unknown';
+  // Function info comes from metadata via decodeCalldata
+  return selector || 'unknown';
 }
 
 // Wallet detection and hooking
@@ -1338,7 +952,9 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
           let nestedIntents = [];
           if (window.decodeCalldataRecursive && targetAddress) {
             try {
+              console.log('[KaiSign] Calling decodeCalldataRecursive with:', typedData.message.data?.slice(0, 20), targetAddress, chainId);
               const decoded = await window.decodeCalldataRecursive(typedData.message.data, targetAddress, chainId);
+              console.log('[KaiSign] Recursive decode result:', decoded);
               if (decoded?.success) {
                 // Use aggregatedIntent or collect nested intents
                 if (decoded.nestedIntents?.length > 0) {
@@ -1353,10 +969,14 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
                   displayData.nestedIntents = nestedIntents;
                   console.log('[KaiSign] SafeTx decoded intents:', nestedIntents);
                 }
+              } else {
+                console.warn('[KaiSign] Recursive decode failed:', decoded?.error);
               }
             } catch (e) {
               console.error('[KaiSign] Error decoding SafeTx data:', e);
             }
+          } else {
+            console.warn('[KaiSign] decodeCalldataRecursive not available or no targetAddress');
           }
         }
 
@@ -2097,11 +1717,9 @@ function showRpcActivityNotification(method, params, category, walletName) {
     border-left: 4px solid #3182ce;
   `;
   
-  // Format method description - use registry for method descriptions
+  // Format method description
   const getMethodDescription = (method) => {
-    const desc = window.registryLoader?.getMethodDescription?.(method);
-    if (desc) return desc;
-    // Fallback to readable method name without hardcoded emojis
+    // Format method name to readable text
     const methodParts = method.split('_');
     return methodParts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
   };
@@ -2231,15 +1849,14 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   }
 
   // =============================================================================
-  // GENERIC PROTOCOL DETECTION - ALL PARSING VIA ERC-7730 METADATA
+  // GENERIC TRANSACTION DECODING - ALL PARSING VIA ERC-7730 METADATA
   // =============================================================================
 
-  // BATCH TRANSACTION DETECTION (multiSend, execTransaction, execute, etc.)
-  // All protocols use the same generic parsing flow
+  // Decode ANY transaction with calldata using metadata from subgraph
   const selector = tx.data?.slice(0, 10);
 
-  if (tx.data && (matchesFunction(tx.data, 'execute') || matchesFunction(tx.data, 'execTransaction') || matchesFunction(tx.data, 'multiSend'))) {
-    console.log('[KaiSign] Batch/Protocol transaction detected - selector:', selector);
+  if (tx.data && tx.data.length >= 10) {
+    console.log('[KaiSign] Transaction detected - selector:', selector);
     intent = 'Parsing transaction...';
     showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false }, []);
 
@@ -2247,15 +1864,15 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
       // Determine chainId - use mainnet (1) as default
       const chainId = context?.chainId || tx.chainId || 1;
 
-      // GENERIC: Use ERC-7730 metadata to parse ANY protocol transaction
+      // GENERIC: Use ERC-7730 metadata to parse ANY transaction
       // Try recursive decoder first for full nested intent resolution
       let decoded;
       if (window.decodeCalldataRecursive) {
         console.log('[KaiSign] Using recursive calldata decoder');
         decoded = await window.decodeCalldataRecursive(tx.data, tx.to, chainId);
-      } else {
+      } else if (window.decodeCalldata) {
         // Fallback to non-recursive decoder
-        decoded = await parseProtocolTransaction(tx.data, tx.to, chainId, tx.value);
+        decoded = await window.decodeCalldata(tx.data, tx.to, chainId);
       }
 
       if (decoded && decoded.success) {
@@ -2263,30 +1880,26 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         intent = decoded.aggregatedIntent || decoded.intent || 'Contract interaction';
         decodedResult = {
           success: true,
-          functionName: decoded.functionName || 'Protocol Transaction',
+          functionName: decoded.functionName || 'Contract Call',
           selector: selector,
           intent: intent,
-          protocolTransaction: true,
           nestedIntents: decoded.nestedIntents || [],
           ...decoded
         };
 
-        // LOG RAW NESTED DECODES - NO FLATTENING
+        // Convert nested decodes to extractedBytecodes format for UI display
         if (decoded.nestedDecodes && decoded.nestedDecodes.length > 0) {
           console.log('[KaiSign] RAW nestedDecodes from recursive decoder:', JSON.stringify(decoded.nestedDecodes, null, 2));
-          // BYPASS flattenNestedDecodes - recursive decoder handles everything
-          extractedBytecodes = [];
+          extractedBytecodes = flattenNestedDecodesToBytecodes(decoded.nestedDecodes, 1);
+          console.log('[KaiSign] Flattened to extractedBytecodes:', extractedBytecodes.length, 'entries');
         }
 
-        // NOTE: Removed redundant parseBatchTransaction calls - recursive decoder handles all nested decoding
-        // The intent is already correctly aggregated in decoded.aggregatedIntent
-
-        console.log(`[KaiSign] Protocol transaction: ${intent}`);
+        console.log(`[KaiSign] Decoded transaction: ${intent}`);
         showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
         return; // Skip other decoding
       }
-    } catch (protocolError) {
-      console.error('[KaiSign] Protocol transaction parsing error:', protocolError);
+    } catch (decodeError) {
+      console.error('[KaiSign] Transaction decoding error:', decodeError);
     }
   }
   
@@ -2646,7 +2259,8 @@ window.generateBytecodeTree = function(bytecodes) {
               <span style="color: ${color}; font-weight: bold;">${bc.functionName || bc.selector || 'call'}</span>
               ${bc.target ? `<span style="color: #666;"> → ${bc.target.slice(0, 6)}...${bc.target.slice(-4)}</span>` : ''}
             </div>
-            ${bc.intent ? `<div style="margin-left: ${depth * 12}px; font-size: 9px; color: #ffd700;">${bc.intent}</div>` : ''}
+            ${bc.intent ? `<div style="margin-left: ${depth * 12}px; font-size: 9px; color: #ffd700;">📋 ${bc.intent}</div>` : ''}
+            ${bc.formattedParams ? `<div style="margin-left: ${depth * 12}px; font-size: 9px; color: #68d391;">💰 ${bc.formattedParams}</div>` : ''}
           </div>
         `;
       }).join('')}
