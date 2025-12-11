@@ -90,8 +90,11 @@ class RecursiveCalldataDecoder {
 
       // Aggregate intents from nested decodes
       const nestedIntents = this.aggregateIntents(processedResult);
+
+      // Only show leaf intents in aggregated title (user preference: clean display)
+      // Store wrapper intent separately for context
       const aggregatedIntent = nestedIntents.length > 0
-        ? `${decoded.intent} → ${nestedIntents.join(' + ')}`
+        ? nestedIntents.join(' + ')
         : decoded.intent;
 
       return {
@@ -100,6 +103,7 @@ class RecursiveCalldataDecoder {
         nestedDecodes: processedResult.nestedDecodes,
         nestedIntents,
         aggregatedIntent,
+        wrapperIntent: decoded.intent, // Store wrapper intent separately for UI context
         depth
       };
     } finally {
@@ -419,8 +423,12 @@ class RecursiveCalldataDecoder {
                 }
               }
             } else {
-              // No nested intents, use the base intent only
-              const leafIntent = nestedDecode.intent;
+              // No nested intents, use the base intent only - enhance with amounts if available
+              let leafIntent = nestedDecode.intent;
+
+              // Enhance intent with formatted amounts from decoded params
+              leafIntent = this.enhanceIntentWithAmount(leafIntent, nestedDecode.formatted, nestedDecode.params);
+
               console.log(`[handleMulticallDecoder] Op ${i} intent:`, leafIntent);
               if (leafIntent && !seenIntentKeys.has(leafIntent)) {
                 seenIntentKeys.add(leafIntent);
@@ -541,6 +549,50 @@ class RecursiveCalldataDecoder {
     if (opCode === 0) return { name: 'Call', color: '#48bb78' };
     if (opCode === 1) return { name: 'DelegateCall', color: '#ed8936' };
     return { name: `Operation ${opCode}`, color: '#a0aec0' };
+  }
+
+  /**
+   * Enhance intent string with formatted amount if available
+   * Uses formatted params to append amount to intent (e.g., "Approve USDC" → "Approve 0.80 USDC")
+   * @param {string} intent - Original intent string
+   * @param {object} formatted - Formatted parameter values from decode
+   * @param {object} params - Raw parameter values
+   * @returns {string} - Enhanced intent with amount
+   */
+  enhanceIntentWithAmount(intent, formatted, params) {
+    if (!intent || !formatted) return intent;
+
+    // Look for amount/value params with formatted values
+    // Common param names for amounts: amount, value, assets, shares, wad
+    const amountParamNames = ['amount', 'value', 'assets', 'shares', 'wad', 'amountIn', 'amountOut', 'amount0', 'amount1'];
+
+    for (const paramName of amountParamNames) {
+      const formattedParam = formatted[paramName];
+      if (formattedParam && formattedParam.value) {
+        const formattedValue = formattedParam.value;
+        // Skip if already in intent or if it's just a raw hex/number
+        if (intent.includes(formattedValue)) continue;
+        if (formattedValue.startsWith('0x')) continue;
+        // Check if it looks like a formatted amount (contains decimal or space for symbol)
+        if (formattedValue.includes('.') || formattedValue.includes(' ')) {
+          // Insert amount into intent - try to place it intelligently
+          // If intent ends with token symbol, insert before it
+          const symbolMatch = intent.match(/\s+(USDC|USDT|DAI|WETH|ETH|WBTC|[A-Z]{2,5})$/i);
+          if (symbolMatch) {
+            // Replace "Approve USDC" with "Approve 0.80 USDC"
+            const symbol = symbolMatch[1];
+            // Check if formatted value already includes the symbol
+            if (formattedValue.includes(symbol)) {
+              return intent.replace(new RegExp(`\\s+${symbol}$`, 'i'), ` ${formattedValue}`);
+            }
+          }
+          // Otherwise append the formatted amount
+          return `${intent} (${formattedValue})`;
+        }
+      }
+    }
+
+    return intent;
   }
 
   /**

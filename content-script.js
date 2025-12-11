@@ -20,6 +20,7 @@
     .kaisign-close-btn:hover { background: #f85149; border-color: #f85149; color: white; }
     .kaisign-warning { padding: 10px 16px; background: rgba(248, 81, 73, 0.1); border-bottom: 1px solid #30363d; font-size: 11px; color: #f85149; text-align: center; }
     .kaisign-intent-section { padding: 16px; background: #21262d; border-bottom: 1px solid #30363d; }
+    .kaisign-wrapper-context { font-size: 11px; color: #8b949e; margin-bottom: 4px; padding: 4px 8px; background: rgba(139, 148, 158, 0.1); border-radius: 4px; display: inline-block; }
     .kaisign-intent { font-size: 16px; font-weight: 600; color: #3fb950; margin-bottom: 12px; }
     .kaisign-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .kaisign-detail-item { font-size: 12px; }
@@ -255,36 +256,6 @@ function isValidTokenAddress(addr) {
   return true;
 }
 
-/**
- * Extract valid addresses from hex data
- * Looks for 32-byte slots that contain properly padded addresses
- */
-function extractAddressesFromData(data) {
-  const addresses = [];
-  const cleanData = data.startsWith('0x') ? data.slice(2) : data;
-
-  for (let i = 0; i < cleanData.length; i += 64) {
-    const chunk = cleanData.slice(i, i + 64);
-    if (chunk.length === 64 && chunk.slice(0, 24) === '000000000000000000000000') {
-      const addr = '0x' + chunk.slice(24);
-      if (isValidTokenAddress(addr)) {
-        addresses.push(addr);
-      }
-    }
-  }
-
-  return addresses;
-}
-
-/**
- * Search for token addresses in hex data
- * Token info comes from metadata, not local registry
- */
-function findKnownTokensInData(data) {
-  // Token detection now happens via metadata from subgraph
-  // This function returns empty - actual token info comes from contract metadata
-  return [];
-}
 
 // =============================================================================
 // GENERIC ABI DECODER UTILITIES - Metadata-driven parsing
@@ -363,26 +334,6 @@ function getCommandInfo(commandByte, protocolId = null) {
 }
 
 /**
- * GENERIC: Format intent description using registry templates
- * @param {string} category - The operation category (swap, transfer, etc.)
- * @param {object} params - Parameters to substitute into the template
- */
-function formatIntentDescription(category, params = {}) {
-  // Intent formatting based on category
-  if (category === 'swap' && params.fromToken && params.toToken) {
-    return `Swap ${params.fromToken} to ${params.toToken}`;
-  }
-  if (category === 'transfer' && params.token) {
-    return `Transfer ${params.token}`;
-  }
-  if (category === 'approval' && params.token) {
-    return `Approve ${params.token}`;
-  }
-
-  return params.intent || `${category} operation`;
-}
-
-/**
  * GENERIC: Get intent for individual operation
  * Uses metadata from subgraph for decoding
  */
@@ -416,73 +367,6 @@ function resolveTokenSymbol(address) {
   // Token info should come from metadata
   // Return shortened address as fallback
   return address.slice(0, 6) + '...' + address.slice(-4);
-}
-
-// NOTE: Protocol-specific parsing functions have been replaced with generic metadata-driven functions
-
-/**
- * GENERIC: Parse input data to extract parameters
- * Works for any protocol - uses utility functions for address extraction
- */
-function parseInputData(commandInfo, inputData) {
-  if (!inputData || inputData.length < 10) return null;
-
-  try {
-    const category = commandInfo?.category || 'unknown';
-    const data = inputData.startsWith('0x') ? inputData.slice(2) : inputData;
-
-    // Extract addresses using utility function
-    const addresses = extractAddressesFromData(data);
-    const knownTokens = findKnownTokensInData(data);
-    const allTokens = [...new Set([...addresses, ...knownTokens])];
-
-    // Extract amount from second 32-byte slot if present
-    let amountIn = null;
-    if (data.length >= 128) {
-      const amountInHex = data.slice(64, 128);
-      if (amountInHex && !amountInHex.match(/^0+$/) && amountInHex !== 'f'.repeat(64)) {
-        amountIn = '0x' + amountInHex;
-      }
-    }
-
-    // Category-based result
-    if (category === 'swap' && allTokens.length >= 2) {
-      return {
-        fromToken: allTokens[0],
-        toToken: allTokens[1],
-        fromSymbol: resolveTokenSymbol(allTokens[0]) || allTokens[0],
-        toSymbol: resolveTokenSymbol(allTokens[1]) || allTokens[1],
-        amountIn: amountIn,
-        type: 'swap'
-      };
-    }
-
-    if (['transfer', 'cleanup', 'sweep'].includes(category) && allTokens.length >= 1) {
-      return {
-        token: allTokens[0],
-        tokenSymbol: resolveTokenSymbol(allTokens[0]) || allTokens[0],
-        recipient: allTokens[1] || null,
-        type: 'transfer'
-      };
-    }
-
-    // Generic fallback
-    if (allTokens.length > 0) {
-      return {
-        tokens: allTokens,
-        tokenSymbols: allTokens.map(t => resolveTokenSymbol(t) || t),
-        type: category || 'generic'
-      };
-    }
-
-    return {
-      type: category || 'unknown',
-      dataLength: data.length / 2
-    };
-  } catch (error) {
-    console.error('[parseInputData] Error:', error);
-    return null;
-  }
 }
 
 /**
@@ -798,7 +682,6 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
             const domainName = typedData?.domain?.name || 'Protocol';
             displayData.intent = `Sign ${domainName} Message`;
             displayData.nestedIntents = [
-              'Wrapped off-chain signature',
               `Hash: ${messageHash ? messageHash.slice(0, 18) + '...' + messageHash.slice(-8) : 'Unknown'}`
             ];
             // Mark that this needs decode option
@@ -1179,6 +1062,7 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
 function detectProtocolFromTypedData(typedData) {
   const types = typedData?.types || {};
   const typeNames = Object.keys(types).filter(t => t !== 'EIP712Domain');
+  const domain = typedData?.domain || {};
 
   // Check metadata for protocol with matching type definitions
   const allMetadata = window.metadataService?.getAllProtocolMetadata?.() || {};
@@ -1190,14 +1074,9 @@ function detectProtocolFromTypedData(typedData) {
     }
   }
 
-  // Fallback: detect by common type patterns (no protocol-specific hardcoding)
-  // Check for permit-related type names
-  if (typeNames.some(t => t.toLowerCase().includes('permit'))) {
-    return { id: 'permit', name: 'Token Permit' };
-  }
-
-  // Generic fallback - let metadata drive detection
-  return { id: 'eip712', name: 'EIP-712 Signature' };
+  // Generic fallback - use domain name if available, otherwise generic EIP-712
+  const protocolName = domain.name || 'EIP-712 Signature';
+  return { id: 'eip712', name: protocolName };
 }
 
 /**
@@ -1890,6 +1769,9 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     </div>
 
     <div class="kaisign-intent-section">
+      ${decodedResult?.wrapperIntent && decodedResult.wrapperIntent !== intent ? `
+        <div class="kaisign-wrapper-context">via ${escapeHtml(decodedResult.wrapperIntent)}</div>
+      ` : ''}
       <div class="kaisign-intent">${escapeHtml(intent || 'Analyzing transaction...')}</div>
       <div class="kaisign-details-grid">
         <div class="kaisign-detail-item">
