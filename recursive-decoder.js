@@ -7,8 +7,8 @@
  *
  * Handles:
  * - "type": "calldata" fields with JSONPath target resolution
- * - "type": "multiSendDecoder" for packed batch transactions
- * - "type": "multiSendSummary" for aggregated statistics
+ * - "type": "multicallDecoder" for packed batch transactions
+ * - "type": "multicallSummary" for aggregated statistics
  * - Depth limiting to prevent infinite recursion
  * - Cycle detection
  */
@@ -51,8 +51,9 @@ class RecursiveCalldataDecoder {
       };
     }
 
-    // Cycle detection
-    const stackKey = `${targetAddress?.toLowerCase()}:${selector}:${depth}`;
+    // Cycle detection - check if we're already decoding this exact contract+selector
+    // Do NOT include depth in key - depth changes naturally in recursion
+    const stackKey = `${targetAddress?.toLowerCase()}:${selector}`;
     if (this.decodingStack.includes(stackKey)) {
       console.warn(`[RecursiveDecoder] Cycle detected: ${stackKey}`);
       return {
@@ -77,9 +78,10 @@ class RecursiveCalldataDecoder {
       const metadata = await this.getMetadata(targetAddress, chainId, selector);
 
       // Process fields looking for nested calldata
+      // Use function signature (e.g. "multicall(bytes)") if available, fallback to functionName
       const processedResult = await this.processFieldsRecursively(
         decoded.params,
-        decoded.functionName,
+        decoded.function || decoded.functionName,
         metadata,
         { params: decoded.params, parentContext, targetAddress },
         chainId,
@@ -120,7 +122,35 @@ class RecursiveCalldataDecoder {
     const processedParams = { ...params };
 
     // Get format definition for this function
-    const format = metadata?.display?.formats?.[functionName];
+    // Try exact match first, then try matching by function name (without signature)
+    let format = metadata?.display?.formats?.[functionName];
+    let matchedKey = functionName;
+
+    if (!format && metadata?.display?.formats) {
+      // Extract just the function name (before the parenthesis)
+      const baseFunctionName = functionName.includes('(')
+        ? functionName.split('(')[0]
+        : functionName;
+
+      // Try to find a matching key in metadata formats
+      // 1. Exact match on base name
+      // 2. Key starts with base name + "("
+      const formats = metadata.display.formats;
+      for (const key of Object.keys(formats)) {
+        const keyBaseName = key.includes('(') ? key.split('(')[0] : key;
+        if (key === baseFunctionName || keyBaseName === baseFunctionName) {
+          format = formats[key];
+          matchedKey = key;
+          break;
+        }
+      }
+    }
+
+    // Debug logging (can be removed for production)
+    if (!format) {
+      const displayFormatKeys = metadata?.display?.formats ? Object.keys(metadata.display.formats) : [];
+      console.log('[RecursiveDecoder] No format found for:', functionName.split('(')[0], 'available:', displayFormatKeys.join(', '));
+    }
 
     if (!format) {
       return { params: processedParams, nestedDecodes };
@@ -184,71 +214,75 @@ class RecursiveCalldataDecoder {
       }
     }
 
-    // Track which paths have been processed as multiSend to avoid duplicates
-    const processedMultiSendPaths = new Set();
+    // Track which paths have been processed as multicall to avoid duplicates
+    const processedMulticallPaths = new Set();
 
-    // Check for multiSendDecoder fields (explicit type in metadata)
-    const multiSendFields = this.findMultiSendDecoderFields(format.intent?.format || []);
-    for (const fieldDef of multiSendFields) {
+    // Get multicall structure from metadata's parsing section (used by both explicit and auto-detected multicall)
+    const multicallStructure = metadata?.parsing?.multicallStructure;
+
+    // Check for multicallDecoder fields (explicit type in metadata)
+    const multicallFields = this.findMulticallDecoderFields(format.intent?.format || []);
+    for (const fieldDef of multicallFields) {
       const paramName = fieldDef.path;
-      if (!paramName || processedMultiSendPaths.has(paramName)) continue;
+      if (!paramName || processedMulticallPaths.has(paramName)) continue;
 
       const rawValue = params[paramName];
       if (!rawValue || rawValue === '0x') continue;
 
-      processedMultiSendPaths.add(paramName);
+      processedMulticallPaths.add(paramName);
 
-      const multiSendResult = await this.handleMultiSendDecoder(
+      const multicallResult = await this.handleMulticallDecoder(
         fieldDef,
         rawValue,
         context,
         chainId,
-        depth
+        depth,
+        multicallStructure
       );
 
-      if (multiSendResult.operations?.length > 0) {
-        processedParams[`${paramName}_multiSend`] = multiSendResult;
+      if (multicallResult.operations?.length > 0) {
+        processedParams[`${paramName}_multicall`] = multicallResult;
         nestedDecodes.push({
           fieldPath: paramName,
-          type: 'multiSend',
-          result: multiSendResult
+          type: 'multicall',
+          result: multicallResult
         });
       }
     }
 
-    // Auto-detect multiSend structure from metadata's parsing section
-    // This handles cases where format uses "multiSendBatch" without explicit type
-    if (metadata?.parsing?.multiSendStructure && format?.fields) {
-      for (const field of format.fields) {
-        // Look for multiSendBatch format or transactions field
-        if (field.format === 'multiSendBatch' || (field.path === 'transactions' && params.transactions)) {
-          const paramName = field.path;
-          // Skip if already processed
-          if (processedMultiSendPaths.has(paramName)) continue;
+    // Also check format fields for multicallBatch format
+    // Structure comes from metadata's parsing.multicallStructure
+    const fieldsToCheck = format?.fields || [];
+    for (const field of fieldsToCheck) {
+      // Look for multicallBatch format or transactions field
+      if (field.format === 'multicallBatch' || (field.path === 'transactions' && params.transactions)) {
+        const paramName = field.path;
 
-          const rawValue = params[paramName];
+        // Skip if already processed
+        if (processedMulticallPaths.has(paramName)) continue;
 
-          if (rawValue && rawValue !== '0x' && rawValue.length > 2) {
-            processedMultiSendPaths.add(paramName);
+        const rawValue = params[paramName];
+        if (!rawValue || rawValue === '0x' || rawValue.length < 4) continue;
 
-            // Create a synthetic field def for handleMultiSendDecoder
-            const multiSendResult = await this.handleMultiSendDecoder(
-              { path: paramName, format: { parseNestedCalls: true } },
-              rawValue,
-              context,
-              chainId,
-              depth
-            );
+        processedMulticallPaths.add(paramName);
 
-            if (multiSendResult.operations?.length > 0) {
-              processedParams[`${paramName}_multiSend`] = multiSendResult;
-              nestedDecodes.push({
-                fieldPath: paramName,
-                type: 'multiSend',
-                result: multiSendResult
-              });
-            }
-          }
+        // Use multicall structure from metadata
+        const multicallResult = await this.handleMulticallDecoder(
+          { path: paramName, format: { parseNestedCalls: true } },
+          rawValue,
+          context,
+          chainId,
+          depth,
+          multicallStructure
+        );
+
+        if (multicallResult.operations?.length > 0) {
+          processedParams[`${paramName}_multicall`] = multicallResult;
+          nestedDecodes.push({
+            fieldPath: paramName,
+            type: 'multicall',
+            result: multicallResult
+          });
         }
       }
     }
@@ -291,20 +325,20 @@ class RecursiveCalldataDecoder {
   }
 
   /**
-   * Find multiSendDecoder field definitions
+   * Find multicallDecoder field definitions
    * Recursively traverses containers and nested field arrays
    * @param {Array|object} formatArray - Format array or object from metadata
    * @param {Array} results - Accumulated results
    * @returns {Array}
    */
-  findMultiSendDecoderFields(formatArray, results = []) {
+  findMulticallDecoderFields(formatArray, results = []) {
     // Handle single object
     if (formatArray && typeof formatArray === 'object' && !Array.isArray(formatArray)) {
-      if (formatArray.type === 'multiSendDecoder' && formatArray.path) {
+      if (formatArray.type === 'multicallDecoder' && formatArray.path) {
         results.push(formatArray);
       }
       if (formatArray.fields) {
-        this.findMultiSendDecoderFields(formatArray.fields, results);
+        this.findMulticallDecoderFields(formatArray.fields, results);
       }
       return results;
     }
@@ -312,19 +346,19 @@ class RecursiveCalldataDecoder {
     if (!Array.isArray(formatArray)) return results;
 
     for (const item of formatArray) {
-      if (item.type === 'multiSendDecoder' && item.path) {
+      if (item.type === 'multicallDecoder' && item.path) {
         results.push(item);
       }
       if (item.fields) {
-        this.findMultiSendDecoderFields(item.fields, results);
+        this.findMulticallDecoderFields(item.fields, results);
       }
     }
     return results;
   }
 
   /**
-   * Handle multiSendDecoder field type - parse packed transactions
-   * Uses metadata-driven structure from parsing.multiSendStructure
+   * Handle multicallDecoder field type - parse packed transactions
+   * Uses metadata-driven structure from parsing.multicallStructure
    * @param {object} fieldDef - Field definition from metadata
    * @param {string} rawValue - Raw bytes data
    * @param {object} context - Decoding context
@@ -332,19 +366,22 @@ class RecursiveCalldataDecoder {
    * @param {number} depth - Current depth
    * @returns {Promise<object>}
    */
-  async handleMultiSendDecoder(fieldDef, rawValue, context, chainId, depth) {
-    // Get multiSend parsing structure from metadata (globally exposed)
-    const structure = this.getMultiSendStructure();
+  async handleMulticallDecoder(fieldDef, rawValue, context, chainId, depth, multicallStructure = null) {
+    // Use passed structure - no fallback, must come from metadata
+    const structure = multicallStructure;
     if (!structure) {
-      console.warn('[RecursiveDecoder] No multiSend structure in metadata');
-      return { error: 'No multiSend structure in metadata', operations: [] };
+      console.warn('[RecursiveDecoder] No multicall structure in metadata');
+      return { error: 'No multicall structure in metadata', operations: [] };
     }
+    console.log('[RecursiveDecoder] Using multicall structure:', Object.keys(structure));
 
     // Parse the packed transactions using structure from metadata
     const operations = this.parsePackedTransactions(rawValue, structure);
+    console.log(`[handleMulticallDecoder] Parsed ${operations.length} operations at depth ${depth}`);
 
     const decodedOperations = [];
     const intents = [];
+    const seenIntentKeys = new Set(); // Dedupe by intent content
 
     // Limit operations based on format config
     const maxOps = fieldDef.format?.maxTransactions || 20;
@@ -369,16 +406,37 @@ class RecursiveCalldataDecoder {
           const nestedDecode = await this.decode(op.data, op.to, chainId, context, depth + 1);
           if (nestedDecode.success) {
             decodedOp.decoded = nestedDecode;
-            intents.push(nestedDecode.aggregatedIntent || nestedDecode.intent);
+            // CRITICAL: Only collect LEAF intents to prevent duplication
+            // If nestedDecode has nestedIntents, use those (already flattened)
+            // Otherwise use the basic intent (not aggregatedIntent which contains duplicates)
+            if (nestedDecode.nestedIntents?.length > 0) {
+              console.log(`[handleMulticallDecoder] Op ${i} has nestedIntents:`, nestedDecode.nestedIntents);
+              // Use the individual nested intents, not the aggregated string
+              for (const leafIntent of nestedDecode.nestedIntents) {
+                if (leafIntent && !seenIntentKeys.has(leafIntent)) {
+                  seenIntentKeys.add(leafIntent);
+                  intents.push(leafIntent);
+                }
+              }
+            } else {
+              // No nested intents, use the base intent only
+              const leafIntent = nestedDecode.intent;
+              console.log(`[handleMulticallDecoder] Op ${i} intent:`, leafIntent);
+              if (leafIntent && !seenIntentKeys.has(leafIntent)) {
+                seenIntentKeys.add(leafIntent);
+                intents.push(leafIntent);
+              }
+            }
           }
         } catch (e) {
-          console.warn(`[RecursiveDecoder] Failed to decode operation ${i}:`, e.message);
+          // Silently continue on decode errors
         }
       }
 
       decodedOperations.push(decodedOp);
     }
 
+    console.log(`[handleMulticallDecoder] Final intents (${intents.length}):`, intents);
     return {
       operations: decodedOperations,
       totalCount: operations.length,
@@ -388,20 +446,7 @@ class RecursiveCalldataDecoder {
   }
 
   /**
-   * Get multiSend structure from embedded or loaded metadata
-   * @returns {object|null}
-   */
-  getMultiSendStructure() {
-    // Check globally exposed batch transaction metadata (from metadata.js)
-    const embedded = window.batchTransactionMetadata || window.multisendMetadata;
-    if (embedded?.parsing?.multiSendStructure) {
-      return embedded.parsing.multiSendStructure;
-    }
-    return null;
-  }
-
-  /**
-   * Parse packed multiSend transactions using metadata structure
+   * Parse packed multicall transactions using metadata structure
    * NO HARDCODED BYTE OFFSETS - uses field sizes from metadata
    * @param {string} data - Raw hex data
    * @param {object} structure - Parsing structure from metadata
@@ -414,21 +459,40 @@ class RecursiveCalldataDecoder {
     const maxTransactions = 50;
     let txCount = 0;
 
+    // Convert metadata structure format to fields array
+    // Metadata format: { operation: {type, size}, to: {type, size}, ... }
+    // Convert to: [{ name: 'operation', type, size }, ...]
+    let fields;
+    if (Array.isArray(structure.fields)) {
+      fields = structure.fields;
+    } else {
+      // Convert object format to array
+      fields = Object.entries(structure).map(([name, def]) => ({
+        name,
+        type: def.type,
+        size: def.size,
+        dynamic: def.dynamic
+      }));
+    }
+
+    console.log('[parsePackedTransactions] Fields:', fields.map(f => f.name));
+
     while (pos < cleanData.length && txCount < maxTransactions) {
       const tx = {};
       let currentPos = pos;
 
-      // Check minimum data remaining
-      const fixedFieldsSize = structure.fields
-        .filter(f => !f.sizeField)
+      // Check minimum data remaining (only fixed-size fields)
+      const fixedFieldsSize = fields
+        .filter(f => !f.dynamic && f.size)
         .reduce((sum, f) => sum + f.size * 2, 0);
 
       if (currentPos + fixedFieldsSize > cleanData.length) break;
 
       // Parse each field according to structure from metadata
-      for (const field of structure.fields) {
-        if (field.sizeField) {
-          const dataLength = tx[field.sizeField] || 0;
+      for (const field of fields) {
+        if (field.dynamic) {
+          // Dynamic field - use dataLength from previous field
+          const dataLength = tx.dataLength || 0;
           if (dataLength > 0) {
             tx[field.name] = '0x' + cleanData.slice(currentPos, currentPos + dataLength);
             currentPos += dataLength;
@@ -445,6 +509,7 @@ class RecursiveCalldataDecoder {
             tx[field.name] = '0x' + rawValue;
           } else if (field.type === 'uint256') {
             if (field.name === 'dataLength') {
+              // dataLength is in bytes, convert to hex chars
               tx[field.name] = parseInt(rawValue, 16) * 2;
             } else {
               tx[field.name] = '0x' + rawValue;
@@ -461,6 +526,7 @@ class RecursiveCalldataDecoder {
       txCount++;
     }
 
+    console.log(`[parsePackedTransactions] Parsed ${transactions.length} transactions`);
     return transactions;
   }
 
@@ -470,23 +536,20 @@ class RecursiveCalldataDecoder {
    * @returns {object}
    */
   getOperationType(opCode) {
-    const metadata = window.batchTransactionMetadata || window.multisendMetadata;
-    const opTypes = metadata?.parsing?.operationTypes;
-
-    if (opTypes && opTypes[opCode]) {
-      return opTypes[opCode];
-    }
-
+    // Operation types - common multicall convention
+    // 0 = Call, 1 = DelegateCall (used by Safe, and others)
+    if (opCode === 0) return { name: 'Call', color: '#48bb78' };
+    if (opCode === 1) return { name: 'DelegateCall', color: '#ed8936' };
     return { name: `Operation ${opCode}`, color: '#a0aec0' };
   }
 
   /**
-   * Handle multiSendSummary field type - generate statistics
+   * Handle multicallSummary field type - generate statistics
    * @param {object} fieldDef - Field definition from metadata
-   * @param {Array} operations - Parsed operations from multiSendDecoder
+   * @param {Array} operations - Parsed operations from multicallDecoder
    * @returns {object}
    */
-  handleMultiSendSummary(fieldDef, operations) {
+  handleMulticallSummary(fieldDef, operations) {
     const format = fieldDef.format || {};
     const summary = {
       totalOperations: operations.length,
@@ -514,10 +577,11 @@ class RecursiveCalldataDecoder {
         summary.contractInteractions.get(addr).push(op);
       }
 
-      // Track token transfers if enabled
-      if (format.showTokenTransfers && op.decoded?.functionName) {
-        const fnName = op.decoded.functionName.toLowerCase();
-        if (fnName.includes('transfer') || fnName.includes('approve')) {
+      // Track token transfers if enabled - use metadata category instead of hardcoded patterns
+      if (format.showTokenTransfers && op.decoded) {
+        // Use category from metadata instead of function name pattern matching
+        const category = op.decoded.category?.toLowerCase() || '';
+        if (category === 'transfer' || category === 'approval' || category === 'token') {
           summary.tokenTransfers.push({
             contract: op.to,
             function: op.decoded.functionName,
@@ -560,22 +624,43 @@ class RecursiveCalldataDecoder {
    */
   aggregateIntents(processedResult) {
     const intents = [];
+    const seenIntents = new Set(); // Prevent duplicates
+
+    console.log(`[aggregateIntents] Processing ${processedResult.nestedDecodes?.length || 0} nested decodes`);
 
     for (const nested of processedResult.nestedDecodes || []) {
-      if (nested.type === 'multiSend') {
-        // Aggregate multiSend intents
-        intents.push(...(nested.result.intents || []));
-      } else if (nested.result?.intent) {
-        intents.push(nested.result.aggregatedIntent || nested.result.intent);
-      }
+      console.log(`[aggregateIntents] Entry - type: ${nested.type}, fieldPath: ${nested.fieldPath}`);
 
-      // Recurse into deeper nested decodes
-      if (nested.result?.nestedDecodes) {
-        const deeperIntents = this.aggregateIntents({ nestedDecodes: nested.result.nestedDecodes });
-        intents.push(...deeperIntents);
+      if (nested.type === 'multicall') {
+        // multicall has intents array - these are already leaf intents
+        console.log(`[aggregateIntents] multicall intents:`, nested.result.intents);
+        for (const intent of nested.result.intents || []) {
+          if (intent && !seenIntents.has(intent)) {
+            seenIntents.add(intent);
+            intents.push(intent);
+          }
+        }
+      } else if (nested.result?.nestedIntents?.length > 0) {
+        // Calldata decode with nested intents - use the flattened array
+        console.log(`[aggregateIntents] Calldata nestedIntents:`, nested.result.nestedIntents);
+        for (const intent of nested.result.nestedIntents) {
+          if (intent && !seenIntents.has(intent)) {
+            seenIntents.add(intent);
+            intents.push(intent);
+          }
+        }
+      } else if (nested.result?.intent) {
+        // Leaf decode with single intent
+        const intent = nested.result.intent;
+        console.log(`[aggregateIntents] Leaf intent:`, intent);
+        if (intent && !seenIntents.has(intent)) {
+          seenIntents.add(intent);
+          intents.push(intent);
+        }
       }
     }
 
+    console.log(`[aggregateIntents] Final aggregated intents (${intents.length}):`, intents);
     return intents;
   }
 

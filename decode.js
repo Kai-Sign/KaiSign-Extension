@@ -658,12 +658,12 @@ function extractCalldataFieldsFromFormat(formatArray, fieldInfo) {
       };
     }
 
-    // Check if this item is a multiSendDecoder field
-    if (item.type === 'multiSendDecoder' && item.path) {
+    // Check if this item is a multicallDecoder field
+    if (item.type === 'multicallDecoder' && item.path) {
       fieldInfo[item.path] = {
         label: item.label || item.path,
         format: item.format || {},
-        type: 'multiSendDecoder'
+        type: 'multicallDecoder'
       };
     }
 

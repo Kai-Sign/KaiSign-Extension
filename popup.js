@@ -60,23 +60,13 @@ async function loadData() {
   }
 }
 
-// Categorize transaction by intent
+// Categorize transaction - GENERIC, metadata-driven
+// No hardcoded intent/method substring matching
 function categorizeTransaction(tx) {
-  const intent = (tx.intent || '').toLowerCase();
-  const method = (tx.method || '').toLowerCase();
-
-  if (intent.includes('swap') || intent.includes('exchange') ||
-      method.includes('swap') || method.includes('exactinput') || method.includes('exactoutput')) {
-    return 'swap';
-  }
-  if (intent.includes('transfer') || intent.includes('send') ||
-      method.includes('transfer') || method === 'eth_sendtransaction') {
-    return 'transfer';
-  }
-  if (intent.includes('approve') || intent.includes('allowance') ||
-      method.includes('approve') || method.includes('permit')) {
-    return 'approval';
-  }
+  // Use category from decoded result (comes from metadata)
+  if (tx.decodedResult?.category) return tx.decodedResult.category;
+  if (tx.category) return tx.category;
+  // Fallback to 'other' when no metadata category available
   return 'other';
 }
 
