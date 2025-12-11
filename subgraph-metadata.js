@@ -89,7 +89,16 @@ class SubgraphMetadataService {
    */
   async getContractMetadata(address, chainId, selector) {
     const normalizedAddress = address.toLowerCase();
-    const cacheKey = `${normalizedAddress}-${chainId}-${selector || ''}`;
+
+    // Normalize chainId to number (handle hex strings like '0x1')
+    let normalizedChainId = chainId;
+    if (typeof chainId === 'string' && chainId.startsWith('0x')) {
+      normalizedChainId = parseInt(chainId, 16);
+    } else if (typeof chainId === 'string') {
+      normalizedChainId = parseInt(chainId, 10);
+    }
+
+    const cacheKey = `${normalizedAddress}-${normalizedChainId}-${selector || ''}`;
 
     // Check cache first
     const cached = this.metadataCache.get(cacheKey);
@@ -99,10 +108,10 @@ class SubgraphMetadataService {
     }
 
     try {
-      console.log('[KaiSign API] Fetching metadata for:', normalizedAddress, 'chain:', chainId);
+      console.log('[KaiSign API] Fetching metadata for:', normalizedAddress, 'chain:', normalizedChainId);
 
       // Fetch via KaiSign API /contract endpoint
-      const apiUrl = `https://kai-sign-production.up.railway.app/api/py/contract/${normalizedAddress}?chain_id=${chainId}`;
+      const apiUrl = `https://kai-sign-production.up.railway.app/api/py/contract/${normalizedAddress}?chain_id=${normalizedChainId}`;
 
       const rawData = await this.fetchViaBackground(apiUrl);
       const response = JSON.parse(rawData);
