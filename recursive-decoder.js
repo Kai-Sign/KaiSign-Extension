@@ -190,6 +190,49 @@ class RecursiveCalldataDecoder {
       if (processedPaths.has(path)) continue;
       processedPaths.add(path);
 
+      const pathStr = fieldDef.path;
+
+      // Handle array paths like "calls.[].data" with parallel calleePath "calls.[].to"
+      if (pathStr.includes('[]')) {
+        console.log('[RecursiveDecoder] Processing array path:', pathStr);
+
+        // Parse array path: "calls.[].data" -> arrayFieldName="calls", dataFieldName="data"
+        const parts = pathStr.split('.');
+        const arrayFieldName = parts[0]; // "calls"
+        const dataFieldName = parts[parts.length - 1]; // "data"
+
+        // Get calleePath for target resolution (supports params.calleePath or field.to)
+        const calleePathStr = fieldDef.params?.calleePath || fieldDef.to;
+        const calleeFieldName = calleePathStr?.split('.').pop(); // "to"
+
+        const arrayData = params[arrayFieldName];
+        if (Array.isArray(arrayData)) {
+          console.log(`[RecursiveDecoder] Found ${arrayData.length} items in ${arrayFieldName}`);
+
+          for (let i = 0; i < arrayData.length; i++) {
+            const item = arrayData[i];
+            const calldata = item[dataFieldName];
+            const target = item[calleeFieldName];
+
+            console.log(`[RecursiveDecoder] Decoding ${arrayFieldName}[${i}].${dataFieldName} → target: ${target?.slice(0, 12)}...`);
+
+            if (calldata && calldata.length >= 10 && target) {
+              const nestedResult = await this.decode(calldata, target, chainId, context, depth + 1);
+              if (nestedResult.success) {
+                processedParams[`${arrayFieldName}[${i}].${dataFieldName}_decoded`] = nestedResult;
+                nestedDecodes.push({
+                  fieldPath: `${arrayFieldName}[${i}].${dataFieldName}`,
+                  targetAddress: target,
+                  result: nestedResult
+                });
+              }
+            }
+          }
+        }
+        continue; // Skip the simple path handling below
+      }
+
+      // Simple path handling (non-array)
       const paramName = fieldDef.path;
       const rawValue = params[paramName];
 
@@ -197,8 +240,8 @@ class RecursiveCalldataDecoder {
         continue;
       }
 
-      // Resolve target address using JSONPath
-      let targetAddress = fieldDef.to;
+      // Resolve target address using JSONPath or params.calleePath
+      let targetAddress = fieldDef.to || fieldDef.params?.calleePath;
       if (targetAddress?.startsWith('$.')) {
         targetAddress = window.resolveJsonPath(targetAddress, params);
       }
