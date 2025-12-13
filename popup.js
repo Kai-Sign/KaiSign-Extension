@@ -3,18 +3,15 @@ console.log('[KaiSign] Popup loading...');
 
 // State
 let transactions = [];
-let currentFilter = 'all';
 let currentSearch = '';
 let importData = null;
 
 // DOM Elements
 const elements = {
   txCount: document.getElementById('txCount'),
-  rpcCount: document.getElementById('rpcCount'),
   txList: document.getElementById('txList'),
   loadingState: document.getElementById('loadingState'),
   searchInput: document.getElementById('searchInput'),
-  filterTags: document.getElementById('filterTags'),
   exportBtn: document.getElementById('exportBtn'),
   exportDropdown: document.getElementById('exportDropdown'),
   importBtn: document.getElementById('importBtn'),
@@ -45,7 +42,6 @@ async function loadData() {
     chrome.runtime.sendMessage({ type: 'GET_STATS' }, (response) => {
       if (response) {
         elements.txCount.textContent = response.transactionCount || 0;
-        elements.rpcCount.textContent = response.rpcCallCount || 0;
       }
     });
 
@@ -58,27 +54,6 @@ async function loadData() {
     console.error('[KaiSign] Load error:', error);
     showToast('Failed to load data', 'error');
   }
-}
-
-// Categorize transaction - GENERIC, metadata-driven
-// No hardcoded intent/method substring matching
-function categorizeTransaction(tx) {
-  // Use category from decoded result (comes from metadata)
-  if (tx.decodedResult?.category) return tx.decodedResult.category;
-  if (tx.category) return tx.category;
-  // Fallback to 'other' when no metadata category available
-  return 'other';
-}
-
-// Get icon for transaction category
-function getTxIcon(category) {
-  const icons = {
-    swap: '↔️',
-    transfer: '➡️',
-    approval: '✓',
-    other: '📄'
-  };
-  return icons[category] || icons.other;
 }
 
 // Generate meaningful title for transaction
@@ -143,27 +118,16 @@ function generateMeaningfulTitle(tx) {
   return 'Transaction';
 }
 
-// Filter transactions
+// Filter transactions by search only
 function filterTransactions(txs) {
+  if (!currentSearch) return txs;
+
+  const searchLower = currentSearch.toLowerCase();
   return txs.filter(tx => {
-    // Category filter
-    if (currentFilter !== 'all') {
-      const category = categorizeTransaction(tx);
-      if (category !== currentFilter) return false;
-    }
-
-    // Search filter
-    if (currentSearch) {
-      const searchLower = currentSearch.toLowerCase();
-      const matchesSearch =
-        (tx.intent || '').toLowerCase().includes(searchLower) ||
-        (tx.to || '').toLowerCase().includes(searchLower) ||
-        (tx.method || '').toLowerCase().includes(searchLower) ||
-        (tx.data || '').toLowerCase().includes(searchLower);
-      if (!matchesSearch) return false;
-    }
-
-    return true;
+    return (tx.intent || '').toLowerCase().includes(searchLower) ||
+      (tx.to || '').toLowerCase().includes(searchLower) ||
+      (tx.method || '').toLowerCase().includes(searchLower) ||
+      (tx.data || '').toLowerCase().includes(searchLower);
   });
 }
 
@@ -187,15 +151,13 @@ function renderTransactions() {
   }
 
   elements.txList.innerHTML = filtered.map(tx => {
-    const category = categorizeTransaction(tx);
-    const icon = getTxIcon(category);
     const time = tx.time ? new Date(tx.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     const intent = generateMeaningfulTitle(tx);
     const method = tx.method || '';
 
     return `
       <div class="tx-item" data-id="${tx.id || ''}">
-        <div class="tx-icon ${category}">${icon}</div>
+        <div class="tx-icon">📄</div>
         <div class="tx-content">
           <div class="tx-intent">${escapeHtml(intent)}</div>
           <div class="tx-meta">
@@ -215,16 +177,6 @@ function setupEventListeners() {
   elements.searchInput.addEventListener('input', (e) => {
     currentSearch = e.target.value;
     renderTransactions();
-  });
-
-  // Filter tags
-  elements.filterTags.addEventListener('click', (e) => {
-    if (e.target.classList.contains('filter-tag')) {
-      document.querySelectorAll('.filter-tag').forEach(tag => tag.classList.remove('active'));
-      e.target.classList.add('active');
-      currentFilter = e.target.dataset.filter;
-      renderTransactions();
-    }
   });
 
   // Export button toggle
@@ -478,18 +430,10 @@ function handleClear() {
   });
 }
 
-// Show transaction details (simple alert for now, can be enhanced)
+// Copy transaction data to clipboard
 function showTransactionDetails(tx) {
-  const details = `
-Intent: ${tx.intent || 'N/A'}
-Method: ${tx.method || 'N/A'}
-To: ${tx.to || 'N/A'}
-Value: ${tx.value || '0x0'}
-Time: ${tx.time ? new Date(tx.time).toLocaleString() : 'N/A'}
-  `.trim();
-
   // For EIP-712 signatures, copy the complete typed data JSON
-  // For regular transactions, copy the raw bytecode
+  // For regular transactions, copy the raw transaction data
   let dataToCopy;
   if (tx.isEIP712 && tx.eip712TypedData) {
     dataToCopy = JSON.stringify(tx.eip712TypedData, null, 2);
@@ -497,12 +441,11 @@ Time: ${tx.time ? new Date(tx.time).toLocaleString() : 'N/A'}
     dataToCopy = tx.data || '0x';
   }
 
-  // Copy data to clipboard
   navigator.clipboard.writeText(dataToCopy).then(() => {
-    const dataType = tx.isEIP712 ? 'EIP-712 typed data' : 'Transaction bytecode';
-    alert(details + `\n\n${dataType} copied to clipboard!`);
+    const dataType = tx.isEIP712 ? 'EIP-712 data' : 'Transaction data';
+    showToast(`${dataType} copied!`, 'success');
   }).catch(() => {
-    alert(details);
+    showToast('Failed to copy', 'error');
   });
 }
 

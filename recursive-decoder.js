@@ -478,9 +478,29 @@ class RecursiveCalldataDecoder {
                 intents.push(leafIntent);
               }
             }
+          } else {
+            // Decode failed (no metadata) - show fallback with operation type, selector and target
+            const selector = op.data?.slice(0, 10) || '0x';
+            const shortAddr = op.to ? `${op.to.slice(0, 8)}...${op.to.slice(-6)}` : 'Unknown';
+            const opType = op.operation || 'Call';
+            const fallbackIntent = `${opType} ${selector} to ${shortAddr}`;
+            console.log(`[handleMulticallDecoder] Op ${i} fallback (no metadata):`, fallbackIntent);
+            if (!seenIntentKeys.has(fallbackIntent)) {
+              seenIntentKeys.add(fallbackIntent);
+              intents.push(fallbackIntent);
+            }
           }
         } catch (e) {
-          // Silently continue on decode errors
+          // Decode error - show fallback
+          const selector = op.data?.slice(0, 10) || '0x';
+          const shortAddr = op.to ? `${op.to.slice(0, 8)}...${op.to.slice(-6)}` : 'Unknown';
+          const opType = op.operation || 'Call';
+          const fallbackIntent = `${opType} ${selector} to ${shortAddr}`;
+          console.log(`[handleMulticallDecoder] Op ${i} error fallback:`, fallbackIntent, e.message);
+          if (!seenIntentKeys.has(fallbackIntent)) {
+            seenIntentKeys.add(fallbackIntent);
+            intents.push(fallbackIntent);
+          }
         }
       }
 

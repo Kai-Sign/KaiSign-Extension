@@ -406,7 +406,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
       } else if (typeof format.intent === 'string') {
         intent = format.intent;
       }
-      
+
       // Extract field info from format.fields
       if (format.fields) {
         for (const field of format.fields) {
@@ -478,26 +478,32 @@ async function decodeCalldata(data, contractAddress, chainId) {
         // Apply formatting based on field definition
         let displayValue = rawValue;
         if (fieldDef?.format === 'amount' && fieldDef.params?.decimals) {
-          // Format with decimals
-          const decimals = fieldDef.params.decimals;
-          const symbol = fieldDef.params.symbol || '';
-          console.log(`[Decode] Formatting ${paramName}: rawValue="${rawValue}" (type: ${typeof rawValue}), decimals=${decimals} (type: ${typeof decimals}), symbol=${symbol}`);
-          console.log('[Decode] formatTokenAmount function:', formatTokenAmount.toString().substring(0, 200));
-          // INLINE FORMAT - bypass function entirely
-          try {
-            const dec = Number(decimals);
-            const value = BigInt(rawValue);
-            const divisor = BigInt(10) ** BigInt(dec);
-            const integerPart = value / divisor;
-            const fractionalPart = value % divisor;
-            let fractionalStr = fractionalPart.toString().padStart(dec, '0');
-            fractionalStr = fractionalStr.replace(/0+$/, '') || '0';
-            if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
-            displayValue = symbol ? `${integerPart}.${fractionalStr} ${symbol}` : `${integerPart}.${fractionalStr}`;
-            console.log(`[Decode] INLINE formatted: "${displayValue}"`);
-          } catch (e) {
-            console.error('[Decode] Inline format error:', e);
-            displayValue = rawValue;
+          // Check for max uint256 (unlimited approval)
+          const MAX_UINT256 = '115792089237316195423570985008687907853269984665640564039457584007913129639935';
+          if (rawValue === MAX_UINT256) {
+            const symbol = fieldDef.params.symbol || '';
+            displayValue = symbol ? `Unlimited ${symbol}` : 'Unlimited';
+            console.log(`[Decode] Detected max uint256, displaying as: "${displayValue}"`);
+          } else {
+            // Format with decimals
+            const decimals = fieldDef.params.decimals;
+            const symbol = fieldDef.params.symbol || '';
+            console.log(`[Decode] Formatting ${paramName}: rawValue="${rawValue}" (type: ${typeof rawValue}), decimals=${decimals} (type: ${typeof decimals}), symbol=${symbol}`);
+            try {
+              const dec = Number(decimals);
+              const value = BigInt(rawValue);
+              const divisor = BigInt(10) ** BigInt(dec);
+              const integerPart = value / divisor;
+              const fractionalPart = value % divisor;
+              let fractionalStr = fractionalPart.toString().padStart(dec, '0');
+              fractionalStr = fractionalStr.replace(/0+$/, '') || '0';
+              if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
+              displayValue = symbol ? `${integerPart}.${fractionalStr} ${symbol}` : `${integerPart}.${fractionalStr}`;
+              console.log(`[Decode] INLINE formatted: "${displayValue}"`);
+            } catch (e) {
+              console.error('[Decode] Inline format error:', e);
+              displayValue = rawValue;
+            }
           }
         }
 
@@ -521,7 +527,14 @@ async function decodeCalldata(data, contractAddress, chainId) {
         format: 'raw'
       };
     }
-    
+
+    // If formatted has a 'value' field, inject it into intent
+    // This ensures amounts are shown in intents like "Transfer 0.10 USDC" instead of "Transfer USDC"
+    if (formatted.value) {
+      const firstWord = intent.split(/\s+/)[0];
+      intent = firstWord + ' {value}';
+    }
+
     // Substitute template variables in intent (e.g., "Swap {amount} {token}")
     const finalIntent = substituteIntentTemplate(intent, params, formatted);
 

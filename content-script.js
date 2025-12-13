@@ -534,9 +534,191 @@ window.kaisignPermit2Cache = window.kaisignPermit2Cache || new Map();
  * Returns null to trigger metadata lookup for proper formatting
  */
 function parsePermit2TypedData(typedData) {
-  // No hardcoded type handling - let metadata drive the display
-  // Return null to trigger metadata-based formatting
+  const primaryType = typedData?.primaryType;
+  const message = typedData?.message;
+  const types = typedData?.types;
+
+  if (!primaryType || !message) return null;
+
+  // Handle PermitSingle (Permit2)
+  if (primaryType === 'PermitSingle' && message.details) {
+    const details = message.details;
+    const tokenAddr = details.token;
+    const amount = details.amount?.toString() || '0';
+    const expiration = details.expiration;
+    const spender = message.spender;
+    const sigDeadline = message.sigDeadline;
+
+    // Format amount - check for max uint160 (unlimited)
+    const MAX_UINT160 = '1461501637330902918203684832716283019655932542975';
+    const formattedAmount = amount === MAX_UINT160 ? 'Unlimited' : amount;
+
+    // Format timestamps
+    const formatTs = (ts) => {
+      if (!ts) return 'N/A';
+      const num = parseInt(ts.toString());
+      if (num === 0) return 'Immediately';
+      if (num > 4102444800) return 'Never expires';
+      return new Date(num * 1000).toLocaleString();
+    };
+
+    return {
+      intent: `Approve ${formattedAmount} Token Spending`,
+      details: [
+        `Token: ${formatAddressShort(tokenAddr)}`,
+        `Amount: ${formattedAmount}`,
+        `Spender: ${formatAddressShort(spender)}`,
+        `Permit Expires: ${formatTs(expiration)}`,
+        `Signature Deadline: ${formatTs(sigDeadline)}`
+      ],
+      rawData: {
+        token: tokenAddr,
+        amount: amount,
+        formattedAmount: formattedAmount,
+        spender: spender,
+        expiration: expiration,
+        sigDeadline: sigDeadline
+      }
+    };
+  }
+
+  // Handle PermitBatch (Permit2)
+  if (primaryType === 'PermitBatch' && message.details && Array.isArray(message.details)) {
+    const details = message.details.map((d, i) => {
+      const MAX_UINT160 = '1461501637330902918203684832716283019655932542975';
+      const amount = d.amount?.toString() || '0';
+      const formattedAmount = amount === MAX_UINT160 ? 'Unlimited' : amount;
+      return `${i + 1}. Token ${formatAddressShort(d.token)}: ${formattedAmount}`;
+    });
+
+    return {
+      intent: `Batch Approve ${message.details.length} Tokens`,
+      details: details
+    };
+  }
+
+  // Handle typed data with embedded calldata (like SafeTx, execTransaction wrappers)
+  // Note: Multicall/multiSend parsing is handled by the recursive decoder in showEnhancedTransactionInfo
+  // This fallback only handles simple embedded calldata without multicall structure
+  if (message.data && typeof message.data === 'string' && message.data.length > 10 && message.data.startsWith('0x')) {
+    const selector = message.data.slice(0, 10);
+
+    // Try to get function name from selector
+    let functionName = null;
+    if (window.registryLoader) {
+      const selectorInfo = window.registryLoader.getSelectorInfo(selector);
+      if (selectorInfo?.name) {
+        functionName = selectorInfo.name;
+      }
+    }
+
+    // Build intent based on what we know
+    const toAddr = message.to ? formatAddressShort(message.to) : null;
+    let intent;
+    if (functionName) {
+      intent = toAddr ? `${functionName} to ${toAddr}` : functionName;
+    } else if (toAddr) {
+      intent = `Call ${toAddr}`;
+    } else {
+      intent = `Sign ${primaryType}`;
+    }
+
+    // Build details excluding raw data field
+    const details = [];
+    if (message.to) details.push(`to: ${formatAddressShort(message.to)}`);
+    if (message.value && message.value !== '0' && message.value !== 0) {
+      details.push(`value: ${message.value}`);
+    }
+    if (functionName) {
+      details.push(`function: ${functionName}`);
+    } else {
+      details.push(`selector: ${selector}`);
+    }
+    if (message.operation !== undefined) {
+      details.push(`operation: ${message.operation === 0 ? 'Call' : message.operation === 1 ? 'DelegateCall' : message.operation}`);
+    }
+    if (message.nonce !== undefined) details.push(`nonce: ${message.nonce}`);
+
+    return {
+      intent: intent,
+      details: details
+    };
+  }
+
+  // Handle generic typed data - extract all fields recursively
+  if (types && types[primaryType]) {
+    const fields = extractTypedDataFields(message, types, primaryType);
+    if (fields.length > 0) {
+      return {
+        intent: `Sign ${primaryType}`,
+        details: fields
+      };
+    }
+  }
+
   return null;
+}
+
+/**
+ * Recursively extract fields from typed data message
+ */
+function extractTypedDataFields(data, types, typeName, prefix = '') {
+  const fields = [];
+  const typeFields = types[typeName];
+
+  if (!typeFields || !Array.isArray(typeFields)) return fields;
+
+  for (const field of typeFields) {
+    const value = data[field.name];
+    const fullPath = prefix ? `${prefix}.${field.name}` : field.name;
+
+    if (value === undefined || value === null) continue;
+
+    // Check if this is a nested type
+    const nestedType = types[field.type];
+    if (nestedType && typeof value === 'object' && !Array.isArray(value)) {
+      // Recurse into nested type
+      const nestedFields = extractTypedDataFields(value, types, field.type, fullPath);
+      fields.push(...nestedFields);
+    } else if (field.type === 'address') {
+      fields.push(`${field.name}: ${formatAddressShort(value)}`);
+    } else if (field.type.startsWith('uint') && value.toString().length > 20) {
+      // Large number - check for max values
+      const MAX_UINT256 = '115792089237316195423570985008687907853269984665640564039457584007913129639935';
+      const MAX_UINT160 = '1461501637330902918203684832716283019655932542975';
+      const strVal = value.toString();
+      if (strVal === MAX_UINT256 || strVal === MAX_UINT160) {
+        fields.push(`${field.name}: Unlimited`);
+      } else if (field.name.toLowerCase().includes('deadline') ||
+                 field.name.toLowerCase().includes('expir')) {
+        // Timestamp
+        const ts = parseInt(strVal);
+        if (ts > 4102444800) {
+          fields.push(`${field.name}: Never expires`);
+        } else {
+          fields.push(`${field.name}: ${new Date(ts * 1000).toLocaleString()}`);
+        }
+      } else {
+        fields.push(`${field.name}: ${strVal}`);
+      }
+    } else if (field.type.startsWith('uint') &&
+               (field.name.toLowerCase().includes('deadline') ||
+                field.name.toLowerCase().includes('expir'))) {
+      // Timestamp field
+      const ts = parseInt(value.toString());
+      if (ts === 0) {
+        fields.push(`${field.name}: Immediately`);
+      } else if (ts > 4102444800) {
+        fields.push(`${field.name}: Never expires`);
+      } else {
+        fields.push(`${field.name}: ${new Date(ts * 1000).toLocaleString()}`);
+      }
+    } else {
+      fields.push(`${field.name}: ${value}`);
+    }
+  }
+
+  return fields;
 }
 
 /**
@@ -601,6 +783,91 @@ function formatPermit2Timestamp(ts) {
   } catch {
     return ts.toString();
   }
+}
+
+/**
+ * Format wei value to ETH string
+ */
+function formatWeiToEth(weiValue) {
+  try {
+    const wei = BigInt(weiValue);
+    const eth = Number(wei) / 1e18;
+    if (eth === 0) return '0';
+    if (eth < 0.0001) return '<0.0001';
+    return eth.toFixed(4).replace(/\.?0+$/, '');
+  } catch {
+    return weiValue;
+  }
+}
+
+/**
+ * Parse multicall/multisend packed data using metadata-defined structure
+ * @param {string} calldata - The full calldata including selector
+ * @param {object} structure - The multicallStructure from metadata defining field sizes
+ */
+function parseMulticallData(calldata, structure) {
+  const transactions = [];
+
+  try {
+    const dataHex = calldata.slice(2); // Remove 0x
+
+    // ABI encoding for bytes parameter: [selector 4b][offset 32b][length 32b][packed data...]
+    const length = parseInt(dataHex.slice(72, 136), 16) * 2; // length in hex chars
+    const packedData = dataHex.slice(136, 136 + length);
+
+    // Get field sizes from metadata structure (in bytes, convert to hex chars)
+    const opSize = (structure.operation?.size || 1) * 2;
+    const toSize = (structure.to?.size || 20) * 2;
+    const valueSize = (structure.value?.size || 32) * 2;
+    const dataLenSize = (structure.dataLength?.size || 32) * 2;
+
+    let pos = 0;
+    while (pos < packedData.length) {
+      // Parse fields based on metadata structure
+      const operation = parseInt(packedData.slice(pos, pos + opSize), 16);
+      pos += opSize;
+
+      const to = '0x' + packedData.slice(pos, pos + toSize);
+      pos += toSize;
+
+      const value = BigInt('0x' + packedData.slice(pos, pos + valueSize)).toString();
+      pos += valueSize;
+
+      const dataLength = parseInt(packedData.slice(pos, pos + dataLenSize), 16) * 2;
+      pos += dataLenSize;
+
+      const data = '0x' + packedData.slice(pos, pos + dataLength);
+      pos += dataLength;
+
+      // Get selector and try to resolve function name
+      const selector = data.length >= 10 ? data.slice(0, 10) : null;
+      let functionName = null;
+
+      if (selector && window.registryLoader) {
+        const selectorInfo = window.registryLoader.getSelectorInfo(selector);
+        if (selectorInfo?.name) {
+          functionName = selectorInfo.name;
+        }
+      }
+
+      // Get operation label from metadata or use raw value
+      const opLabels = structure.operation?.labels;
+      const operationLabel = opLabels ? (opLabels[operation] || `Operation ${operation}`) : operation;
+
+      transactions.push({
+        operation: operationLabel,
+        to,
+        value,
+        data,
+        selector,
+        functionName
+      });
+    }
+  } catch (e) {
+    console.warn('[KaiSign] Failed to parse multicall data:', e.message);
+  }
+
+  return transactions;
 }
 
 /**
@@ -702,13 +969,18 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
         }
 
         // For Permit2 types AND any typed data with parseable structure, extract intents
+        // BUT only if we don't already have decoded intents from recursive decoder
         console.log('[KaiSign] Checking typed data:', primaryType);
-        const parsedIntent = parsePermit2TypedData(typedData);
-        if (parsedIntent) {
-          console.log('[KaiSign] Parsed typed data intent:', parsedIntent);
-          displayData.intent = parsedIntent.intent;
-          displayData.nestedIntents = parsedIntent.details;
-        } else if (isPermit2Type(primaryType)) {
+        if (!displayData.nestedIntents || displayData.nestedIntents.length === 0) {
+          const parsedIntent = parsePermit2TypedData(typedData);
+          if (parsedIntent) {
+            console.log('[KaiSign] Parsed typed data intent:', parsedIntent);
+            displayData.intent = parsedIntent.intent;
+            displayData.nestedIntents = parsedIntent.details;
+          }
+        }
+
+        if ((!displayData.nestedIntents || displayData.nestedIntents.length === 0) && isPermit2Type(primaryType)) {
           // Fallback to old extraction for basic Permit2 types
           const permit2Intent = extractPermit2Intent(typedData, primaryType);
           if (permit2Intent) {
@@ -1164,15 +1436,25 @@ function showTypedDataInfo(typedData, signerAddress, walletName) {
   console.log(`[KaiSign] Typed data signature: ${primaryType}`);
   console.log(`[KaiSign] Domain: ${domain.name || 'Unknown'} on chain ${domain.chainId || 'unknown'}`);
 
-  // Show generic signature notification
-  const message = typedData?.message || {};
+  // Try to parse typed data for better intent
+  const parsedIntent = parsePermit2TypedData(typedData);
+  const intent = parsedIntent?.intent || `Sign ${primaryType}`;
+  const nestedIntents = parsedIntent?.details || [];
+
+  // Show signature notification with parsed data
   showEnhancedTransactionInfo(
-    { to: domain.verifyingContract, data: '0x', value: '0' },
+    { to: domain.verifyingContract, data: '0x', value: '0', eip712TypedData: typedData },
     'eth_signTypedData_v4',
-    `${primaryType} Signature Request`,
+    intent,
     walletName,
-    { success: true, functionName: primaryType, intent: `Sign ${primaryType}` },
-    []
+    {
+      success: true,
+      functionName: primaryType,
+      intent: intent,
+      nestedIntents: nestedIntents
+    },
+    [],
+    { isEIP712: true, primaryType, domainName: domain.name }
   );
 }
 
@@ -1840,7 +2122,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 }
 
 // Show enhanced transaction info with complete bytecode data
-async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wallet', decodedResult = null, extractedBytecodes = []) {
+async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wallet', decodedResult = null, extractedBytecodes = [], context = null) {
   console.log('[KaiSign] showEnhancedTransactionInfo called:', { method, intent, walletName, isLoading: decodedResult?.isLoading });
 
   // If loading state, show loading popup with bouncing dots
@@ -1901,6 +2183,11 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       type: tx.type,                           // Transaction type (0, 1, 2, or 4)
       authorizationList: tx.authorizationList, // EIP-7702 authorization tuples
       accessList: tx.accessList,               // EIP-2930 access list
+      // EIP-712 typed data (if applicable)
+      isEIP712: context?.isEIP712 || false,
+      eip712TypedData: tx.eip712TypedData || null,
+      primaryType: context?.primaryType || null,
+      domainName: context?.domainName || null,
       // Decoded/analyzed data (for display only, not for sending)
       intent: intent,
       decodedResult: decodedResult,
