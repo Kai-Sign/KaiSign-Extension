@@ -1214,7 +1214,6 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     <div class="kaisign-action-bar">
       <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
       <button class="kaisign-btn kaisign-btn-secondary" onclick="this.closest('.kaisign-popup').remove()">Close</button>
-      <button class="kaisign-btn kaisign-btn-purple" onclick="showRpcDashboard()">RPC Activity</button>
     </div>
   `;
 
@@ -2366,7 +2365,6 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     <div class="kaisign-action-bar">
       <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
       <button class="kaisign-btn kaisign-btn-secondary" onclick="exportTransactionData('${escapeHtml(tx.data)}', ${JSON.stringify(JSON.stringify({decodedResult, extractedBytecodes}))})">Export</button>
-      <button class="kaisign-btn kaisign-btn-purple" onclick="showRpcDashboard()">RPC Activity</button>
     </div>
   `;
 
@@ -2556,7 +2554,6 @@ window.showTransactionHistory = function() {
       <div class="kaisign-modal-header">
         <h2 class="kaisign-modal-title">Transaction History (${transactions.length})</h2>
         <div class="kaisign-modal-actions">
-          <button class="kaisign-btn kaisign-btn-primary" onclick="showRpcDashboard(); this.closest('.kaisign-modal').remove();">RPC Dashboard</button>
           <button class="kaisign-close-btn" onclick="this.closest('.kaisign-modal').remove()">✕</button>
         </div>
       </div>
