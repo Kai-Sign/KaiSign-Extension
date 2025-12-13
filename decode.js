@@ -1,0 +1,758 @@
+// Pure dynamic decoder - NO HARDCODED METADATA
+// KaiSign dynamic decoder v2.1 - FIXED formatTokenAmount
+console.log('[decode.js] VERSION 2.1 LOADED - formatTokenAmount FIXED');
+
+// Simple keccak256 implementation for selector calculation
+// Uses SubtleCrypto when available, falls back to simple hash
+function keccak256Simple(message) {
+  // Try to use ethers if available
+  if (typeof window !== 'undefined') {
+    if (window.ethers?.keccak256 && window.ethers?.toUtf8Bytes) {
+      try { return window.ethers.keccak256(window.ethers.toUtf8Bytes(message)); } catch {}
+    }
+    if (window.ethers?.utils?.keccak256 && window.ethers?.utils?.toUtf8Bytes) {
+      try { return window.ethers.utils.keccak256(window.ethers.utils.toUtf8Bytes(message)); } catch {}
+    }
+  }
+
+  // Minimal keccak256 implementation
+  const KECCAK_ROUNDS = 24;
+  const KECCAK_RC = [
+    0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an, 0x8000000080008000n,
+    0x000000000000808bn, 0x0000000080000001n, 0x8000000080008081n, 0x8000000000008009n,
+    0x000000000000008an, 0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
+    0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n, 0x8000000000008003n,
+    0x8000000000008002n, 0x8000000000000080n, 0x000000000000800an, 0x800000008000000an,
+    0x8000000080008081n, 0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n
+  ];
+  const KECCAK_ROTC = [1,3,6,10,15,21,28,36,45,55,2,14,27,41,56,8,25,43,62,18,39,61,20,44];
+  const KECCAK_PILN = [10,7,11,17,18,3,5,16,8,21,24,4,15,23,19,13,12,2,20,14,22,9,6,1];
+
+  function rotl64(x, y) { return ((x << BigInt(y)) | (x >> BigInt(64 - y))) & 0xffffffffffffffffn; }
+
+  function keccakF(state) {
+    for (let round = 0; round < KECCAK_ROUNDS; round++) {
+      const c = new Array(5).fill(0n);
+      for (let x = 0; x < 5; x++) c[x] = state[x] ^ state[x+5] ^ state[x+10] ^ state[x+15] ^ state[x+20];
+      for (let x = 0; x < 5; x++) {
+        const t = c[(x+4)%5] ^ rotl64(c[(x+1)%5], 1);
+        for (let y = 0; y < 25; y += 5) state[x+y] ^= t;
+      }
+      let t = state[1];
+      for (let i = 0; i < 24; i++) {
+        const j = KECCAK_PILN[i];
+        const tmp = state[j];
+        state[j] = rotl64(t, KECCAK_ROTC[i]);
+        t = tmp;
+      }
+      for (let y = 0; y < 25; y += 5) {
+        const t0 = state[y], t1 = state[y+1], t2 = state[y+2], t3 = state[y+3], t4 = state[y+4];
+        state[y] = t0 ^ (~t1 & t2); state[y+1] = t1 ^ (~t2 & t3);
+        state[y+2] = t2 ^ (~t3 & t4); state[y+3] = t3 ^ (~t4 & t0); state[y+4] = t4 ^ (~t0 & t1);
+      }
+      state[0] ^= KECCAK_RC[round];
+    }
+  }
+
+  const encoder = new TextEncoder();
+  const input = encoder.encode(message);
+  const rate = 136, capacity = 64;
+  const blockSize = rate;
+  const state = new Array(25).fill(0n);
+
+  const padded = new Uint8Array(Math.ceil((input.length + 1) / blockSize) * blockSize);
+  padded.set(input);
+  padded[input.length] = 0x01;
+  padded[padded.length - 1] |= 0x80;
+
+  for (let i = 0; i < padded.length; i += blockSize) {
+    for (let j = 0; j < blockSize && j < 200; j += 8) {
+      if (i + j + 8 <= padded.length) {
+        let val = 0n;
+        for (let k = 0; k < 8; k++) val |= BigInt(padded[i + j + k]) << BigInt(k * 8);
+        state[Math.floor(j / 8)] ^= val;
+      }
+    }
+    keccakF(state);
+  }
+
+  let hash = '0x';
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 8; j++) {
+      hash += ((state[i] >> BigInt(j * 8)) & 0xffn).toString(16).padStart(2, '0');
+    }
+  }
+  return hash;
+}
+
+// Calculate function selector from signature
+function calculateSelector(signature) {
+  const hash = keccak256Simple(signature);
+  return hash.slice(0, 10);
+}
+
+// Enhanced ABI decoder - supports all Solidity types including bytes, bytes[], arrays
+// NO HARDCODED SELECTORS - all type handling is generic
+class SimpleInterface {
+  constructor(abi) {
+    this.abi = Array.isArray(abi) ? abi : [abi];
+  }
+
+  /**
+   * Check if a type is dynamic (requires offset resolution)
+   * @param {string} type - Solidity type
+   * @returns {boolean}
+   */
+  isDynamicType(type) {
+    if (!type) return false;
+    // bytes, string, and any array type are dynamic
+    if (type === 'bytes' || type === 'string') return true;
+    if (type.endsWith('[]')) return true;
+    // Tuples with dynamic components are dynamic
+    if (type === 'tuple') return false; // Will be checked separately
+    return false;
+  }
+
+  /**
+   * Decode a static type from data
+   * @param {string} type - Solidity type
+   * @param {string} paramData - Hex data without 0x prefix
+   * @param {number} offset - Offset in hex chars
+   * @param {object} input - ABI input definition (for tuple components)
+   * @returns {{value: any, size: number}}
+   */
+  decodeStaticType(type, paramData, offset, input = null) {
+    // Address: 20 bytes right-padded in 32 bytes
+    if (type === 'address') {
+      const rawAddr = paramData.slice(offset + 24, offset + 64);
+      return {
+        value: '0x' + rawAddr.toLowerCase(),
+        size: 64
+      };
+    }
+
+    // Unsigned integers: uint8, uint16, ..., uint256
+    if (type.startsWith('uint')) {
+      const hexValue = paramData.slice(offset, offset + 64);
+      try {
+        const value = BigInt('0x' + hexValue);
+        return {
+          value: { _isBigNumber: true, _hex: '0x' + hexValue, toString: () => value.toString() },
+          size: 64
+        };
+      } catch {
+        return { value: '0x' + hexValue, size: 64 };
+      }
+    }
+
+    // Signed integers: int8, int16, ..., int256
+    if (type.startsWith('int')) {
+      const hexValue = paramData.slice(offset, offset + 64);
+      try {
+        const value = BigInt('0x' + hexValue);
+        return {
+          value: { _isBigNumber: true, _hex: '0x' + hexValue, toString: () => value.toString() },
+          size: 64
+        };
+      } catch {
+        return { value: '0x' + hexValue, size: 64 };
+      }
+    }
+
+    // Fixed-size bytes: bytes1, bytes2, ..., bytes32
+    if (type.startsWith('bytes') && !type.endsWith('[]') && type !== 'bytes') {
+      const byteSize = parseInt(type.replace('bytes', '')) || 32;
+      const hexSize = byteSize * 2;
+      const value = '0x' + paramData.slice(offset, offset + hexSize);
+      return { value, size: 64 }; // Always takes 32 bytes in ABI encoding
+    }
+
+    // Boolean
+    if (type === 'bool') {
+      const lastByte = paramData.slice(offset + 62, offset + 64);
+      return {
+        value: lastByte !== '00',
+        size: 64
+      };
+    }
+
+    // Tuple (struct) - static tuples only
+    if (type === 'tuple' && input?.components) {
+      const tupleData = {};
+      let tupleOffset = 0;
+
+      for (const component of input.components) {
+        if (this.isDynamicType(component.type)) {
+          // Dynamic component in tuple - need to handle offset
+          const dynOffset = parseInt(paramData.slice(offset + tupleOffset, offset + tupleOffset + 64), 16) * 2;
+          const dynResult = this.decodeDynamicType(component.type, paramData, offset + dynOffset, component);
+          tupleData[component.name] = dynResult;
+          tupleOffset += 64;
+        } else {
+          const result = this.decodeStaticType(component.type, paramData, offset + tupleOffset, component);
+          tupleData[component.name] = result.value;
+          tupleOffset += result.size;
+        }
+      }
+
+      return { value: tupleData, size: tupleOffset };
+    }
+
+    // Default: return raw hex
+    return {
+      value: '0x' + paramData.slice(offset, offset + 64),
+      size: 64
+    };
+  }
+
+  /**
+   * Decode a dynamic type from data
+   * @param {string} type - Solidity type
+   * @param {string} paramData - Hex data without 0x prefix
+   * @param {number} offset - Offset in hex chars (pointing to length field)
+   * @param {object} input - ABI input definition
+   * @returns {any}
+   */
+  decodeDynamicType(type, paramData, offset, input = null) {
+    // Dynamic bytes
+    if (type === 'bytes') {
+      const length = parseInt(paramData.slice(offset, offset + 64), 16);
+      const hexLength = length * 2;
+      const data = paramData.slice(offset + 64, offset + 64 + hexLength);
+      return '0x' + data;
+    }
+
+    // Dynamic string
+    if (type === 'string') {
+      const length = parseInt(paramData.slice(offset, offset + 64), 16);
+      const hexLength = length * 2;
+      const hexData = paramData.slice(offset + 64, offset + 64 + hexLength);
+      return this.hexToString(hexData);
+    }
+
+    // Array types (address[], uint256[], bytes[], etc.)
+    if (type.endsWith('[]')) {
+      const baseType = type.slice(0, -2);
+      const arrayLength = parseInt(paramData.slice(offset, offset + 64), 16);
+      const results = [];
+
+      if (this.isDynamicType(baseType)) {
+        // Array of dynamic elements (e.g., bytes[], string[])
+        // Each element has an offset pointer
+        for (let i = 0; i < arrayLength; i++) {
+          const elementOffsetHex = paramData.slice(offset + 64 + i * 64, offset + 64 + (i + 1) * 64);
+          const elementOffset = parseInt(elementOffsetHex, 16) * 2;
+          const value = this.decodeDynamicType(baseType, paramData, offset + 64 + elementOffset, input);
+          results.push(value);
+        }
+      } else {
+        // Array of static elements (e.g., address[], uint256[])
+        let arrayOffset = offset + 64;
+        for (let i = 0; i < arrayLength; i++) {
+          const { value, size } = this.decodeStaticType(baseType, paramData, arrayOffset, input);
+          results.push(value);
+          arrayOffset += size;
+        }
+      }
+
+      return results;
+    }
+
+    // Fallback
+    return '0x' + paramData.slice(offset, offset + 64);
+  }
+
+  /**
+   * Convert hex string to UTF-8 string
+   * @param {string} hex - Hex string without 0x prefix
+   * @returns {string}
+   */
+  hexToString(hex) {
+    let str = '';
+    for (let i = 0; i < hex.length; i += 2) {
+      const charCode = parseInt(hex.slice(i, i + 2), 16);
+      if (charCode === 0) break; // Null terminator
+      str += String.fromCharCode(charCode);
+    }
+    return str;
+  }
+
+  /**
+   * Decode function calldata using ABI
+   * @param {string} functionName - Function name to decode
+   * @param {string} data - Full calldata including selector
+   * @returns {Array} - Decoded parameters
+   */
+  decodeFunctionData(functionName, data) {
+    const funcAbi = this.abi.find(item => item.name === functionName);
+    if (!funcAbi) throw new Error(`Function ${functionName} not found`);
+
+    // Remove function selector (first 4 bytes = 8 hex chars + 0x)
+    const paramData = data.slice(10);
+    const inputs = funcAbi.inputs || [];
+    const results = [];
+
+    // First pass: calculate head offsets and identify dynamic types
+    let headOffset = 0;
+    const dynamicParams = [];
+
+    for (let i = 0; i < inputs.length; i++) {
+      const input = inputs[i];
+
+      if (this.isDynamicType(input.type)) {
+        // Dynamic type: read offset from head, decode from tail later
+        const offsetHex = paramData.slice(headOffset, headOffset + 64);
+        const tailOffset = parseInt(offsetHex, 16) * 2;
+        dynamicParams.push({ index: i, input, tailOffset });
+        headOffset += 64;
+      } else {
+        // Static type: decode directly from head
+        const { value, size } = this.decodeStaticType(input.type, paramData, headOffset, input);
+        results[i] = value;
+        headOffset += size;
+      }
+    }
+
+    // Second pass: decode dynamic types from their tail offsets
+    for (const { index, input, tailOffset } of dynamicParams) {
+      const value = this.decodeDynamicType(input.type, paramData, tailOffset, input);
+      results[index] = value;
+    }
+
+    return results;
+  }
+}
+
+// PURE dynamic decoding - only from metadata
+async function decodeCalldata(data, contractAddress, chainId) {
+  try {
+    const selector = data.slice(0, 10);
+
+    // Pass selector to metadata lookup for proxy detection (e.g., Safe proxies)
+    let metadata = await getContractMetadata(contractAddress, chainId, selector);
+
+    // If no metadata from subgraph, return failure
+    if (!metadata) {
+      return {
+        success: false,
+        selector,
+        intent: 'Contract interaction',
+        error: 'No metadata found in subgraph'
+      };
+    }
+    
+    // Find function in ABI from metadata
+    let functionSignature = null;
+    let functionName = null;
+    let abiFunction = null;
+
+    if (metadata.context?.contract?.abi && Array.isArray(metadata.context.contract.abi)) {
+      for (const item of metadata.context.contract.abi) {
+        if (item.type === 'function') {
+          const types = (item.inputs || []).map(input => input.type).join(',');
+          const signature = `${item.name}(${types})`;
+
+          // Use stored selector or calculate it
+          const expectedSelector = item.selector || calculateSelector(signature);
+          console.log('[Decode] Checking function:', signature, 'selector:', expectedSelector, 'vs', selector);
+
+          if (expectedSelector === selector) {
+            functionSignature = signature;
+            functionName = item.name;
+            abiFunction = item;
+            console.log('[Decode] ✅ MATCHED function:', signature);
+            break;
+          }
+        }
+      }
+    } else if (typeof metadata.context?.contract?.abi === 'string' && metadata.context?.contract?.selectorFallbacks) {
+      functionName = metadata.context.contract.selectorFallbacks[selector];
+      if (functionName) functionSignature = `${functionName}(...)`;
+    }
+    
+    if (!functionSignature && !functionName) {
+      return {
+        success: false,
+        selector,
+        intent: 'Unknown function',
+        error: 'Function not found in metadata ABI'
+      };
+    }
+    
+    // Get intent from metadata
+    let intent = 'Contract interaction';
+    let fieldInfo = {};
+
+    let format = metadata.display?.formats?.[functionSignature] || metadata.display?.formats?.[functionName];
+
+    if (format) {
+      // Handle ERC-7730 intent formats
+      if (format.intent?.template) {
+        // Most common: intent.template string
+        intent = format.intent.template;
+      } else if (format.intent?.format && Array.isArray(format.intent.format)) {
+        // Complex format with nested containers
+        for (const item of format.intent.format) {
+          if (item.type === 'container' && item.fields) {
+            for (const field of item.fields) {
+              if (field.type === 'text' && field.value && field.format === 'heading2') {
+                intent = field.value;
+                break;
+              }
+            }
+            if (intent !== 'Contract interaction') break;
+          }
+        }
+      } else if (typeof format.intent === 'string') {
+        intent = format.intent;
+      }
+
+      // Extract field info from format.fields
+      if (format.fields) {
+        for (const field of format.fields) {
+          if (field.path) {
+            fieldInfo[field.path] = {
+              label: field.label || field.path,
+              format: field.format || 'raw',
+              params: field.params || {},  // Store decimals, symbol, etc.
+              // Store calldata target reference for recursive decoding
+              type: field.type || 'raw',
+              calldataTarget: field.type === 'calldata' ? field.to : null
+            };
+          }
+        }
+      }
+
+      // Also extract calldata fields from ERC-7730 format.intent.format structure
+      if (format.intent?.format && Array.isArray(format.intent.format)) {
+        extractCalldataFieldsFromFormat(format.intent.format, fieldInfo);
+      }
+    }
+    // Try messages format (KaiSign format)
+    else if (metadata.messages?.[functionName]) {
+      const messageFormat = metadata.messages[functionName];
+      intent = messageFormat.label || intent;
+      
+      if (messageFormat.fields) {
+        for (const field of messageFormat.fields) {
+          if (field.path) {
+            fieldInfo[field.path] = {
+              label: field.label || field.path,
+              format: field.type === 'address' ? 'address' : 
+                     field.type === 'wei' ? 'wei' :
+                     field.type === 'uint256' ? 'number' : 'raw'
+            };
+          }
+        }
+      }
+    }
+    
+    // Format results based on metadata ONLY
+    const params = {};
+    const formatted = {};
+    
+    if (abiFunction) {
+      // Use ABI from metadata to decode
+      const iface = new SimpleInterface([abiFunction]);
+      const decodedData = iface.decodeFunctionData(functionName, data);
+      
+      // Generic formatting based on ABI inputs from metadata
+      const inputs = abiFunction.inputs || [];
+      for (let i = 0; i < decodedData.length && i < inputs.length; i++) {
+        const input = inputs[i];
+        const value = decodedData[i];
+        const paramName = input.name || `param${i}`;
+
+        // Get field info from metadata if available
+        const fieldDef = fieldInfo[paramName];
+
+        let rawValue;
+        if (value && typeof value === 'object' && '_isBigNumber' in value) {
+          rawValue = value.toString();
+        } else if (typeof value === 'object' && value !== null) {
+          rawValue = JSON.stringify(value);
+        } else {
+          rawValue = String(value || '');
+        }
+
+        // Apply formatting based on field definition
+        let displayValue = rawValue;
+        if (fieldDef?.format === 'amount' && fieldDef.params?.decimals) {
+          // Check for max uint256 (unlimited approval)
+          const MAX_UINT256 = '115792089237316195423570985008687907853269984665640564039457584007913129639935';
+          if (rawValue === MAX_UINT256) {
+            const symbol = fieldDef.params.symbol || '';
+            displayValue = symbol ? `Unlimited ${symbol}` : 'Unlimited';
+            console.log(`[Decode] Detected max uint256, displaying as: "${displayValue}"`);
+          } else {
+            // Format with decimals
+            const decimals = fieldDef.params.decimals;
+            const symbol = fieldDef.params.symbol || '';
+            console.log(`[Decode] Formatting ${paramName}: rawValue="${rawValue}" (type: ${typeof rawValue}), decimals=${decimals} (type: ${typeof decimals}), symbol=${symbol}`);
+            try {
+              const dec = Number(decimals);
+              const value = BigInt(rawValue);
+              const divisor = BigInt(10) ** BigInt(dec);
+              const integerPart = value / divisor;
+              const fractionalPart = value % divisor;
+              let fractionalStr = fractionalPart.toString().padStart(dec, '0');
+              fractionalStr = fractionalStr.replace(/0+$/, '') || '0';
+              if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
+              displayValue = symbol ? `${integerPart}.${fractionalStr} ${symbol}` : `${integerPart}.${fractionalStr}`;
+              console.log(`[Decode] INLINE formatted: "${displayValue}"`);
+            } catch (e) {
+              console.error('[Decode] Inline format error:', e);
+              displayValue = rawValue;
+            }
+          }
+        }
+
+        params[paramName] = rawValue;
+
+        formatted[paramName] = {
+          label: fieldDef?.label || toTitleCase(paramName),
+          value: displayValue,
+          rawValue: rawValue,
+          format: fieldDef?.format || (input.type === 'address' ? 'address' :
+                                       input.type === 'uint256' ? 'token' : 'raw'),
+          params: fieldDef?.params || {}
+        };
+      }
+    } else {
+      // Fallback when we only have function name, no ABI
+      params.data = data.slice(10);
+      formatted.data = {
+        label: 'Transaction Data',
+        value: data.slice(10),
+        format: 'raw'
+      };
+    }
+
+    // If formatted has a 'value' field, inject it into intent
+    // This ensures amounts are shown in intents like "Transfer 0.10 USDC" instead of "Transfer USDC"
+    if (formatted.value) {
+      const firstWord = intent.split(/\s+/)[0];
+      intent = firstWord + ' {value}';
+    }
+
+    // Substitute template variables in intent (e.g., "Swap {amount} {token}")
+    const finalIntent = substituteIntentTemplate(intent, params, formatted);
+
+    return {
+      success: true,
+      selector,
+      function: functionSignature,
+      functionName,
+      params,
+      intent: finalIntent,
+      formatted
+    };
+    
+  } catch (error) {
+    console.error('[Decode] Error:', error.message);
+    return {
+      success: false,
+      selector: data.slice(0, 10),
+      intent: 'Contract interaction',
+      error: error.message
+    };
+  }
+}
+
+// Helper functions
+
+/**
+ * Format token amount with decimals
+ * @param {string} rawValue - Raw integer value as string
+ * @param {number} decimals - Number of decimals
+ * @param {string} symbol - Token symbol
+ * @returns {string} - Formatted amount like "1.5 USDC"
+ */
+function formatTokenAmount(rawValue, decimals, symbol) {
+  console.log('[formatTokenAmount] CALLED with:', { rawValue, decimals, symbol, rawValueType: typeof rawValue, decimalsType: typeof decimals });
+  try {
+    // Ensure decimals is a number
+    const dec = Number(decimals);
+    console.log('[formatTokenAmount] dec after Number():', dec);
+    if (isNaN(dec) || dec < 0) {
+      console.warn('[formatTokenAmount] Invalid decimals:', decimals);
+      return rawValue;
+    }
+
+    const value = BigInt(rawValue);
+    console.log('[formatTokenAmount] value as BigInt:', value.toString());
+    const divisor = BigInt(10) ** BigInt(dec);
+    console.log('[formatTokenAmount] divisor:', divisor.toString());
+    const integerPart = value / divisor;
+    const fractionalPart = value % divisor;
+    console.log('[formatTokenAmount] integerPart:', integerPart.toString(), 'fractionalPart:', fractionalPart.toString());
+
+    // Format fractional part with leading zeros
+    let fractionalStr = fractionalPart.toString().padStart(dec, '0');
+    console.log('[formatTokenAmount] fractionalStr after padStart:', fractionalStr);
+    // Trim trailing zeros but keep at least 2 decimal places for display
+    fractionalStr = fractionalStr.replace(/0+$/, '') || '0';
+    if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
+    console.log('[formatTokenAmount] fractionalStr final:', fractionalStr);
+
+    const formatted = `${integerPart}.${fractionalStr}`;
+    const result = symbol ? `${formatted} ${symbol}` : formatted;
+    console.log('[formatTokenAmount] RESULT:', result);
+    return result;
+  } catch (e) {
+    console.error('[formatTokenAmount] Error:', e, 'rawValue:', rawValue, 'decimals:', decimals);
+    return rawValue;
+  }
+}
+
+/**
+ * Substitute template variables in intent string
+ * Supports {paramName} syntax for simple params
+ * Supports {paramName:format} for formatted values (e.g., {amount:token})
+ * @param {string} template - Intent template with {variable} placeholders
+ * @param {object} params - Raw parameter values
+ * @param {object} formatted - Formatted parameter values with labels
+ * @returns {string} - Intent with substituted values
+ */
+function substituteIntentTemplate(template, params, formatted) {
+  if (!template || typeof template !== 'string') return template;
+
+  // Check if template has any placeholders
+  if (!template.includes('{')) return template;
+
+  let result = template;
+
+  // Replace {paramName} or {paramName:format} patterns
+  const regex = /\{(\w+)(?::(\w+))?\}/g;
+  result = result.replace(regex, (match, paramName, formatType) => {
+    // Try formatted value first
+    if (formatted && formatted[paramName]) {
+      const formattedParam = formatted[paramName];
+      // If format type specified, use it; otherwise use the value
+      if (formatType === 'label') {
+        return formattedParam.label || paramName;
+      }
+      return formattedParam.value || match;
+    }
+
+    // Fall back to raw params
+    if (params && params[paramName] !== undefined) {
+      return params[paramName];
+    }
+
+    // Return original placeholder if not found
+    return match;
+  });
+
+  return result;
+}
+
+function toTitleCase(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+/**
+ * Extract calldata field definitions from ERC-7730 format structure
+ * Recursively walks the format array to find all calldata fields
+ * @param {Array} formatArray - Format array from metadata
+ * @param {object} fieldInfo - Object to populate with field info
+ */
+function extractCalldataFieldsFromFormat(formatArray, fieldInfo) {
+  if (!Array.isArray(formatArray)) return;
+
+  for (const item of formatArray) {
+    // Check if this item is a calldata field
+    if (item.type === 'calldata' && item.path) {
+      fieldInfo[item.path] = {
+        label: item.label || item.path,
+        format: item.format || 'calldata',
+        type: 'calldata',
+        calldataTarget: item.to || null
+      };
+    }
+
+    // Check if this item is a multicallDecoder field
+    if (item.type === 'multicallDecoder' && item.path) {
+      fieldInfo[item.path] = {
+        label: item.label || item.path,
+        format: item.format || {},
+        type: 'multicallDecoder'
+      };
+    }
+
+    // Recursively process nested fields (containers, etc.)
+    if (item.fields && Array.isArray(item.fields)) {
+      extractCalldataFieldsFromFormat(item.fields, fieldInfo);
+    }
+  }
+}
+
+function extractFunctionSelector(data) {
+  if (!data || typeof data !== 'string') return null;
+  if (!data.startsWith('0x')) data = '0x' + data;
+  if (data.length < 10) return null;
+  return data.slice(0, 10).toLowerCase();
+}
+
+/**
+ * Resolve JSONPath reference to actual value from decoded params
+ * Supports ERC-7730 style paths: $.fieldName, $.nested.field, $.array[0]
+ * Used for resolving "to": "$.to" references in calldata field definitions
+ *
+ * @param {string} path - JSONPath like "$.to" or "$.message.recipient" or "$._singleton"
+ * @param {object} params - Decoded parameters object
+ * @returns {any} - Resolved value or null if not found
+ */
+function resolveJsonPath(path, params) {
+  if (!path || typeof path !== 'string') return path;
+
+  // Must start with "$." to be a JSONPath reference
+  if (!path.startsWith('$.')) return path;
+
+  // Remove "$." prefix
+  const pathParts = path.slice(2).split('.');
+  let current = params;
+
+  for (const part of pathParts) {
+    if (current === null || current === undefined) return null;
+
+    // Handle array indices like "items[0]" or "tokens[1]"
+    const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
+    if (arrayMatch) {
+      const [, fieldName, indexStr] = arrayMatch;
+      const index = parseInt(indexStr, 10);
+      current = current[fieldName];
+      if (Array.isArray(current) && index < current.length) {
+        current = current[index];
+      } else {
+        return null;
+      }
+    } else {
+      current = current[part];
+    }
+  }
+
+  // Handle BigNumber-like objects
+  if (current && typeof current === 'object' && '_isBigNumber' in current) {
+    return current.toString();
+  }
+
+  return current;
+}
+
+// Export resolveJsonPath globally for recursive decoder
+window.resolveJsonPath = resolveJsonPath;
+
+// Get metadata from our metadata service
+async function getContractMetadata(contractAddress, chainId, selector = null) {
+  if (!window.metadataService) {
+    return null;
+  }
+  return await window.metadataService.getContractMetadata(contractAddress, chainId, selector);
+}
+
+// Export globally - formatTokenAmount is defined earlier with (rawValue, decimals, symbol) signature
+window.decodeCalldata = decodeCalldata;
+window.formatTokenAmount = formatTokenAmount;
+
+// Decoder ready

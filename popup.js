@@ -1,502 +1,469 @@
-/**
- * KaiSign Extension - Popup JavaScript
- * Handles the popup UI and communication with background script
- */
+// KaiSign Extension - Popup Script
+console.log('[KaiSign] Popup loading...');
 
-class KaiSignPopup {
-  constructor() {
-    this.transactions = [];
-    this.settings = {};
-    this.currentTab = 'transactions';
-    this.init();
-  }
+// State
+let transactions = [];
+let currentSearch = '';
+let importData = null;
 
-  async init() {
-    console.log('[KaiSign-Popup] Initializing...');
-    
-    // Set up event listeners
-    this.setupEventListeners();
-    
-    // Load initial data
-    await this.loadSettings();
-    await this.loadTransactions();
-    
-    // Set up auto-refresh
-    this.startAutoRefresh();
-    
-    console.log('[KaiSign-Popup] Initialized successfully');
-  }
+// DOM Elements
+const elements = {
+  txCount: document.getElementById('txCount'),
+  txList: document.getElementById('txList'),
+  loadingState: document.getElementById('loadingState'),
+  searchInput: document.getElementById('searchInput'),
+  exportBtn: document.getElementById('exportBtn'),
+  exportDropdown: document.getElementById('exportDropdown'),
+  importBtn: document.getElementById('importBtn'),
+  importModal: document.getElementById('importModal'),
+  clearBtn: document.getElementById('clearBtn'),
+  settingsBtn: document.getElementById('settingsBtn'),
+  refreshBtn: document.getElementById('refreshBtn'),
+  fileDrop: document.getElementById('fileDrop'),
+  fileInput: document.getElementById('fileInput'),
+  confirmImport: document.getElementById('confirmImport'),
+  cancelImport: document.getElementById('cancelImport'),
+  closeModal: document.getElementById('closeModal'),
+  toast: document.getElementById('toast')
+};
 
-  setupEventListeners() {
-    // Tab switching
-    document.querySelectorAll('.tab-button').forEach(button => {
-      button.addEventListener('click', (e) => {
-        this.switchTab(e.target.dataset.tab);
-      });
-    });
+// Initialize
+document.addEventListener('DOMContentLoaded', init);
 
-    // Action buttons
-    document.getElementById('refresh-btn').addEventListener('click', () => {
-      this.loadTransactions();
-    });
+async function init() {
+  await loadData();
+  setupEventListeners();
+}
 
-    document.getElementById('clear-btn').addEventListener('click', () => {
-      this.clearTransactions();
-    });
-
-    document.getElementById('clear-all-btn').addEventListener('click', () => {
-      this.clearAllData();
-    });
-
-    document.getElementById('export-btn').addEventListener('click', () => {
-      this.exportData();
-    });
-
-    // Settings
-    document.getElementById('show-notifications').addEventListener('change', (e) => {
-      this.updateSetting('showNotifications', e.target.checked);
-    });
-
-    document.getElementById('eip7702-only').addEventListener('change', (e) => {
-      this.updateSetting('showEIP7702Only', e.target.checked);
-    });
-
-    document.getElementById('max-transactions').addEventListener('change', (e) => {
-      this.updateSetting('maxTransactions', parseInt(e.target.value));
-    });
-
-    // Modal
-    document.getElementById('modal-close').addEventListener('click', () => {
-      this.closeModal();
-    });
-
-    document.getElementById('close-modal').addEventListener('click', () => {
-      this.closeModal();
-    });
-
-    document.getElementById('copy-transaction').addEventListener('click', () => {
-      this.copyTransactionData();
-    });
-
-    // Close modal on background click
-    document.getElementById('transaction-modal').addEventListener('click', (e) => {
-      if (e.target.id === 'transaction-modal') {
-        this.closeModal();
+// Load data from storage
+async function loadData() {
+  try {
+    // Get stats
+    chrome.runtime.sendMessage({ type: 'GET_STATS' }, (response) => {
+      if (response) {
+        elements.txCount.textContent = response.transactionCount || 0;
       }
     });
-  }
 
-  switchTab(tabName) {
-    // Update buttons
-    document.querySelectorAll('.tab-button').forEach(btn => {
-      btn.classList.remove('active');
+    // Get transactions
+    chrome.runtime.sendMessage({ type: 'GET_TRANSACTIONS' }, (response) => {
+      transactions = response?.transactions || [];
+      renderTransactions();
     });
-    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-
-    // Update content
-    document.querySelectorAll('.tab-content').forEach(content => {
-      content.classList.remove('active');
-    });
-    document.getElementById(`${tabName}-tab`).classList.add('active');
-
-    this.currentTab = tabName;
-
-    // Load specific tab data
-    if (tabName === 'eip7702') {
-      this.loadEIP7702Transactions();
-    } else if (tabName === 'settings') {
-      this.loadDebugInfo();
-    }
-  }
-
-  async loadSettings() {
-    try {
-      const result = await this.sendMessage({ type: 'GET_SETTINGS' });
-      if (result.success) {
-        this.settings = result.settings;
-        this.updateSettingsUI();
-      }
-    } catch (error) {
-      console.error('[KaiSign-Popup] Error loading settings:', error);
-    }
-  }
-
-  async loadTransactions() {
-    try {
-      // Try background script first
-      const result = await this.sendMessage({ type: 'GET_TRANSACTION_HISTORY' });
-      if (result && result.success) {
-        this.transactions = result.data.transactions;
-        this.updateTransactionSummary();
-        this.updateTransactionList();
-        return;
-      }
-    } catch (error) {
-      console.log('[KaiSign-Popup] Background script not available, trying direct storage:', error.message);
-    }
-
-    // Fallback: try direct storage access
-    try {
-      const data = await chrome.storage.local.get(['transactionHistory', 'allTransactions']);
-      console.log('[KaiSign-Popup] Direct storage data:', data);
-      
-      this.transactions = data.transactionHistory || data.allTransactions || [];
-      this.updateTransactionSummary();
-      this.updateTransactionList();
-      
-      if (this.transactions.length > 0) {
-        console.log('[KaiSign-Popup] Loaded', this.transactions.length, 'transactions from direct storage');
-      }
-    } catch (error) {
-      console.error('[KaiSign-Popup] Error with direct storage access:', error);
-    }
-  }
-
-  updateTransactionSummary() {
-    const totalCount = this.transactions.length;
-    const eip7702Count = this.transactions.filter(tx => tx.transaction?.isEIP7702).length;
-    const recentCount = this.transactions.filter(tx => {
-      const age = Date.now() - new Date(tx.timestamp).getTime();
-      return age < 24 * 60 * 60 * 1000; // Last 24 hours
-    }).length;
-
-    document.getElementById('total-transactions').textContent = totalCount;
-    document.getElementById('eip7702-count').textContent = eip7702Count;
-    document.getElementById('recent-count').textContent = recentCount;
-  }
-
-  updateTransactionList() {
-    const listContainer = document.getElementById('transaction-list');
-    const noTransactionsDiv = document.getElementById('no-transactions');
-
-    if (this.transactions.length === 0) {
-      noTransactionsDiv.style.display = 'block';
-      return;
-    }
-
-    noTransactionsDiv.style.display = 'none';
-
-    // Clear existing items
-    const existingItems = listContainer.querySelectorAll('.transaction-item');
-    existingItems.forEach(item => item.remove());
-
-    // Add transaction items
-    this.transactions.forEach(transaction => {
-      const item = this.createTransactionItem(transaction);
-      listContainer.appendChild(item);
-    });
-  }
-
-  createTransactionItem(transactionData) {
-    const item = document.createElement('div');
-    item.className = `transaction-item ${transactionData.transaction?.isEIP7702 ? 'eip7702' : ''}`;
-    item.addEventListener('click', () => {
-      this.showTransactionDetails(transactionData);
-    });
-
-    const time = new Date(transactionData.timestamp).toLocaleTimeString();
-    const type = transactionData.transaction?.isEIP7702 ? '🚀 EIP-7702' : '📤 Standard';
-    const to = transactionData.transaction?.to?.slice(0, 20) || 'Unknown';
-    const authCount = transactionData.transaction?.authorizationCount || 0;
-
-    item.innerHTML = `
-      <div class="transaction-header">
-        <span class="transaction-type ${transactionData.transaction?.isEIP7702 ? 'eip7702' : ''}">${type}</span>
-        <span class="transaction-time">${time}</span>
-      </div>
-      <div class="transaction-details">
-        <div>To: <span class="transaction-address">${to}...</span></div>
-        ${transactionData.transaction?.isEIP7702 ? `<div>📋 ${authCount} authorization(s)</div>` : ''}
-        <div>Method: ${transactionData.method}</div>
-      </div>
-    `;
-
-    return item;
-  }
-
-  loadEIP7702Transactions() {
-    const eip7702Transactions = this.transactions.filter(tx => tx.transaction?.isEIP7702);
-    const container = document.getElementById('eip7702-transactions');
-    const noEIP7702Div = document.getElementById('no-eip7702');
-
-    if (eip7702Transactions.length === 0) {
-      noEIP7702Div.style.display = 'block';
-      return;
-    }
-
-    noEIP7702Div.style.display = 'none';
-
-    // Clear existing items
-    const existingItems = container.querySelectorAll('.transaction-item');
-    existingItems.forEach(item => item.remove());
-
-    // Add EIP-7702 transaction items
-    eip7702Transactions.forEach(transaction => {
-      const item = this.createEIP7702Item(transaction);
-      container.appendChild(item);
-    });
-  }
-
-  createEIP7702Item(transactionData) {
-    const item = document.createElement('div');
-    item.className = 'transaction-item eip7702';
-    item.addEventListener('click', () => {
-      this.showTransactionDetails(transactionData);
-    });
-
-    const time = new Date(transactionData.timestamp).toLocaleTimeString();
-    const to = transactionData.transaction?.to?.slice(0, 30) || 'Unknown';
-    const authList = transactionData.transaction?.authorizationList || [];
-
-    let authListHtml = '';
-    if (authList.length > 0) {
-      const authSummary = authList.slice(0, 2).map(auth => 
-        `${auth.address?.slice(0, 15)}... (Chain: ${auth.chainId})`
-      ).join('<br>');
-      
-      authListHtml = `
-        <div class="authorization-list">
-          ${authSummary}
-          ${authList.length > 2 ? `<br>... and ${authList.length - 2} more` : ''}
-        </div>
-      `;
-    }
-
-    item.innerHTML = `
-      <div class="transaction-header">
-        <span class="transaction-type eip7702">🚀 EIP-7702 Account Abstraction</span>
-        <span class="transaction-time">${time}</span>
-      </div>
-      <div class="transaction-details">
-        <div>To: <span class="transaction-address">${to}</span></div>
-        <div>📋 ${authList.length} authorization(s)</div>
-        ${authListHtml}
-      </div>
-    `;
-
-    return item;
-  }
-
-  showTransactionDetails(transactionData) {
-    const modal = document.getElementById('transaction-modal');
-    const title = document.getElementById('modal-title');
-    const body = document.getElementById('modal-body');
-
-    const isEIP7702 = transactionData.transaction?.isEIP7702;
-    title.textContent = isEIP7702 ? '🚀 EIP-7702 Transaction Details' : '📤 Transaction Details';
-
-    let detailsHtml = `
-      <div style="margin-bottom: 20px;">
-        <h4>Basic Information</h4>
-        <p><strong>Type:</strong> ${transactionData.transaction?.type}</p>
-        <p><strong>Method:</strong> ${transactionData.method}</p>
-        <p><strong>Timestamp:</strong> ${new Date(transactionData.timestamp).toLocaleString()}</p>
-        <p><strong>To:</strong> <code>${transactionData.transaction?.to}</code></p>
-        <p><strong>From:</strong> <code>${transactionData.transaction?.from}</code></p>
-        <p><strong>Value:</strong> ${transactionData.transaction?.value}</p>
-      </div>
-    `;
-
-    if (isEIP7702 && transactionData.transaction?.authorizationList) {
-      const authList = transactionData.transaction.authorizationList;
-      detailsHtml += `
-        <div style="margin-bottom: 20px;">
-          <h4>🔐 Authorization List (${authList.length})</h4>
-          ${authList.map((auth, index) => `
-            <div style="background: #f7fafc; padding: 12px; margin: 8px 0; border-radius: 6px; border-left: 4px solid #667eea;">
-              <p><strong>Authorization ${index + 1}</strong></p>
-              <p><strong>Address:</strong> <code>${auth.address}</code></p>
-              <p><strong>Chain ID:</strong> ${auth.chainId}</p>
-              <p><strong>Nonce:</strong> ${auth.nonce}</p>
-              ${auth.yParity !== undefined ? `<p><strong>Y Parity:</strong> ${auth.yParity}</p>` : ''}
-            </div>
-          `).join('')}
-        </div>
-      `;
-    }
-
-    if (transactionData.validation) {
-      const validation = transactionData.validation;
-      detailsHtml += `
-        <div style="margin-bottom: 20px;">
-          <h4>🔍 Validation</h4>
-          <p><strong>Valid:</strong> ${validation.isValid ? '✅ Yes' : '❌ No'}</p>
-          ${validation.warnings?.length ? `<p><strong>Warnings:</strong> ${validation.warnings.join(', ')}</p>` : ''}
-          ${validation.errors?.length ? `<p><strong>Errors:</strong> ${validation.errors.join(', ')}</p>` : ''}
-        </div>
-      `;
-    }
-
-    detailsHtml += `
-      <div>
-        <h4>📋 Raw Transaction Data</h4>
-        <div class="code-block">${JSON.stringify(transactionData.transaction?.rawTransaction || transactionData.originalCall, null, 2)}</div>
-      </div>
-    `;
-
-    body.innerHTML = detailsHtml;
-    modal.classList.add('active');
-
-    // Store current transaction for copying
-    this.currentModalTransaction = transactionData;
-  }
-
-  closeModal() {
-    document.getElementById('transaction-modal').classList.remove('active');
-    this.currentModalTransaction = null;
-  }
-
-  async copyTransactionData() {
-    if (!this.currentModalTransaction) return;
-
-    try {
-      const data = JSON.stringify(this.currentModalTransaction, null, 2);
-      await navigator.clipboard.writeText(data);
-      
-      // Show feedback
-      const button = document.getElementById('copy-transaction');
-      const originalText = button.textContent;
-      button.textContent = '✅ Copied!';
-      setTimeout(() => {
-        button.textContent = originalText;
-      }, 2000);
-    } catch (error) {
-      console.error('[KaiSign-Popup] Error copying to clipboard:', error);
-    }
-  }
-
-  updateSettingsUI() {
-    document.getElementById('show-notifications').checked = this.settings.showNotifications ?? true;
-    document.getElementById('eip7702-only').checked = this.settings.showEIP7702Only ?? false;
-    document.getElementById('max-transactions').value = this.settings.maxTransactions ?? 50;
-  }
-
-  async updateSetting(key, value) {
-    try {
-      const result = await this.sendMessage({
-        type: 'UPDATE_SETTINGS',
-        data: { [key]: value }
-      });
-      
-      if (result.success) {
-        this.settings = result.settings;
-        console.log('[KaiSign-Popup] Setting updated:', key, value);
-      }
-    } catch (error) {
-      console.error('[KaiSign-Popup] Error updating setting:', error);
-    }
-  }
-
-  async clearTransactions() {
-    if (!confirm('Clear all transaction history?')) return;
-
-    try {
-      const result = await this.sendMessage({ type: 'CLEAR_HISTORY' });
-      if (result.success) {
-        this.transactions = [];
-        this.updateTransactionSummary();
-        this.updateTransactionList();
-        this.loadEIP7702Transactions();
-      }
-    } catch (error) {
-      console.error('[KaiSign-Popup] Error clearing transactions:', error);
-    }
-  }
-
-  async clearAllData() {
-    if (!confirm('Clear ALL extension data including settings? This cannot be undone.')) return;
-
-    try {
-      await chrome.storage.local.clear();
-      location.reload();
-    } catch (error) {
-      console.error('[KaiSign-Popup] Error clearing all data:', error);
-    }
-  }
-
-  async exportData() {
-    try {
-      const data = {
-        transactions: this.transactions,
-        settings: this.settings,
-        exportedAt: new Date().toISOString(),
-        version: '1.0.0'
-      };
-
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `kaisign-data-${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
-      
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('[KaiSign-Popup] Error exporting data:', error);
-    }
-  }
-
-  async loadDebugInfo() {
-    // Check content script status
-    try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tab = tabs[0];
-      
-      if (tab && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
-        document.getElementById('content-script-status').textContent = '✅ Active';
-      } else {
-        document.getElementById('content-script-status').textContent = '⚠️ N/A (not web page)';
-      }
-    } catch (error) {
-      document.getElementById('content-script-status').textContent = '❌ Error';
-    }
-
-    // Calculate storage usage
-    try {
-      const storage = await chrome.storage.local.get(null);
-      const size = JSON.stringify(storage).length;
-      document.getElementById('storage-usage').textContent = `${(size / 1024).toFixed(1)} KB`;
-    } catch (error) {
-      document.getElementById('storage-usage').textContent = 'Unknown';
-    }
-  }
-
-  startAutoRefresh() {
-    // Refresh every 5 seconds when popup is open
-    this.refreshInterval = setInterval(() => {
-      this.loadTransactions();
-    }, 5000);
-  }
-
-  stopAutoRefresh() {
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-      this.refreshInterval = null;
-    }
-  }
-
-  sendMessage(message) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(message, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve(response);
-        }
-      });
-    });
+  } catch (error) {
+    console.error('[KaiSign] Load error:', error);
+    showToast('Failed to load data', 'error');
   }
 }
 
-// Initialize popup when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  window.kaiSignPopup = new KaiSignPopup();
-});
-
-// Cleanup on unload
-window.addEventListener('beforeunload', () => {
-  if (window.kaiSignPopup) {
-    window.kaiSignPopup.stopAutoRefresh();
+// Generate meaningful title for transaction
+function generateMeaningfulTitle(tx) {
+  // 1. Try decoded protocol name
+  if (tx.decodedResult?.protocolName) {
+    return tx.decodedResult.protocolName;
   }
-});
+
+  // 2. Try intent if meaningful (filter out useless text)
+  if (tx.intent) {
+    const intent = tx.intent;
+    const invalidPatterns = [
+      'Parsing',
+      'Loading',
+      'Contract interaction',
+      'Unknown',
+      '...',
+      'undefined'
+    ];
+
+    // Check if intent is useful
+    const isUseful = !invalidPatterns.some(pattern =>
+      intent.toLowerCase().includes(pattern.toLowerCase())
+    );
+
+    if (isUseful && intent.length > 3) {
+      // Truncate if too long
+      if (intent.length > 50) {
+        return intent.slice(0, 47) + '...';
+      }
+      return intent;
+    }
+  }
+
+  // 3. Try function name from decoded result
+  if (tx.decodedResult?.functionName) {
+    return tx.decodedResult.functionName;
+  }
+
+  // 4. Try method name (clean it up)
+  if (tx.method) {
+    const method = tx.method;
+    // Clean up method name if it's a signature
+    if (method.includes('eth_')) {
+      const methodMap = {
+        'eth_sendTransaction': 'Send Transaction',
+        'eth_signTypedData_v4': 'Sign Message',
+        'eth_sign': 'Sign Message',
+        'eth_call': 'Contract Call'
+      };
+      return methodMap[method] || method;
+    }
+    return method;
+  }
+
+  // 5. Fallback to contract address
+  if (tx.to) {
+    return `Contract ${tx.to.slice(0, 8)}...${tx.to.slice(-6)}`;
+  }
+
+  return 'Transaction';
+}
+
+// Filter transactions by search only
+function filterTransactions(txs) {
+  if (!currentSearch) return txs;
+
+  const searchLower = currentSearch.toLowerCase();
+  return txs.filter(tx => {
+    return (tx.intent || '').toLowerCase().includes(searchLower) ||
+      (tx.to || '').toLowerCase().includes(searchLower) ||
+      (tx.method || '').toLowerCase().includes(searchLower) ||
+      (tx.data || '').toLowerCase().includes(searchLower);
+  });
+}
+
+// Render transactions
+function renderTransactions() {
+  elements.loadingState.style.display = 'none';
+
+  const filtered = filterTransactions(transactions);
+
+  if (filtered.length === 0) {
+    elements.txList.innerHTML = `
+      <div class="empty-state">
+        <svg viewBox="0 0 16 16" fill="currentColor">
+          <path d="M5 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm-.5 2.5A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zM5 8a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm0 2a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1H5z"/>
+          <path fill-rule="evenodd" d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm10-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1z"/>
+        </svg>
+        <p>${currentSearch || currentFilter !== 'all' ? 'No matching transactions' : 'No transactions yet'}</p>
+      </div>
+    `;
+    return;
+  }
+
+  elements.txList.innerHTML = filtered.map(tx => {
+    const time = tx.time ? new Date(tx.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const intent = generateMeaningfulTitle(tx);
+    const method = tx.method || '';
+
+    return `
+      <div class="tx-item" data-id="${tx.id || ''}">
+        <div class="tx-icon">📄</div>
+        <div class="tx-content">
+          <div class="tx-intent">${escapeHtml(intent)}</div>
+          <div class="tx-meta">
+            <span class="tx-method">${escapeHtml(method)}</span>
+            <span class="tx-time">${time}</span>
+          </div>
+        </div>
+        <span class="tx-arrow">›</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// Setup event listeners
+function setupEventListeners() {
+  // Search
+  elements.searchInput.addEventListener('input', (e) => {
+    currentSearch = e.target.value;
+    renderTransactions();
+  });
+
+  // Export button toggle
+  elements.exportBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    elements.exportDropdown.classList.toggle('show');
+  });
+
+  // Export options
+  elements.exportDropdown.addEventListener('click', (e) => {
+    const option = e.target.closest('.export-option');
+    if (option) {
+      const format = option.dataset.format;
+      handleExport(format);
+      elements.exportDropdown.classList.remove('show');
+    }
+  });
+
+  // Close dropdown on outside click
+  document.addEventListener('click', () => {
+    elements.exportDropdown.classList.remove('show');
+  });
+
+  // Import button
+  elements.importBtn.addEventListener('click', () => {
+    elements.importModal.classList.add('show');
+  });
+
+  // Close modal
+  elements.closeModal.addEventListener('click', closeImportModal);
+  elements.cancelImport.addEventListener('click', closeImportModal);
+  elements.importModal.addEventListener('click', (e) => {
+    if (e.target === elements.importModal) closeImportModal();
+  });
+
+  // File drop area
+  elements.fileDrop.addEventListener('click', () => {
+    elements.fileInput.click();
+  });
+
+  elements.fileDrop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    elements.fileDrop.classList.add('dragover');
+  });
+
+  elements.fileDrop.addEventListener('dragleave', () => {
+    elements.fileDrop.classList.remove('dragover');
+  });
+
+  elements.fileDrop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    elements.fileDrop.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileSelect(file);
+  });
+
+  elements.fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) handleFileSelect(file);
+  });
+
+  // Confirm import
+  elements.confirmImport.addEventListener('click', handleImport);
+
+  // Clear button
+  elements.clearBtn.addEventListener('click', handleClear);
+
+  // Settings button
+  elements.settingsBtn.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
+
+  // Refresh button
+  elements.refreshBtn.addEventListener('click', () => {
+    elements.loadingState.style.display = 'flex';
+    loadData();
+  });
+
+  // Transaction item click
+  elements.txList.addEventListener('click', (e) => {
+    const item = e.target.closest('.tx-item');
+    if (item) {
+      const txId = item.dataset.id;
+      const tx = transactions.find(t => t.id === txId);
+      if (tx) {
+        showTransactionDetails(tx);
+      }
+    }
+  });
+}
+
+// Handle export
+async function handleExport(format) {
+  try {
+    chrome.runtime.sendMessage({ type: 'EXPORT_DATA' }, (response) => {
+      if (!response?.success) {
+        showToast('Export failed', 'error');
+        return;
+      }
+
+      const data = response.data;
+      let content, filename, mimeType;
+
+      if (format === 'json') {
+        content = JSON.stringify(data, null, 2);
+        filename = `kaisign-export-${Date.now()}.json`;
+        mimeType = 'application/json';
+      } else if (format === 'csv') {
+        content = convertToCSV(data.transactions);
+        filename = `kaisign-transactions-${Date.now()}.csv`;
+        mimeType = 'text/csv';
+      }
+
+      downloadFile(content, filename, mimeType);
+      showToast(`Exported as ${format.toUpperCase()}`, 'success');
+    });
+  } catch (error) {
+    console.error('[KaiSign] Export error:', error);
+    showToast('Export failed', 'error');
+  }
+}
+
+// Convert transactions to CSV
+function convertToCSV(transactions) {
+  const headers = ['id', 'time', 'method', 'intent', 'to', 'value', 'data'];
+  const rows = [headers.join(',')];
+
+  for (const tx of transactions) {
+    const row = headers.map(h => {
+      let value = tx[h] || '';
+      // Escape quotes and wrap in quotes if contains comma
+      if (typeof value === 'string') {
+        value = value.replace(/"/g, '""');
+        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+          value = `"${value}"`;
+        }
+      }
+      return value;
+    });
+    rows.push(row.join(','));
+  }
+
+  return rows.join('\n');
+}
+
+// Download file
+function downloadFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Handle file select for import
+function handleFileSelect(file) {
+  // Validate file size (5MB max)
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('File too large (max 5MB)', 'error');
+    return;
+  }
+
+  // Validate file type
+  if (!file.name.endsWith('.json')) {
+    showToast('Only JSON files are supported', 'error');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      importData = JSON.parse(e.target.result);
+
+      // Validate structure
+      if (!importData.version || !importData.transactions) {
+        showToast('Invalid file format', 'error');
+        importData = null;
+        return;
+      }
+
+      elements.fileDrop.innerHTML = `
+        <svg viewBox="0 0 16 16" fill="currentColor" style="color: var(--accent-green)">
+          <path fill-rule="evenodd" d="M10.354 6.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7 8.793l2.646-2.647a.5.5 0 0 1 .708 0z"/>
+          <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8z"/>
+        </svg>
+        <p style="color: var(--accent-green)">${file.name}</p>
+        <p class="hint">${importData.transactions.length} transactions</p>
+      `;
+
+      elements.confirmImport.disabled = false;
+    } catch (error) {
+      showToast('Invalid JSON file', 'error');
+      importData = null;
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Handle import confirmation
+function handleImport() {
+  if (!importData) return;
+
+  const mergeMode = document.getElementById('importMerge').checked;
+
+  chrome.runtime.sendMessage({
+    type: 'IMPORT_DATA',
+    data: importData,
+    mergeMode
+  }, (response) => {
+    if (response?.success) {
+      showToast(response.message, 'success');
+      closeImportModal();
+      loadData();
+    } else {
+      showToast(response?.error || 'Import failed', 'error');
+    }
+  });
+}
+
+// Close import modal
+function closeImportModal() {
+  elements.importModal.classList.remove('show');
+  importData = null;
+  elements.confirmImport.disabled = true;
+  elements.fileInput.value = '';
+  elements.fileDrop.innerHTML = `
+    <svg viewBox="0 0 16 16" fill="currentColor">
+      <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+      <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+    </svg>
+    <p>Drop JSON file here or click to browse</p>
+    <p class="hint">Max file size: 5MB</p>
+  `;
+}
+
+// Handle clear
+function handleClear() {
+  if (!confirm('Are you sure you want to clear all transaction data?')) return;
+
+  chrome.runtime.sendMessage({ type: 'CLEAR_TRANSACTIONS' }, (response) => {
+    if (response?.success) {
+      transactions = [];
+      renderTransactions();
+      elements.txCount.textContent = '0';
+      showToast('Data cleared', 'success');
+    } else {
+      showToast('Failed to clear data', 'error');
+    }
+  });
+}
+
+// Copy transaction data to clipboard
+function showTransactionDetails(tx) {
+  // For EIP-712 signatures, copy the complete typed data JSON
+  // For regular transactions, copy the raw transaction data
+  let dataToCopy;
+  if (tx.isEIP712 && tx.eip712TypedData) {
+    dataToCopy = JSON.stringify(tx.eip712TypedData, null, 2);
+  } else {
+    dataToCopy = tx.data || '0x';
+  }
+
+  navigator.clipboard.writeText(dataToCopy).then(() => {
+    const dataType = tx.isEIP712 ? 'EIP-712 data' : 'Transaction data';
+    showToast(`${dataType} copied!`, 'success');
+  }).catch(() => {
+    showToast('Failed to copy', 'error');
+  });
+}
+
+// Show toast notification
+function showToast(message, type = 'info') {
+  elements.toast.textContent = message;
+  elements.toast.className = `toast ${type} show`;
+
+  setTimeout(() => {
+    elements.toast.classList.remove('show');
+  }, 3000);
+}
+
+// Escape HTML
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+console.log('[KaiSign] Popup ready');
