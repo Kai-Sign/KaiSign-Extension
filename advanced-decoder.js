@@ -1356,12 +1356,10 @@ class AdvancedTransactionDecoder {
       const data = await response.json();
       const specs = data?.data?.specs || [];
       
-      // Prefer FINALIZED, fallback to PROPOSED
+      // Only use FINALIZED specs
       const finalizedSpec = specs.find(spec => spec.status === 'FINALIZED');
-      const proposedSpec = specs.find(spec => spec.status === 'PROPOSED');
-      const selectedSpec = finalizedSpec || proposedSpec;
-      
-      return selectedSpec?.blobHash || null;
+
+      return finalizedSpec?.blobHash || null;
     } catch (error) {
       console.warn(`[AdvDecoder] Subgraph query failed:`, error.message);
       return null;
