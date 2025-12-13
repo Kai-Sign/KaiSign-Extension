@@ -1182,7 +1182,7 @@ function showTypedDataInfo(typedData, signerAddress, walletName) {
 
 // Define all monitored Ethereum RPC methods
 const ETHEREUM_RPC_METHODS = {
-  // Transaction methods
+  // Transaction methods - these require user approval and show popup
   TRANSACTION: [
     'eth_sendTransaction',
     'eth_signTransaction',
@@ -1193,7 +1193,11 @@ const ETHEREUM_RPC_METHODS = {
     'eth_signTypedData_v4',
     'personal_sign',
     // EIP-5792 batch transaction methods (Ambire, Safe, etc.)
-    'wallet_sendCalls',
+    'wallet_sendCalls'
+  ],
+
+  // Wallet capability queries - no popup needed
+  WALLET_QUERY: [
     'wallet_getCallsStatus',
     'wallet_showCallsStatus',
     'wallet_getCapabilities'
