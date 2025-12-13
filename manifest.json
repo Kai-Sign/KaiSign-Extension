@@ -1,36 +1,42 @@
 {
   "manifest_version": 3,
-  "name": "KaiSign - MetaMask Payload Inspector",
-  "version": "1.0.0",
-  "description": "Intercept and display MetaMask transaction payloads with EIP-7702 support",
+  "name": "KaiSign",
+  "version": "1.1.0",
+  "description": "Transaction analysis and clear signing for Ethereum wallets",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "unlimitedStorage"
+  ],
+  "options_page": "options.html",
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "host_permissions": [
+    "https://api.studio.thegraph.com/*",
+    "https://api.sepolia.blobscan.com/*",
+    "https://api.gateway.ethswarm.org/*",
+    "https://storage.googleapis.com/*"
   ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["communication-script.js"],
-      "run_at": "document_start"
+      "js": ["subgraph-metadata.js", "runtime-registry.js", "metadata.js", "eip712-decoder.js", "decode.js", "recursive-decoder.js", "advanced-decoder.js", "content-script.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["eip7702-detector.js", "content-script.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
+      "js": ["bridge-script.js"],
+      "run_at": "document_end",
+      "world": "ISOLATED"
     }
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "KaiSign Payload Inspector"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["transaction-popup.html"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+    "default_popup": "popup.html"
+  }
 }

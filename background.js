@@ -1,295 +1,341 @@
-/**
- * KaiSign Extension - Background Service Worker
- * Manages extension lifecycle and popup communication
- */
+console.log('[KaiSign] Background script started');
 
-console.log('[KaiSign-Background] Service worker started');
 
-// Extension installation
-chrome.runtime.onInstalled.addListener((details) => {
-  console.log('[KaiSign-Background] Extension installed/updated:', details.reason);
-  
-  if (details.reason === 'install') {
-    // Initialize storage on first install
-    chrome.storage.local.set({
-      transactionHistory: [],
-      settings: {
-        showNotifications: true,
-        showEIP7702Only: false,
-        maxTransactions: 50
-      },
-      isActive: true
-    });
-    
-    console.log('[KaiSign-Background] Initial storage setup complete');
-  }
-});
+// Storage keys
+const STORAGE_KEYS = {
+  TRANSACTIONS: 'kaisign-transactions',
+  RPC_ACTIVITY: 'kaisign-rpc-activity',
+  SETTINGS: 'kaisign-settings'
+};
 
-// Handle extension startup
-chrome.runtime.onStartup.addListener(() => {
-  console.log('[KaiSign-Background] Extension started');
-});
+// Default settings
+const DEFAULT_SETTINGS = {
+  maxTransactions: 100,
+  notifications: true,
+  rpcTracking: true,
+  securityAlerts: true,
+  theme: 'dark'
+};
 
-// Handle messages from content script and popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[KaiSign-Background] Received message:', message.type, 'from', sender.tab?.url || 'popup', message);
-
-  switch (message.type) {
-    case 'TRANSACTION_CAPTURED':
-      handleTransactionCaptured(message.data);
-      break;
-      
-    case 'GET_TRANSACTION_HISTORY':
-      getTransactionHistory(sendResponse);
-      return true; // Keep channel open for async response
-      
-    case 'CLEAR_HISTORY':
-      clearTransactionHistory(sendResponse);
-      return true;
-      
-    case 'UPDATE_SETTINGS':
-      updateSettings(message.data, sendResponse);
-      return true;
-      
-    case 'GET_SETTINGS':
-      getSettings(sendResponse);
-      return true;
-      
-    case 'OPEN_TRANSACTION_POPUP':
-      openTransactionPopup(message.data);
-      break;
-      
-    default:
-      console.warn('[KaiSign-Background] Unknown message type:', message.type);
-  }
-});
-
-// Handle new transaction capture
-async function handleTransactionCaptured(transactionData) {
+// Initialize storage with defaults
+async function initializeStorage() {
   try {
-    // Get current history
-    const result = await chrome.storage.local.get(['transactionHistory', 'settings']);
-    const history = result.transactionHistory || [];
-    const settings = result.settings || { maxTransactions: 50 };
-
-    // Add new transaction
-    history.unshift(transactionData);
-    
-    // Limit history size
-    if (history.length > settings.maxTransactions) {
-      history.splice(settings.maxTransactions);
+    const result = await chrome.storage.local.get([STORAGE_KEYS.SETTINGS]);
+    if (!result[STORAGE_KEYS.SETTINGS]) {
+      await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS });
+      console.log('[KaiSign] Initialized default settings');
     }
-
-    // Save updated history
-    await chrome.storage.local.set({
-      transactionHistory: history,
-      lastTransactionTime: Date.now()
-    });
-
-    console.log('[KaiSign-Background] Transaction saved to history:', transactionData.id);
-
-    // Update badge if EIP-7702 transaction
-    if (transactionData.transaction?.isEIP7702) {
-      updateBadge('EIP', '#ff6b35');
-      
-      // Reset badge after 10 seconds
-      setTimeout(() => {
-        updateBadge('', '');
-      }, 10000);
-    }
-
   } catch (error) {
-    console.error('[KaiSign-Background] Error handling captured transaction:', error);
+    console.error('[KaiSign] Storage initialization error:', error);
   }
 }
 
-// Get transaction history
-async function getTransactionHistory(sendResponse) {
+// Get settings
+async function getSettings() {
   try {
-    const result = await chrome.storage.local.get(['transactionHistory']);
-    const history = result.transactionHistory || [];
-    
-    sendResponse({
-      success: true,
-      data: {
-        transactions: history,
-        count: history.length
+    const result = await chrome.storage.local.get([STORAGE_KEYS.SETTINGS]);
+    return result[STORAGE_KEYS.SETTINGS] || DEFAULT_SETTINGS;
+  } catch (error) {
+    console.error('[KaiSign] Get settings error:', error);
+    return DEFAULT_SETTINGS;
+  }
+}
+
+// Save transaction
+async function saveTransaction(transaction) {
+  try {
+    const settings = await getSettings();
+    const result = await chrome.storage.local.get([STORAGE_KEYS.TRANSACTIONS]);
+    const transactions = result[STORAGE_KEYS.TRANSACTIONS] || [];
+
+    // Add new transaction at the beginning
+    transactions.unshift(transaction);
+
+    // Limit based on settings
+    const maxTx = settings.maxTransactions || 100;
+    if (transactions.length > maxTx) {
+      transactions.splice(maxTx);
+    }
+
+    await chrome.storage.local.set({ [STORAGE_KEYS.TRANSACTIONS]: transactions });
+    console.log('[KaiSign] Saved transaction, total:', transactions.length);
+    return { success: true, count: transactions.length };
+  } catch (error) {
+    console.error('[KaiSign] Save transaction error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Get transactions
+async function getTransactions() {
+  try {
+    const result = await chrome.storage.local.get([STORAGE_KEYS.TRANSACTIONS]);
+    return result[STORAGE_KEYS.TRANSACTIONS] || [];
+  } catch (error) {
+    console.error('[KaiSign] Get transactions error:', error);
+    return [];
+  }
+}
+
+// Clear transactions
+async function clearTransactions() {
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEYS.TRANSACTIONS]: [] });
+    console.log('[KaiSign] Cleared all transactions');
+    return { success: true };
+  } catch (error) {
+    console.error('[KaiSign] Clear transactions error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Save RPC activity
+async function saveRpcActivity(activity) {
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEYS.RPC_ACTIVITY]: activity });
+    return { success: true };
+  } catch (error) {
+    console.error('[KaiSign] Save RPC activity error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Get RPC activity
+async function getRpcActivity() {
+  try {
+    const result = await chrome.storage.local.get([STORAGE_KEYS.RPC_ACTIVITY]);
+    return result[STORAGE_KEYS.RPC_ACTIVITY] || {
+      methods: {},
+      timeline: [],
+      patterns: {},
+      security: {
+        suspiciousActivity: [],
+        privacyConcerns: [],
+        mevIndicators: []
       }
-    });
-  } catch (error) {
-    console.error('[KaiSign-Background] Error getting transaction history:', error);
-    sendResponse({
-      success: false,
-      error: error.message
-    });
-  }
-}
-
-// Clear transaction history
-async function clearTransactionHistory(sendResponse) {
-  try {
-    await chrome.storage.local.set({
-      transactionHistory: [],
-      lastTransactionTime: null
-    });
-    
-    updateBadge('', '');
-    
-    sendResponse({ success: true });
-    console.log('[KaiSign-Background] Transaction history cleared');
-  } catch (error) {
-    console.error('[KaiSign-Background] Error clearing history:', error);
-    sendResponse({
-      success: false,
-      error: error.message
-    });
-  }
-}
-
-// Update extension settings
-async function updateSettings(newSettings, sendResponse) {
-  try {
-    const result = await chrome.storage.local.get(['settings']);
-    const currentSettings = result.settings || {};
-    
-    const updatedSettings = {
-      ...currentSettings,
-      ...newSettings
     };
-    
-    await chrome.storage.local.set({
-      settings: updatedSettings
-    });
-    
-    sendResponse({ success: true, settings: updatedSettings });
-    console.log('[KaiSign-Background] Settings updated:', updatedSettings);
   } catch (error) {
-    console.error('[KaiSign-Background] Error updating settings:', error);
-    sendResponse({
-      success: false,
-      error: error.message
-    });
+    console.error('[KaiSign] Get RPC activity error:', error);
+    return null;
   }
 }
 
-// Get current settings
-async function getSettings(sendResponse) {
+// Clear RPC activity
+async function clearRpcActivity() {
   try {
-    const result = await chrome.storage.local.get(['settings']);
-    const settings = result.settings || {
-      showNotifications: true,
-      showEIP7702Only: false,
-      maxTransactions: 50
-    };
-    
-    sendResponse({ success: true, settings: settings });
-  } catch (error) {
-    console.error('[KaiSign-Background] Error getting settings:', error);
-    sendResponse({
-      success: false,
-      error: error.message
-    });
-  }
-}
-
-// Update extension badge
-function updateBadge(text, color) {
-  chrome.action.setBadgeText({ text: text });
-  chrome.action.setBadgeBackgroundColor({ color: color });
-}
-
-// Open transaction popup window
-async function openTransactionPopup(transactionData) {
-  console.log('[KaiSign-Background] Opening transaction popup window');
-  
-  try {
-    // Encode transaction data for URL
-    const encodedData = encodeURIComponent(JSON.stringify(transactionData));
-    const popupUrl = `transaction-popup.html?data=${encodedData}`;
-    
-    // Create popup window
-    const popup = await chrome.windows.create({
-      url: popupUrl,
-      type: 'popup',
-      width: 420,
-      height: 650,
-      focused: true,
-      left: Math.max(0, screen.width - 850),
-      top: 100
-    });
-    
-    console.log('[KaiSign-Background] Popup window created:', popup.id);
-    
-    // Store popup ID to track it
     await chrome.storage.local.set({
-      transactionPopupId: popup.id,
-      transactionPopupData: transactionData
-    });
-    
-  } catch (error) {
-    console.error('[KaiSign-Background] Error creating popup window:', error);
-  }
-}
-
-// Handle tab updates (inject content script into new pages)
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url) {
-    // Only inject into http/https pages
-    if (tab.url.startsWith('http://') || tab.url.startsWith('https://')) {
-      console.log('[KaiSign-Background] Page loaded:', tab.url);
-      
-      // Content script should auto-inject via manifest, but we can handle
-      // additional initialization here if needed
-    }
-  }
-});
-
-// Cleanup on extension shutdown
-chrome.runtime.onSuspend.addListener(() => {
-  console.log('[KaiSign-Background] Extension suspending, cleaning up...');
-  updateBadge('', '');
-});
-
-// Keep service worker alive during active usage
-let keepAliveInterval;
-
-function keepServiceWorkerAlive() {
-  keepAliveInterval = setInterval(() => {
-    chrome.runtime.sendMessage({ type: 'PING' }).catch(() => {
-      // Expected error when no listeners
-    });
-  }, 20000); // Ping every 20 seconds
-}
-
-function stopKeepAlive() {
-  if (keepAliveInterval) {
-    clearInterval(keepAliveInterval);
-    keepAliveInterval = null;
-  }
-}
-
-// Start keep-alive on activity
-chrome.tabs.onActivated.addListener(() => {
-  if (!keepAliveInterval) {
-    keepServiceWorkerAlive();
-  }
-});
-
-// Stop keep-alive when idle (if idle API is available)
-try {
-  if (chrome.idle) {
-    chrome.idle.onStateChanged.addListener((state) => {
-      if (state === 'idle') {
-        stopKeepAlive();
-      } else if (state === 'active') {
-        if (!keepAliveInterval) {
-          keepServiceWorkerAlive();
+      [STORAGE_KEYS.RPC_ACTIVITY]: {
+        methods: {},
+        timeline: [],
+        patterns: {},
+        security: {
+          suspiciousActivity: [],
+          privacyConcerns: [],
+          mevIndicators: []
         }
       }
     });
+    return { success: true };
+  } catch (error) {
+    console.error('[KaiSign] Clear RPC activity error:', error);
+    return { success: false, error: error.message };
   }
-} catch (error) {
-  console.log('[KaiSign-Background] Idle API not available, skipping idle detection');
 }
 
-console.log('[KaiSign-Background] Service worker initialization complete');
+// Save settings
+async function saveSettings(settings) {
+  try {
+    const currentSettings = await getSettings();
+    const newSettings = { ...currentSettings, ...settings };
+    await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: newSettings });
+    console.log('[KaiSign] Saved settings');
+    return { success: true };
+  } catch (error) {
+    console.error('[KaiSign] Save settings error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Export all data
+async function exportAllData() {
+  try {
+    const result = await chrome.storage.local.get([
+      STORAGE_KEYS.TRANSACTIONS,
+      STORAGE_KEYS.RPC_ACTIVITY,
+      STORAGE_KEYS.SETTINGS
+    ]);
+
+    const transactions = result[STORAGE_KEYS.TRANSACTIONS] || [];
+    const rpcActivity = result[STORAGE_KEYS.RPC_ACTIVITY] || {};
+    const settings = result[STORAGE_KEYS.SETTINGS] || DEFAULT_SETTINGS;
+
+    // Calculate date range
+    let dateRange = { from: null, to: null };
+    if (transactions.length > 0) {
+      const times = transactions.map(tx => new Date(tx.time).getTime());
+      dateRange.from = new Date(Math.min(...times)).toISOString();
+      dateRange.to = new Date(Math.max(...times)).toISOString();
+    }
+
+    return {
+      success: true,
+      data: {
+        version: '1.0',
+        exportDate: new Date().toISOString(),
+        metadata: {
+          extensionVersion: chrome.runtime.getManifest().version,
+          transactionCount: transactions.length,
+          dateRange
+        },
+        transactions,
+        rpcActivity,
+        settings
+      }
+    };
+  } catch (error) {
+    console.error('[KaiSign] Export error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Import data
+async function importData(data, mergeMode = false) {
+  try {
+    // Validate structure
+    if (!data.version || !data.transactions) {
+      return { success: false, error: 'Invalid data format' };
+    }
+
+    const currentData = await chrome.storage.local.get([STORAGE_KEYS.TRANSACTIONS]);
+    let transactions = currentData[STORAGE_KEYS.TRANSACTIONS] || [];
+
+    if (mergeMode) {
+      // Merge: add new transactions, skip duplicates by id
+      const existingIds = new Set(transactions.map(tx => tx.id));
+      const newTransactions = data.transactions.filter(tx => !existingIds.has(tx.id));
+      transactions = [...newTransactions, ...transactions];
+
+      // Sort by time descending
+      transactions.sort((a, b) => new Date(b.time) - new Date(a.time));
+    } else {
+      // Replace mode
+      transactions = data.transactions;
+    }
+
+    // Apply limit
+    const settings = await getSettings();
+    if (transactions.length > settings.maxTransactions) {
+      transactions = transactions.slice(0, settings.maxTransactions);
+    }
+
+    await chrome.storage.local.set({ [STORAGE_KEYS.TRANSACTIONS]: transactions });
+
+    // Import RPC activity if present
+    if (data.rpcActivity) {
+      await chrome.storage.local.set({ [STORAGE_KEYS.RPC_ACTIVITY]: data.rpcActivity });
+    }
+
+    return {
+      success: true,
+      imported: transactions.length,
+      message: mergeMode ? 'Data merged successfully' : 'Data imported successfully'
+    };
+  } catch (error) {
+    console.error('[KaiSign] Import error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Handle messages
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[KaiSign] Message:', message.type);
+
+  // Use async/await pattern
+  (async () => {
+    try {
+      switch (message.type) {
+        case 'SAVE_TRANSACTION':
+          const saveResult = await saveTransaction(message.data);
+          sendResponse(saveResult);
+          break;
+
+        case 'GET_TRANSACTIONS':
+          sendResponse({ transactions: await getTransactions() });
+          break;
+
+        case 'CLEAR_TRANSACTIONS':
+          sendResponse(await clearTransactions());
+          break;
+
+        case 'SAVE_RPC_ACTIVITY':
+          sendResponse(await saveRpcActivity(message.data));
+          break;
+
+        case 'GET_RPC_ACTIVITY':
+          sendResponse({ activity: await getRpcActivity() });
+          break;
+
+        case 'CLEAR_RPC_ACTIVITY':
+          sendResponse(await clearRpcActivity());
+          break;
+
+        case 'GET_SETTINGS':
+          sendResponse({ settings: await getSettings() });
+          break;
+
+        case 'SAVE_SETTINGS':
+          sendResponse(await saveSettings(message.data));
+          break;
+
+        case 'EXPORT_DATA':
+          sendResponse(await exportAllData());
+          break;
+
+        case 'IMPORT_DATA':
+          sendResponse(await importData(message.data, message.mergeMode));
+          break;
+
+        case 'GET_STATS':
+          const transactions = await getTransactions();
+          const rpcActivity = await getRpcActivity();
+          sendResponse({
+            transactionCount: transactions.length,
+            rpcMethodCount: Object.keys(rpcActivity?.methods || {}).length,
+            rpcCallCount: Object.values(rpcActivity?.methods || {}).reduce((sum, m) => sum + (m.count || 0), 0)
+          });
+          break;
+
+        case 'FETCH_BLOB':
+          // Proxy fetch to bypass CORS restrictions (for KaiSign API)
+          try {
+            const response = await fetch(message.url);
+            if (!response.ok) {
+              sendResponse({ error: `HTTP ${response.status}: ${response.statusText}` });
+              return;
+            }
+            // KaiSign API returns JSON - fetch as text
+            const text = await response.text();
+            sendResponse({ success: true, data: text });
+          } catch (fetchError) {
+            console.error('[KaiSign] API fetch error:', fetchError);
+            sendResponse({ error: fetchError.message });
+          }
+          break;
+
+        default:
+          sendResponse({ error: 'Unknown message type' });
+      }
+    } catch (error) {
+      console.error('[KaiSign] Message handler error:', error);
+      sendResponse({ error: error.message });
+    }
+  })();
+
+  // Return true to indicate async response
+  return true;
+});
+
+// Initialize on startup
+initializeStorage();
+
+console.log('[KaiSign] Background ready with chrome.storage.local');
