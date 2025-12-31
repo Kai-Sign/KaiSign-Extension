@@ -1,0 +1,19 @@
+{
+  "name": "kaisign-decoder-tests",
+  "version": "1.0.0",
+  "description": "Comprehensive decoder test suite for KaiSign Extension",
+  "main": "run-all-tests.js",
+  "type": "module",
+  "scripts": {
+    "test": "node run-all-tests.js",
+    "fetch-metadata": "node scripts/fetch-metadata.js",
+    "fetch-transactions": "node scripts/fetch-transactions.js"
+  },
+  "dependencies": {
+    "ethers": "^6.9.0",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
