@@ -26,6 +26,120 @@ const COLORS = {
   bgYellow: '\x1b[43m'
 };
 
+// Uniswap Universal Router command opcodes
+const UNISWAP_COMMANDS = {
+  0x00: 'V3_SWAP_EXACT_IN',
+  0x01: 'V3_SWAP_EXACT_OUT',
+  0x02: 'PERMIT2_TRANSFER_FROM',
+  0x03: 'PERMIT2_PERMIT_BATCH',
+  0x04: 'SWEEP',
+  0x05: 'TRANSFER',
+  0x06: 'PAY_PORTION',
+  0x08: 'V2_SWAP_EXACT_IN',
+  0x09: 'V2_SWAP_EXACT_OUT',
+  0x0a: 'PERMIT2_PERMIT',
+  0x0b: 'WRAP_ETH',
+  0x0c: 'UNWRAP_WETH',
+  0x0d: 'PERMIT2_TRANSFER_FROM_BATCH',
+  0x0e: 'BALANCE_CHECK_ERC20',
+  0x10: 'SEAPORT_V1_5',
+  0x11: 'LOOKS_RARE_V2',
+  0x12: 'NFTX',
+  0x13: 'CRYPTOPUNKS',
+  0x14: 'OWNER_CHECK_721',
+  0x15: 'OWNER_CHECK_1155',
+  0x16: 'SWEEP_ERC721',
+  0x17: 'X2Y2_721',
+  0x18: 'SUDOSWAP',
+  0x19: 'NFT20',
+  0x1a: 'X2Y2_1155',
+  0x1b: 'FOUNDATION',
+  0x1c: 'SWEEP_ERC1155',
+  0x1d: 'ELEMENT_MARKET',
+  0x1e: 'SEAPORT_V1_4',
+  0x1f: 'EXECUTE_SUB_PLAN',
+  0x20: 'APPROVE_ERC20'
+};
+
+/**
+ * Decode Uniswap Universal Router commands from hex bytes
+ */
+function decodeUniswapCommands(hexBytes) {
+  if (!hexBytes || !hexBytes.startsWith('0x')) return null;
+
+  const bytes = hexBytes.slice(2); // Remove 0x
+  const commands = [];
+
+  for (let i = 0; i < bytes.length; i += 2) {
+    const byte = parseInt(bytes.slice(i, i + 2), 16);
+    if (isNaN(byte)) break;
+    const name = UNISWAP_COMMANDS[byte] || `UNKNOWN_0x${byte.toString(16).padStart(2, '0')}`;
+    commands.push(name);
+  }
+
+  return commands.length > 0 ? commands : null;
+}
+
+// 0x Protocol transformer nonces
+const ZEROX_TRANSFORMERS = {
+  1: 'WethTransformer',
+  2: 'PayTakerTransformer',
+  3: 'FillQuoteTransformer',
+  4: 'AffiliateFeeTransformer',
+  5: 'PositiveSlippageFeeTransformer'
+};
+
+/**
+ * Decode 0x transformations array
+ */
+function decode0xTransformations(transformations) {
+  if (!Array.isArray(transformations)) return null;
+
+  return transformations.map(t => {
+    const nonce = t.deploymentNonce?._hex ? parseInt(t.deploymentNonce._hex, 16) : t.deploymentNonce;
+    const name = ZEROX_TRANSFORMERS[nonce] || `Transformer_${nonce}`;
+    return name;
+  });
+}
+
+/**
+ * Decode 1inch pools array (high bit = direction, rest = pool)
+ */
+function decode1inchPools(pools) {
+  if (!Array.isArray(pools)) return null;
+
+  return pools.map(p => {
+    const hex = p._hex || p.toString(16);
+    const value = BigInt(hex);
+    const direction = (value >> 255n) === 1n ? 'reverse' : 'forward';
+    return `Pool(${direction})`;
+  });
+}
+
+/**
+ * Known DEX addresses for ParaSwap callees
+ */
+const KNOWN_DEXS = {
+  '0x7a250d5630b4cf539739df2c5dacb4c659f2488d': 'UniswapV2Router',
+  '0xe592427a0aece92de3edee1f18e0157c05861564': 'UniswapV3Router',
+  '0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f': 'SushiSwapRouter',
+  '0xdef171fe48cf0115b1d80b88dc8eab59176fee57': 'ParaSwapPool',
+  '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7': 'Curve3Pool',
+  '0x99a58482bd75cbab83b27ec03ca68ff489b5788f': 'CurveTriCrypto'
+};
+
+/**
+ * Decode ParaSwap callees to DEX names
+ */
+function decodeParaswapCallees(callees) {
+  if (!Array.isArray(callees)) return null;
+
+  return callees.map(addr => {
+    const lower = addr.toLowerCase();
+    return KNOWN_DEXS[lower] || `DEX(${addr.slice(0, 10)}...)`;
+  });
+}
+
 export class ResultFormatter {
   constructor(options = {}) {
     this.useColors = options.useColors !== false;
@@ -98,8 +212,57 @@ export class ResultFormatter {
     if (result.formatted && Object.keys(result.formatted).length > 0) {
       output += `  ${this.color('Parameters:', 'cyan')}\n`;
       for (const [key, value] of Object.entries(result.formatted)) {
-        const displayValue = this.truncate(value.value || value, this.maxParamLength);
+        let displayValue = this.truncate(value.value || value, this.maxParamLength);
+        const rawValue = value.value || value;
         const label = value.label || key;
+        const labelLower = label.toLowerCase();
+        const keyLower = key.toLowerCase();
+
+        // Decode Uniswap commands
+        if ((labelLower.includes('command') || keyLower === 'commands') &&
+            typeof displayValue === 'string' && displayValue.startsWith('0x')) {
+          const decoded = decodeUniswapCommands(displayValue);
+          if (decoded) {
+            displayValue = `${displayValue} → [${decoded.join(', ')}]`;
+          }
+        }
+
+        // Decode 0x transformations
+        if ((labelLower.includes('route') || keyLower === 'transformations') &&
+            typeof rawValue === 'string' && rawValue.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(rawValue);
+            const decoded = decode0xTransformations(parsed);
+            if (decoded) {
+              displayValue = `[${decoded.join(' → ')}]`;
+            }
+          } catch {}
+        }
+
+        // Decode 1inch pools
+        if ((labelLower.includes('route') || keyLower === 'pools') &&
+            typeof rawValue === 'string' && rawValue.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(rawValue);
+            const decoded = decode1inchPools(parsed);
+            if (decoded) {
+              displayValue = `[${decoded.join(' → ')}]`;
+            }
+          } catch {}
+        }
+
+        // Decode ParaSwap callees
+        if ((labelLower.includes('dex route') || keyLower === 'callees') &&
+            typeof rawValue === 'string' && rawValue.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(rawValue);
+            const decoded = decodeParaswapCallees(parsed);
+            if (decoded) {
+              displayValue = `[${decoded.join(' → ')}]`;
+            }
+          } catch {}
+        }
+
         output += `    - ${label}: ${displayValue}\n`;
       }
     }

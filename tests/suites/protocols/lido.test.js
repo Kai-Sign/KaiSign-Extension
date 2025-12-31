@@ -51,8 +51,18 @@ export async function runTests(harness) {
     },
     display: {
       formats: {
-        'wrap(uint256)': { intent: 'Wrap stETH to wstETH', fields: [] },
-        'unwrap(uint256)': { intent: 'Unwrap wstETH to stETH', fields: [] }
+        'wrap(uint256)': {
+          intent: 'Wrap {_stETHAmount} to wstETH',
+          fields: [
+            { path: '_stETHAmount', label: 'Amount', format: 'amount', params: { decimals: 18, symbol: 'stETH' } }
+          ]
+        },
+        'unwrap(uint256)': {
+          intent: 'Unwrap {_wstETHAmount} wstETH to stETH',
+          fields: [
+            { path: '_wstETHAmount', label: 'Amount', format: 'amount', params: { decimals: 18, symbol: 'wstETH' } }
+          ]
+        }
       }
     }
   });
@@ -62,7 +72,7 @@ export async function runTests(harness) {
     calldata: '0xea598cb0' +
       '0000000000000000000000000000000000000000000000000de0b6b3a7640000',
     contractAddress: wstETHAddress,
-    expected: { shouldSucceed: true, selector: '0xea598cb0', functionName: 'wrap' }
+    expected: { shouldSucceed: true, selector: '0xea598cb0', functionName: 'wrap', intentContains: 'Wrap' }
   }));
 
   return results;

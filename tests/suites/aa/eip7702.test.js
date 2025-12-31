@@ -131,6 +131,108 @@ export async function runTests(harness) {
     }
   });
 
+  // Add USDC metadata for nested approve calls
+  const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+  harness.addMetadata(usdcAddress, {
+    context: {
+      contract: {
+        address: usdcAddress,
+        chainId: 1,
+        name: 'USD Coin',
+        abi: [
+          {
+            type: 'function',
+            name: 'approve',
+            selector: '0x095ea7b3',
+            inputs: [
+              { name: 'spender', type: 'address' },
+              { name: 'amount', type: 'uint256' }
+            ]
+          },
+          {
+            type: 'function',
+            name: 'transfer',
+            selector: '0xa9059cbb',
+            inputs: [
+              { name: 'to', type: 'address' },
+              { name: 'amount', type: 'uint256' }
+            ]
+          }
+        ]
+      }
+    },
+    display: {
+      formats: {
+        'approve(address,uint256)': {
+          intent: 'Approve {amount} USDC',
+          fields: [
+            { path: 'spender', label: 'Spender', format: 'address' },
+            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
+          ]
+        },
+        'transfer(address,uint256)': {
+          intent: 'Transfer {amount} USDC',
+          fields: [
+            { path: 'to', label: 'Recipient', format: 'address' },
+            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
+          ]
+        }
+      }
+    }
+  });
+
+  // Add Fluid vault metadata for nested deposit calls
+  const fluidVaultAddress = '0x9fb7b4477576fe5b32be4c1843afb1e55f251b33';
+  harness.addMetadata(fluidVaultAddress, {
+    context: {
+      contract: {
+        address: fluidVaultAddress,
+        chainId: 1,
+        name: 'Fluid USDC Vault',
+        abi: [
+          {
+            type: 'function',
+            name: 'deposit',
+            selector: '0x6e553f65',
+            inputs: [
+              { name: 'assets_', type: 'uint256' },
+              { name: 'receiver_', type: 'address' }
+            ]
+          },
+          {
+            type: 'function',
+            name: 'withdraw',
+            selector: '0xb460af94',
+            inputs: [
+              { name: 'assets_', type: 'uint256' },
+              { name: 'receiver_', type: 'address' },
+              { name: 'owner_', type: 'address' }
+            ]
+          }
+        ]
+      }
+    },
+    display: {
+      formats: {
+        'deposit(uint256,address)': {
+          intent: 'Deposit {assets_} to Fluid',
+          fields: [
+            { path: 'assets_', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
+            { path: 'receiver_', label: 'Receiver', format: 'address' }
+          ]
+        },
+        'withdraw(uint256,address,address)': {
+          intent: 'Withdraw {assets_} from Fluid',
+          fields: [
+            { path: 'assets_', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
+            { path: 'receiver_', label: 'Receiver', format: 'address' },
+            { path: 'owner_', label: 'Owner', format: 'address' }
+          ]
+        }
+      }
+    }
+  });
+
   // Real EIP-7702 transaction calldata from Ambire tx 0xf82a7507...
   // executeMultiple with 2 calls: USDC approve + Fluid deposit
   const REAL_EIP7702_CALLDATA = '0xabc5345e' +
@@ -183,9 +285,9 @@ export async function runTests(harness) {
     contractAddress: EIP7702_TEST_TX.authority,
     expected: {
       txType: 'EIP-7702',
-      authorizationCount: 1
-      // The primary test is that EIP-7702 type and delegations are correctly identified
-      // Nested calldata (executeMultiple with USDC approve + Fluid deposit) is decoded via multicall pattern
+      authorizationCount: 1,
+      // Validate nested intents show the actual leaf operations
+      nestedIntentContains: ['Approve', 'Deposit']
     }
   }));
 

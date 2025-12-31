@@ -93,6 +93,27 @@ export const CONTRACTS = {
       chainId: 1,
       functions: ['exchange', 'exchange_multiple'],
       metadataFile: 'dex/curve-router.json'
+    },
+    paraswapAugustusV6: {
+      name: 'ParaSwap Augustus V6',
+      address: '0x6A000F20005980200259B80c5102003040001068',
+      chainId: 1,
+      functions: ['simpleSwap', 'multiSwap', 'megaSwap', 'simpleBuy'],
+      metadataFile: 'dex/paraswap-augustus-v6.json'
+    },
+    zeroXExchangeProxy: {
+      name: '0x Exchange Proxy',
+      address: '0xDef1C0ded9bec7F1a1670819833240f027b25EfF',
+      chainId: 1,
+      functions: ['transformERC20', 'fillRfqOrder', 'fillLimitOrder', 'fillOtcOrder'],
+      metadataFile: 'dex/0x-exchange-proxy.json'
+    },
+    cowProtocolSettlement: {
+      name: 'CoW Protocol GPv2 Settlement',
+      address: '0x9008D19f58AAbD9eD0D60971565AA8510560ab41',
+      chainId: 1,
+      functions: ['settle', 'setPreSignature', 'invalidateOrder'],
+      metadataFile: 'dex/cow-protocol-settlement.json'
     }
   },
 
