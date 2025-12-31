@@ -80,9 +80,13 @@ export async function runTests(harness) {
     display: {
       formats: {
         'simpleSwap(tuple)': {
-          intent: 'Swap tokens via ParaSwap',
+          intent: 'Swap {data.fromAmount} via ParaSwap',
           fields: [
-            { path: 'data', label: 'Swap Data', format: 'raw' }
+            { path: 'data.fromToken', label: 'From Token', format: 'address' },
+            { path: 'data.toToken', label: 'To Token', format: 'address' },
+            { path: 'data.fromAmount', label: 'Amount In', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
+            { path: 'data.toAmount', label: 'Min Amount Out', format: 'amount', params: { decimals: 18, symbol: 'ETH' } },
+            { path: 'data.beneficiary', label: 'Recipient', format: 'address' }
           ]
         },
         'multiSwap(tuple)': { intent: 'Multi-hop swap via ParaSwap', fields: [] },
