@@ -159,23 +159,26 @@ export async function runTests(harness) {
 
   // Test real EIP-7702 transaction from Ambire
   // Note: The advanced decoder returns txType and delegations; nested calldata is decoded separately
+  // REAL authorization list from tx 0xf82a7507...
+  const REAL_AUTH_LIST = [
+    {
+      chainId: '0x1',
+      address: '0x5a7fc11397e9a8ad41bf10bf13f22b0a63f96f6d',
+      nonce: '0x9',
+      yParity: '0x1',
+      r: '0x468ece68a3c933e4a2691be11028ba7eaa842321e539b1bc0f95f6756733252f',
+      s: '0x42450fe44bc5a8e3fd1e644fee6eab1f9a11cca425d53fc3d8bee3fb155ed79c'
+    }
+  ];
+
   results.push(await harness.runAdvancedTest({
     name: `Real Ambire EIP-7702 (${EIP7702_TEST_TX.hash.slice(0, 18)}...)`,
     rawTx: {
       type: 4,
-      to: EIP7702_TEST_TX.authority, // EOA that's delegating
+      to: EIP7702_TEST_TX.authority, // EOA calling itself after delegation
       data: REAL_EIP7702_CALLDATA,
       value: '0x0',
-      authorizationList: [
-        {
-          chainId: 1,
-          address: EIP7702_TEST_TX.delegatedTo, // Ambire Delegator
-          nonce: 8,
-          yParity: '0x1',
-          r: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-          s: '0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321'
-        }
-      ]
+      authorizationList: REAL_AUTH_LIST
     },
     contractAddress: EIP7702_TEST_TX.authority,
     expected: {
