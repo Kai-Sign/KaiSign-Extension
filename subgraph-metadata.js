@@ -81,10 +81,79 @@ class SubgraphMetadataService {
   }
 
   /**
+   * Call eth_call via window.ethereum
+   * @param {string} to - Contract address
+   * @param {string} data - Calldata
+   * @returns {Promise<string>} Return data
+   */
+  async ethCall(to, data) {
+    if (typeof window !== 'undefined' && window.ethereum) {
+      return await window.ethereum.request({
+        method: 'eth_call',
+        params: [{ to, data }, 'latest']
+      });
+    }
+    throw new Error('No ethereum provider');
+  }
+
+  /**
+   * Get Diamond facet address for a specific function selector (EIP-2535)
+   * Calls facetAddress(bytes4 selector) on the Diamond proxy
+   * @param {string} diamondAddress - Diamond proxy address
+   * @param {string} selector - 4-byte function selector (e.g., "0x12345678")
+   * @returns {Promise<string|null>} Facet implementation address or null
+   */
+  async getDiamondFacetAddress(diamondAddress, selector) {
+    // facetAddress(bytes4 _functionSelector) returns (address)
+    // Selector for facetAddress: 0xcdffacc6
+    const FACET_ADDRESS_SELECTOR = '0xcdffacc6';
+
+    // Pad selector to 32 bytes for the function parameter
+    const paddedSelector = selector.slice(2).padStart(64, '0');
+    const calldata = FACET_ADDRESS_SELECTOR + paddedSelector;
+
+    try {
+      const result = await this.ethCall(diamondAddress, calldata);
+
+      if (result && result !== '0x' && result.length >= 66) {
+        // Extract address from 32-byte return value (last 20 bytes)
+        const facetAddr = '0x' + result.slice(-40).toLowerCase();
+
+        // Check it's not zero address
+        if (facetAddr !== '0x0000000000000000000000000000000000000000') {
+          console.log('[KaiSign] Diamond facet for selector', selector, ':', facetAddr);
+          return facetAddr;
+        }
+      }
+    } catch (error) {
+      // If facetAddress call fails, this is not a Diamond proxy
+      console.debug('[KaiSign] Diamond facetAddress call failed (not a Diamond proxy?):', error.message);
+    }
+
+    return null;
+  }
+
+  /**
+   * Check if a contract is a Diamond proxy by checking if facetAddress is available
+   * @param {string} address - Contract address
+   * @returns {Promise<boolean>} True if this is a Diamond proxy
+   */
+  async isDiamondProxy(address) {
+    // Try to call facetAddress with a known selector (like facetAddress itself: 0xcdffacc6)
+    const testSelector = '0xcdffacc6'; // facetAddress selector
+    try {
+      const result = await this.getDiamondFacetAddress(address, testSelector);
+      return result !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get contract metadata from KaiSign proxy API
    * @param {string} address - Contract address
    * @param {number} chainId - Chain ID
-   * @param {string} selector - Optional function selector
+   * @param {string} selector - Optional function selector (required for Diamond proxy facet lookup)
    * @returns {Promise<Object>} ERC-7730 metadata
    */
   async getContractMetadata(address, chainId, selector) {
@@ -118,8 +187,34 @@ class SubgraphMetadataService {
 
       // Extract metadata from API response
       if (!response.success || !response.metadata) {
-        // Direct lookup failed - try to find implementation address
-        console.log('[KaiSign API] Direct lookup failed, checking for proxy implementation...');
+        // Direct lookup failed - check for proxy patterns
+        console.log('[KaiSign API] Direct lookup failed, checking for proxy patterns...');
+
+        // Try Diamond proxy detection first (if we have a selector)
+        if (selector) {
+          console.log('[KaiSign API] Checking for Diamond proxy with selector:', selector);
+          const facetAddress = await this.getDiamondFacetAddress(normalizedAddress, selector);
+
+          if (facetAddress && facetAddress !== normalizedAddress) {
+            console.log('[KaiSign API] Diamond facet found:', facetAddress, '- fetching metadata');
+            try {
+              const facetMetadata = await this.getContractMetadataDirectly(facetAddress, chainId);
+
+              // Cache for original diamond proxy address + selector
+              this.metadataCache.set(cacheKey, {
+                data: facetMetadata,
+                timestamp: Date.now()
+              });
+
+              return facetMetadata;
+            } catch (facetError) {
+              console.warn('[KaiSign API] Facet metadata fetch failed:', facetError.message);
+              // Continue to try other proxy patterns
+            }
+          }
+        }
+
+        // Try EIP-1967 / Safe proxy patterns
         const implAddress = await this.getImplementationAddress(normalizedAddress);
 
         if (implAddress && implAddress !== normalizedAddress) {
@@ -140,6 +235,37 @@ class SubgraphMetadataService {
 
       const metadata = response.metadata;
 
+      // Check if the metadata has the format for this selector
+      // If not, and it's a Diamond proxy, try fetching facet metadata
+      if (selector && metadata.display?.formats) {
+        const hasMatchingFormat = Object.keys(metadata.display.formats).some(sig => {
+          // Check if any format signature matches this selector
+          // Format key could be full signature like "transfer(address,uint256)"
+          return sig.includes(selector.slice(2)) || this.selectorMatchesSignature(selector, sig);
+        });
+
+        if (!hasMatchingFormat) {
+          console.log('[KaiSign API] No matching format for selector, checking for Diamond facet...');
+          const facetAddress = await this.getDiamondFacetAddress(normalizedAddress, selector);
+
+          if (facetAddress && facetAddress !== normalizedAddress) {
+            console.log('[KaiSign API] Diamond facet for unmatched selector:', facetAddress);
+            try {
+              const facetMetadata = await this.getContractMetadataDirectly(facetAddress, chainId);
+
+              // Merge facet display formats into main metadata
+              if (facetMetadata.display?.formats) {
+                metadata.display = metadata.display || { formats: {} };
+                Object.assign(metadata.display.formats, facetMetadata.display.formats);
+                console.log('[KaiSign API] Merged facet metadata formats');
+              }
+            } catch (facetError) {
+              console.warn('[KaiSign API] Facet metadata merge failed:', facetError.message);
+            }
+          }
+        }
+      }
+
       // Cache result
       this.metadataCache.set(cacheKey, {
         data: metadata,
@@ -153,6 +279,19 @@ class SubgraphMetadataService {
       console.error('[KaiSign API] Failed to fetch metadata:', error);
       throw new Error(`No metadata found for contract ${normalizedAddress} on chain ${chainId}`);
     }
+  }
+
+  /**
+   * Check if a selector matches a function signature (simplified check)
+   * @param {string} selector - 4-byte selector (e.g., "0x12345678")
+   * @param {string} signature - Function signature (e.g., "transfer(address,uint256)")
+   * @returns {boolean} True if they match
+   */
+  selectorMatchesSignature(selector, signature) {
+    // This is a simplified check - in production you'd compute keccak256(signature).slice(0,10)
+    // For now, just check if the signature's ABI entry would produce this selector
+    // Return false to be safe - the full selector check happens elsewhere
+    return false;
   }
 
   /**

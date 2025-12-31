@@ -12,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { CONTRACTS } from '../../config.js';
+import { loadMetadata } from '../../lib/metadata-loader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,60 +25,7 @@ export async function runTests(harness) {
 
   // Safe Proxy Factory metadata
   const safeFactoryAddress = CONTRACTS.accountAbstraction.safeProxyFactory.address.toLowerCase();
-
-  harness.addMetadata(safeFactoryAddress, {
-    context: {
-      contract: {
-        address: safeFactoryAddress,
-        chainId: 1,
-        name: 'Safe Proxy Factory',
-        abi: [
-          {
-            type: 'function',
-            name: 'createProxyWithNonce',
-            selector: '0x1688f0b9',
-            inputs: [
-              { name: '_singleton', type: 'address' },
-              { name: 'initializer', type: 'bytes' },
-              { name: 'saltNonce', type: 'uint256' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'createProxyWithCallback',
-            selector: '0xd18af54d',
-            inputs: [
-              { name: '_singleton', type: 'address' },
-              { name: 'initializer', type: 'bytes' },
-              { name: 'saltNonce', type: 'uint256' },
-              { name: 'callback', type: 'address' }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'createProxyWithNonce(address,bytes,uint256)': {
-          intent: 'Create Safe Wallet',
-          fields: [
-            { path: '_singleton', label: 'Singleton', format: 'address' },
-            { path: 'initializer', label: 'Initializer', format: 'calldata', type: 'calldata', to: '$._singleton' },
-            { path: 'saltNonce', label: 'Salt Nonce', format: 'number' }
-          ]
-        },
-        'createProxyWithCallback(address,bytes,uint256,address)': {
-          intent: 'Create Safe Wallet with Callback',
-          fields: [
-            { path: '_singleton', label: 'Singleton', format: 'address' },
-            { path: 'initializer', label: 'Initializer', format: 'hex' },
-            { path: 'saltNonce', label: 'Salt Nonce', format: 'number' },
-            { path: 'callback', label: 'Callback', format: 'address' }
-          ]
-        }
-      }
-    }
-  });
+  harness.addMetadata(safeFactoryAddress, loadMetadata('aa/safe-proxy-factory.json'));
 
   // Test createProxyWithNonce
   results.push(await harness.runTest({
@@ -110,48 +58,7 @@ export async function runTests(harness) {
 
   // Safe MultiSend metadata
   const multiSendAddress = CONTRACTS.accountAbstraction.safeMultiSend.address.toLowerCase();
-
-  harness.addMetadata(multiSendAddress, {
-    context: {
-      contract: {
-        address: multiSendAddress,
-        chainId: 1,
-        name: 'Safe MultiSend',
-        abi: [{
-          type: 'function',
-          name: 'multiSend',
-          selector: '0x8d80ff0a',
-          inputs: [
-            { name: 'transactions', type: 'bytes' }
-          ]
-        }]
-      }
-    },
-    display: {
-      formats: {
-        'multiSend(bytes)': {
-          intent: 'Execute batch transactions',
-          fields: [
-            {
-              path: 'transactions',
-              label: 'Transactions',
-              format: 'multicallDecoder',
-              type: 'multicallDecoder'
-            }
-          ]
-        }
-      }
-    },
-    parsing: {
-      multicallStructure: {
-        operation: { type: 'uint8', size: 1 },
-        to: { type: 'address', size: 20 },
-        value: { type: 'uint256', size: 32 },
-        dataLength: { type: 'uint256', size: 32 },
-        data: { type: 'bytes', size: 0, dynamic: true }
-      }
-    }
-  });
+  harness.addMetadata(multiSendAddress, loadMetadata('aa/safe-multisend.json'));
 
   // Test multiSend with ETH transfers
   // Packed format: operation (1) + to (20) + value (32) + dataLength (32) + data (variable)
@@ -180,6 +87,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x8d80ff0a',
       functionName: 'multiSend',
+      intent: 'Execute batch transactions',
       intentContains: 'batch'
     }
   }));
@@ -212,108 +120,15 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: true,
       selector: '0x8d80ff0a',
-      functionName: 'multiSend'
+      functionName: 'multiSend',
+      intent: 'Execute batch transactions',
+      intentContains: 'batch'
     }
   }));
 
   // Safe Singleton metadata
   const safeSingletonAddress = CONTRACTS.accountAbstraction.safeSingleton.address.toLowerCase();
-
-  harness.addMetadata(safeSingletonAddress, {
-    context: {
-      contract: {
-        address: safeSingletonAddress,
-        chainId: 1,
-        name: 'Safe Singleton',
-        abi: [
-          {
-            type: 'function',
-            name: 'setup',
-            selector: '0xb63e800d',
-            inputs: [
-              { name: '_owners', type: 'address[]' },
-              { name: '_threshold', type: 'uint256' },
-              { name: 'to', type: 'address' },
-              { name: 'data', type: 'bytes' },
-              { name: 'fallbackHandler', type: 'address' },
-              { name: 'paymentToken', type: 'address' },
-              { name: 'payment', type: 'uint256' },
-              { name: 'paymentReceiver', type: 'address' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'execTransaction',
-            selector: '0x6a761202',
-            inputs: [
-              { name: 'to', type: 'address' },
-              { name: 'value', type: 'uint256' },
-              { name: 'data', type: 'bytes' },
-              { name: 'operation', type: 'uint8' },
-              { name: 'safeTxGas', type: 'uint256' },
-              { name: 'baseGas', type: 'uint256' },
-              { name: 'gasPrice', type: 'uint256' },
-              { name: 'gasToken', type: 'address' },
-              { name: 'refundReceiver', type: 'address' },
-              { name: 'signatures', type: 'bytes' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'addOwnerWithThreshold',
-            selector: '0x0d582f13',
-            inputs: [
-              { name: 'owner', type: 'address' },
-              { name: '_threshold', type: 'uint256' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'removeOwner',
-            selector: '0xf8dc5dd9',
-            inputs: [
-              { name: 'prevOwner', type: 'address' },
-              { name: 'owner', type: 'address' },
-              { name: '_threshold', type: 'uint256' }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'setup(address[],uint256,address,bytes,address,address,uint256,address)': {
-          intent: 'Setup Safe wallet',
-          fields: [
-            { path: '_owners', label: 'Owners', format: 'array' },
-            { path: '_threshold', label: 'Threshold', format: 'number' }
-          ]
-        },
-        'execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)': {
-          intent: 'Execute Safe transaction',
-          fields: [
-            { path: 'to', label: 'To', format: 'address' },
-            { path: 'value', label: 'Value', format: 'number' },
-            { path: 'data', label: 'Data', format: 'calldata', type: 'calldata', to: '$.to' }
-          ]
-        },
-        'addOwnerWithThreshold(address,uint256)': {
-          intent: 'Add Safe owner',
-          fields: [
-            { path: 'owner', label: 'New Owner', format: 'address' },
-            { path: '_threshold', label: 'New Threshold', format: 'number' }
-          ]
-        },
-        'removeOwner(address,address,uint256)': {
-          intent: 'Remove Safe owner',
-          fields: [
-            { path: 'owner', label: 'Owner to Remove', format: 'address' },
-            { path: '_threshold', label: 'New Threshold', format: 'number' }
-          ]
-        }
-      }
-    }
-  });
+  harness.addMetadata(safeSingletonAddress, loadMetadata('aa/safe-singleton.json'));
 
   // Test addOwnerWithThreshold
   results.push(await harness.runTest({

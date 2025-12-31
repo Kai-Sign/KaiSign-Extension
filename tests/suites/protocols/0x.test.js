@@ -17,6 +17,7 @@
  */
 
 import { CONTRACTS } from '../../config.js';
+import { loadMetadata } from '../../lib/metadata-loader.js';
 
 export async function runTests(harness) {
   const results = [];
@@ -30,72 +31,7 @@ export async function runTests(harness) {
   // - minOutputTokenAmount: 1 ETH
   // - transformations: Off-chain computed transformer calls
 
-  harness.addMetadata(zeroXAddress, {
-    context: {
-      contract: {
-        address: zeroXAddress,
-        chainId: 1,
-        name: '0x Exchange Proxy',
-        abi: [
-          {
-            type: 'function',
-            name: 'transformERC20',
-            selector: '0x415565b0',
-            inputs: [
-              { name: 'inputToken', type: 'address' },
-              { name: 'outputToken', type: 'address' },
-              { name: 'inputTokenAmount', type: 'uint256' },
-              { name: 'minOutputTokenAmount', type: 'uint256' },
-              {
-                name: 'transformations',
-                type: 'tuple[]',
-                components: [
-                  { name: 'deploymentNonce', type: 'uint32' },
-                  { name: 'data', type: 'bytes' }
-                ]
-              }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'fillRfqOrder',
-            selector: '0xaa77476c',
-            inputs: [
-              { name: 'order', type: 'tuple', components: [] },
-              { name: 'signature', type: 'tuple', components: [] },
-              { name: 'takerTokenFillAmount', type: 'uint128' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'fillLimitOrder',
-            selector: '0xdac748d4',
-            inputs: [
-              { name: 'order', type: 'tuple', components: [] },
-              { name: 'signature', type: 'tuple', components: [] },
-              { name: 'takerTokenFillAmount', type: 'uint128' }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'transformERC20(address,address,uint256,uint256,tuple[])': {
-          intent: 'Swap {inputTokenAmount} via 0x',
-          fields: [
-            { path: 'inputToken', label: 'From Token', format: 'address' },
-            { path: 'outputToken', label: 'To Token', format: 'address' },
-            { path: 'inputTokenAmount', label: 'Amount In', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
-            { path: 'minOutputTokenAmount', label: 'Min Amount Out', format: 'amount', params: { decimals: 18, symbol: 'ETH' } },
-            { path: 'transformations', label: 'Route (off-chain)', format: 'array' }
-          ]
-        },
-        'fillRfqOrder(tuple,tuple,uint128)': { intent: 'Fill RFQ order via 0x', fields: [] },
-        'fillLimitOrder(tuple,tuple,uint128)': { intent: 'Fill limit order via 0x', fields: [] }
-      }
-    }
-  });
+  harness.addMetadata(zeroXAddress, loadMetadata('protocols/0x-exchange-proxy.json'));
 
   // Real 0x transformERC20 calldata
   // Swapping USDC -> WETH via 0x
@@ -116,7 +52,13 @@ export async function runTests(harness) {
     name: '0x transformERC20',
     calldata: transformERC20Calldata,
     contractAddress: zeroXAddress,
-    expected: { shouldSucceed: true, selector: '0x415565b0', functionName: 'transformERC20', intentContains: 'Swap' }
+    expected: {
+      shouldSucceed: true,
+      selector: '0x415565b0',
+      functionName: 'transformERC20',
+      intent: 'Swap 1.00 USDC via 0x',
+      intentContains: '1.00'
+    }
   }));
 
   return results;

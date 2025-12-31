@@ -3,43 +3,13 @@
  */
 
 import { CONTRACTS } from '../../config.js';
+import { loadMetadata } from '../../lib/metadata-loader.js';
 
 export async function runTests(harness) {
   const results = [];
 
   const cUSDCAddress = CONTRACTS.lending.compoundV3cUSDC.address.toLowerCase();
-
-  harness.addMetadata(cUSDCAddress, {
-    context: {
-      contract: {
-        address: cUSDCAddress,
-        chainId: 1,
-        name: 'Compound V3 cUSDC',
-        abi: [
-          { type: 'function', name: 'supply', selector: '0xf2b9fdb8', inputs: [{ name: 'asset', type: 'address' }, { name: 'amount', type: 'uint256' }] },
-          { type: 'function', name: 'withdraw', selector: '0xf3fef3a3', inputs: [{ name: 'asset', type: 'address' }, { name: 'amount', type: 'uint256' }] }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'supply(address,uint256)': {
-          intent: 'Supply {amount} to Compound',
-          fields: [
-            { path: 'asset', label: 'Token', format: 'address' },
-            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
-          ]
-        },
-        'withdraw(address,uint256)': {
-          intent: 'Withdraw {amount} from Compound',
-          fields: [
-            { path: 'asset', label: 'Token', format: 'address' },
-            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
-          ]
-        }
-      }
-    }
-  });
+  harness.addMetadata(cUSDCAddress, loadMetadata('protocols/compound-v3-cusdc.json'));
 
   results.push(await harness.runTest({
     name: 'Compound V3 supply',
@@ -47,7 +17,13 @@ export async function runTests(harness) {
       '000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' +
       '0000000000000000000000000000000000000000000000000000000005f5e100',
     contractAddress: cUSDCAddress,
-    expected: { shouldSucceed: true, selector: '0xf2b9fdb8', functionName: 'supply', intentContains: 'Supply' }
+    expected: {
+      shouldSucceed: true,
+      selector: '0xf2b9fdb8',
+      functionName: 'supply',
+      intent: 'Supply 100.00 USDC to Compound',
+      intentContains: '100.00'
+    }
   }));
 
   return results;

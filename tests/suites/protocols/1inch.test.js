@@ -13,6 +13,7 @@
  */
 
 import { CONTRACTS } from '../../config.js';
+import { loadMetadata } from '../../lib/metadata-loader.js';
 
 export async function runTests(harness) {
   const results = [];
@@ -25,69 +26,7 @@ export async function runTests(harness) {
   // - minReturn: 1000000000000000000 (1 ETH minimum output)
   // - pools: [0x8000...] (encoded routing path from 1inch API)
 
-  harness.addMetadata(routerAddress, {
-    context: {
-      contract: {
-        address: routerAddress,
-        chainId: 1,
-        name: '1inch Aggregation Router V6',
-        abi: [
-          {
-            type: 'function',
-            name: 'swap',
-            selector: '0x12aa3caf',
-            inputs: [
-              { name: 'executor', type: 'address' },
-              { name: 'desc', type: 'tuple', components: [
-                { name: 'srcToken', type: 'address' },
-                { name: 'dstToken', type: 'address' },
-                { name: 'srcReceiver', type: 'address' },
-                { name: 'dstReceiver', type: 'address' },
-                { name: 'amount', type: 'uint256' },
-                { name: 'minReturnAmount', type: 'uint256' },
-                { name: 'flags', type: 'uint256' }
-              ]},
-              { name: 'permit', type: 'bytes' },
-              { name: 'data', type: 'bytes' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'unoswap',
-            selector: '0x0502b1c5',
-            inputs: [
-              { name: 'srcToken', type: 'address' },
-              { name: 'amount', type: 'uint256' },
-              { name: 'minReturn', type: 'uint256' },
-              { name: 'pools', type: 'uint256[]' }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'swap(address,tuple,bytes,bytes)': {
-          intent: 'Swap {desc.amount} via 1inch',
-          fields: [
-            { path: 'desc.srcToken', label: 'From Token', format: 'address' },
-            { path: 'desc.dstToken', label: 'To Token', format: 'address' },
-            { path: 'desc.amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
-            { path: 'desc.minReturnAmount', label: 'Minimum Output', format: 'amount', params: { decimals: 18, symbol: 'ETH' } }
-          ]
-        },
-        'unoswap(address,uint256,uint256,uint256[])': {
-          intent: 'Swap {amount} via 1inch',
-          fields: [
-            { path: 'srcToken', label: 'From Token', format: 'address' },
-            { path: 'amount', label: 'Amount In', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
-            { path: 'minReturn', label: 'Min Amount Out', format: 'amount', params: { decimals: 18, symbol: 'ETH' } },
-            { path: 'pools', label: 'Route (off-chain)', format: 'array' }
-          ]
-        }
-      }
-    }
-  });
+  harness.addMetadata(routerAddress, loadMetadata('protocols/1inch-router-v6.json'));
 
   // Real 1inch unoswap calldata:
   // Swapping 100 USDC → minimum 1 ETH
@@ -106,7 +45,8 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x0502b1c5',
       functionName: 'unoswap',
-      intentContains: 'Swap'
+      intent: 'Swap 100.00 USDC via 1inch',
+      intentContains: '100.00'
     }
   }));
 

@@ -12,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { CONTRACTS, EIP7702_TEST_TX } from '../../config.js';
+import { loadMetadata } from '../../lib/metadata-loader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,84 +37,7 @@ export async function runTests(harness) {
 
   // In EIP-7702, the EOA delegates to the implementation contract
   // So both the delegator address AND the authority EOA address need the same metadata
-  const ambireDelegatorMetadata = {
-    context: {
-      contract: {
-        address: ambireDelegatorAddress,
-        chainId: 1,
-        name: 'Ambire EIP-7702 Delegator',
-        abi: [
-          {
-            type: 'function',
-            name: 'execute',
-            selector: '0xb61d27f6',
-            inputs: [
-              { name: 'to', type: 'address' },
-              { name: 'value', type: 'uint256' },
-              { name: 'data', type: 'bytes' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'executeBatch',
-            selector: '0x47e1da2a',
-            inputs: [
-              {
-                name: 'calls',
-                type: 'tuple[]',
-                components: [
-                  { name: 'to', type: 'address' },
-                  { name: 'value', type: 'uint256' },
-                  { name: 'data', type: 'bytes' }
-                ]
-              }
-            ]
-          },
-          {
-            // Real function from Ambire EIP-7702 tx 0xf82a7507...
-            type: 'function',
-            name: 'executeMultiple',
-            selector: '0xabc5345e',
-            inputs: [
-              {
-                name: 'calls',
-                type: 'tuple[]',
-                components: [
-                  { name: 'to', type: 'address' },
-                  { name: 'value', type: 'uint256' },
-                  { name: 'data', type: 'bytes' }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'execute(address,uint256,bytes)': {
-          intent: 'Execute delegated transaction',
-          fields: [
-            { path: 'to', label: 'Target', format: 'address' },
-            { path: 'value', label: 'Value', format: 'number' },
-            { path: 'data', label: 'Data', format: 'calldata', type: 'calldata', to: '$.to' }
-          ]
-        },
-        'executeBatch((address,uint256,bytes)[])': {
-          intent: 'Execute batch delegated transactions',
-          fields: [
-            { path: 'calls', label: 'Calls', format: 'array' }
-          ]
-        },
-        'executeMultiple((address,uint256,bytes)[])': {
-          intent: 'Execute multiple delegated calls',
-          fields: [
-            { path: 'calls', label: 'Calls', format: 'array' }
-          ]
-        }
-      }
-    }
-  };
+  const ambireDelegatorMetadata = loadMetadata('aa/ambire-eip7702-delegator.json');
 
   // Add metadata for the delegator contract
   harness.addMetadata(ambireDelegatorAddress, ambireDelegatorMetadata);
@@ -133,105 +57,11 @@ export async function runTests(harness) {
 
   // Add USDC metadata for nested approve calls
   const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
-  harness.addMetadata(usdcAddress, {
-    context: {
-      contract: {
-        address: usdcAddress,
-        chainId: 1,
-        name: 'USD Coin',
-        abi: [
-          {
-            type: 'function',
-            name: 'approve',
-            selector: '0x095ea7b3',
-            inputs: [
-              { name: 'spender', type: 'address' },
-              { name: 'amount', type: 'uint256' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'transfer',
-            selector: '0xa9059cbb',
-            inputs: [
-              { name: 'to', type: 'address' },
-              { name: 'amount', type: 'uint256' }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'approve(address,uint256)': {
-          intent: 'Approve {amount} USDC',
-          fields: [
-            { path: 'spender', label: 'Spender', format: 'address' },
-            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
-          ]
-        },
-        'transfer(address,uint256)': {
-          intent: 'Transfer {amount} USDC',
-          fields: [
-            { path: 'to', label: 'Recipient', format: 'address' },
-            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
-          ]
-        }
-      }
-    }
-  });
+  harness.addMetadata(usdcAddress, loadMetadata('tokens/usdc.json'));
 
   // Add Fluid vault metadata for nested deposit calls
   const fluidVaultAddress = '0x9fb7b4477576fe5b32be4c1843afb1e55f251b33';
-  harness.addMetadata(fluidVaultAddress, {
-    context: {
-      contract: {
-        address: fluidVaultAddress,
-        chainId: 1,
-        name: 'Fluid USDC Vault',
-        abi: [
-          {
-            type: 'function',
-            name: 'deposit',
-            selector: '0x6e553f65',
-            inputs: [
-              { name: 'assets_', type: 'uint256' },
-              { name: 'receiver_', type: 'address' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'withdraw',
-            selector: '0xb460af94',
-            inputs: [
-              { name: 'assets_', type: 'uint256' },
-              { name: 'receiver_', type: 'address' },
-              { name: 'owner_', type: 'address' }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'deposit(uint256,address)': {
-          intent: 'Deposit {assets_} to Fluid',
-          fields: [
-            { path: 'assets_', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
-            { path: 'receiver_', label: 'Receiver', format: 'address' }
-          ]
-        },
-        'withdraw(uint256,address,address)': {
-          intent: 'Withdraw {assets_} from Fluid',
-          fields: [
-            { path: 'assets_', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
-            { path: 'receiver_', label: 'Receiver', format: 'address' },
-            { path: 'owner_', label: 'Owner', format: 'address' }
-          ]
-        }
-      }
-    }
-  });
+  harness.addMetadata(fluidVaultAddress, loadMetadata('protocols/fluid-usdc-vault.json'));
 
   // Real EIP-7702 transaction calldata from Ambire tx 0xf82a7507...
   // executeMultiple with 2 calls: USDC approve + Fluid deposit
@@ -286,8 +116,13 @@ export async function runTests(harness) {
     expected: {
       txType: 'EIP-7702',
       authorizationCount: 1,
-      // Validate nested intents show the actual leaf operations
-      nestedIntentContains: ['Approve', 'Deposit']
+      // Validate nested structure with exact intents
+      nestedIntents: [
+        'Approve 0.05 USDC',
+        'Deposit 0.05 to Fluid'
+      ],
+      intentContains: 'Approve',
+      nestedIntentContains: ['Approve', 'Deposit']  // Keep existing for backwards compat
     }
   }));
 

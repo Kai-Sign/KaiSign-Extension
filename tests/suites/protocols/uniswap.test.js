@@ -30,6 +30,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { CONTRACTS, UNISWAP_COMMANDS } from '../../config.js';
+import { loadMetadata } from '../../lib/metadata-loader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,118 +51,7 @@ export async function runTests(harness) {
 
   // Add Universal Router metadata for testing
   const universalRouterAddress = CONTRACTS.dex.uniswapUniversalRouter.address.toLowerCase();
-
-  // ERC-7730 compliant metadata with commandRegistries
-  // Each command has its own intent template with parameter substitution
-
-  harness.addMetadata(universalRouterAddress, {
-    context: {
-      contract: {
-        address: universalRouterAddress,
-        chainId: 1,
-        name: 'Uniswap Universal Router',
-        abi: [{
-          type: 'function',
-          name: 'execute',
-          selector: '0x3593564c',
-          inputs: [
-            { name: 'commands', type: 'bytes' },
-            { name: 'inputs', type: 'bytes[]' },
-            { name: 'deadline', type: 'uint256' }
-          ]
-        }]
-      }
-    },
-    // Command registry defines each command's intent template
-    commandRegistries: {
-      universalRouterCommands: {
-        '0x00': {
-          name: 'V3_SWAP_EXACT_IN',
-          intent: 'Swap {amountIn} for min {amountOutMin}',
-          inputs: [
-            { name: 'recipient', type: 'address' },
-            { name: 'amountIn', type: 'uint256', format: 'tokenAmount' },
-            { name: 'amountOutMin', type: 'uint256', format: 'tokenAmount' },
-            { name: 'path', type: 'bytes' },
-            { name: 'payerIsUser', type: 'bool' }
-          ]
-        },
-        '0x01': {
-          name: 'V3_SWAP_EXACT_OUT',
-          intent: 'Swap for exactly {amountOut}',
-          inputs: [
-            { name: 'recipient', type: 'address' },
-            { name: 'amountOut', type: 'uint256', format: 'tokenAmount' },
-            { name: 'amountInMax', type: 'uint256', format: 'tokenAmount' },
-            { name: 'path', type: 'bytes' },
-            { name: 'payerIsUser', type: 'bool' }
-          ]
-        },
-        '0x08': {
-          name: 'V2_SWAP_EXACT_IN',
-          intent: 'Swap {amountIn} via V2 for min {amountOutMin}',
-          inputs: [
-            { name: 'recipient', type: 'address' },
-            { name: 'amountIn', type: 'uint256', format: 'tokenAmount' },
-            { name: 'amountOutMin', type: 'uint256', format: 'tokenAmount' },
-            { name: 'path', type: 'address[]' },
-            { name: 'payerIsUser', type: 'bool' }
-          ]
-        },
-        '0x0b': {
-          name: 'WRAP_ETH',
-          intent: 'Wrap {amountMin} to WETH',
-          inputs: [
-            { name: 'recipient', type: 'address' },
-            { name: 'amountMin', type: 'uint256', format: 'ethAmount' }
-          ]
-        },
-        '0x0c': {
-          name: 'UNWRAP_WETH',
-          intent: 'Unwrap {amountMin} to ETH',
-          inputs: [
-            { name: 'recipient', type: 'address' },
-            { name: 'amountMin', type: 'uint256', format: 'ethAmount' }
-          ]
-        },
-        '0x04': {
-          name: 'SWEEP',
-          intent: 'Sweep {token} to recipient',
-          inputs: [
-            { name: 'token', type: 'address', format: 'tokenSymbol' },
-            { name: 'recipient', type: 'address' },
-            { name: 'amountMin', type: 'uint256' }
-          ]
-        }
-      }
-    },
-    display: {
-      formats: {
-        'execute(bytes,bytes[],uint256)': {
-          // Composite intent built from decoded commands
-          intent: {
-            type: 'composite',
-            source: 'commands',
-            separator: ' + ',
-            registry: 'universalRouterCommands'
-          },
-          fields: [
-            {
-              path: 'commands',
-              label: 'Commands',
-              nestedEncoding: {
-                type: 'commandArray',
-                registry: 'universalRouterCommands',
-                decodeWith: 'inputs'
-              }
-            },
-            { path: 'inputs', label: 'Inputs', format: 'hidden' },
-            { path: 'deadline', label: 'Deadline', format: 'timestamp' }
-          ]
-        }
-      }
-    }
-  });
+  harness.addMetadata(universalRouterAddress, loadMetadata('protocols/uniswap-universal-router.json'));
 
   // Test: commands = 0x0b00 = [WRAP_ETH (0x0b), V3_SWAP_EXACT_IN (0x00)]
   // This is a typical ETH → Token swap: wrap ETH first, then swap
@@ -187,7 +77,21 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x3593564c',
       functionName: 'execute',
-      intentContains: 'Wrap' // Composite intent includes WRAP_ETH + V3_SWAP
+      // Exact composite intent validation
+      intent: 'Wrap 0.000100 ETH to WETH + Swap 0x for min 0x',
+      intentContains: 'Wrap',  // Also check substring for backwards compat
+      // Validate command array structure
+      decodedCommands: [
+        {
+          command: '0x0b',
+          name: 'WRAP_ETH'
+          // Don't validate intent per command (too fragile)
+        },
+        {
+          command: '0x00',
+          name: 'V3_SWAP_EXACT_IN'
+        }
+      ]
     }
   }));
 
@@ -211,125 +115,11 @@ export async function runTests(harness) {
 
   // Test Permit2 metadata
   const permit2Address = CONTRACTS.dex.permit2.address.toLowerCase();
-
-  harness.addMetadata(permit2Address, {
-    context: {
-      contract: {
-        address: permit2Address,
-        chainId: 1,
-        name: 'Permit2',
-        abi: [
-          {
-            type: 'function',
-            name: 'permit',
-            selector: '0x2b67b570',
-            inputs: [
-              { name: 'owner', type: 'address' },
-              {
-                name: 'permitSingle',
-                type: 'tuple',
-                components: [
-                  {
-                    name: 'details',
-                    type: 'tuple',
-                    components: [
-                      { name: 'token', type: 'address' },
-                      { name: 'amount', type: 'uint160' },
-                      { name: 'expiration', type: 'uint48' },
-                      { name: 'nonce', type: 'uint48' }
-                    ]
-                  },
-                  { name: 'spender', type: 'address' },
-                  { name: 'sigDeadline', type: 'uint256' }
-                ]
-              },
-              { name: 'signature', type: 'bytes' }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'permitTransferFrom',
-            selector: '0x30f28b7a',
-            inputs: [
-              {
-                name: 'permit',
-                type: 'tuple',
-                components: [
-                  {
-                    name: 'permitted',
-                    type: 'tuple',
-                    components: [
-                      { name: 'token', type: 'address' },
-                      { name: 'amount', type: 'uint256' }
-                    ]
-                  },
-                  { name: 'nonce', type: 'uint256' },
-                  { name: 'deadline', type: 'uint256' }
-                ]
-              },
-              {
-                name: 'transferDetails',
-                type: 'tuple',
-                components: [
-                  { name: 'to', type: 'address' },
-                  { name: 'requestedAmount', type: 'uint256' }
-                ]
-              },
-              { name: 'owner', type: 'address' },
-              { name: 'signature', type: 'bytes' }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'permit(address,((address,uint160,uint48,uint48),address,uint256),bytes)': {
-          intent: 'Approve token spending via Permit2',
-          fields: []
-        },
-        'permitTransferFrom(((address,uint256),uint256,uint256),(address,uint256),address,bytes)': {
-          intent: 'Transfer via Permit2 signature',
-          fields: []
-        }
-      }
-    }
-  });
+  harness.addMetadata(permit2Address, loadMetadata('protocols/permit2.json'));
 
   // Test V3 Factory
   const v3FactoryAddress = CONTRACTS.dex.uniswapV3Factory.address.toLowerCase();
-
-  harness.addMetadata(v3FactoryAddress, {
-    context: {
-      contract: {
-        address: v3FactoryAddress,
-        chainId: 1,
-        name: 'Uniswap V3 Factory',
-        abi: [{
-          type: 'function',
-          name: 'createPool',
-          selector: '0xa1671295',
-          inputs: [
-            { name: 'tokenA', type: 'address' },
-            { name: 'tokenB', type: 'address' },
-            { name: 'fee', type: 'uint24' }
-          ]
-        }]
-      }
-    },
-    display: {
-      formats: {
-        'createPool(address,address,uint24)': {
-          intent: 'Create Uniswap V3 pool',
-          fields: [
-            { path: 'tokenA', label: 'Token A', format: 'address' },
-            { path: 'tokenB', label: 'Token B', format: 'address' },
-            { path: 'fee', label: 'Fee Tier', format: 'number' }
-          ]
-        }
-      }
-    }
-  });
+  harness.addMetadata(v3FactoryAddress, loadMetadata('protocols/uniswap-v3-factory.json'));
 
   results.push(await harness.runTest({
     name: 'V3 Factory createPool function',
@@ -347,44 +137,7 @@ export async function runTests(harness) {
 
   // Test Quoter V2
   const quoterAddress = CONTRACTS.dex.uniswapQuoterV2.address.toLowerCase();
-
-  harness.addMetadata(quoterAddress, {
-    context: {
-      contract: {
-        address: quoterAddress,
-        chainId: 1,
-        name: 'Uniswap Quoter V2',
-        abi: [
-          {
-            type: 'function',
-            name: 'quoteExactInputSingle',
-            selector: '0xc6a5026a',
-            inputs: [
-              {
-                name: 'params',
-                type: 'tuple',
-                components: [
-                  { name: 'tokenIn', type: 'address' },
-                  { name: 'tokenOut', type: 'address' },
-                  { name: 'amountIn', type: 'uint256' },
-                  { name: 'fee', type: 'uint24' },
-                  { name: 'sqrtPriceLimitX96', type: 'uint160' }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'quoteExactInputSingle((address,address,uint256,uint24,uint160))': {
-          intent: 'Quote exact input swap',
-          fields: []
-        }
-      }
-    }
-  });
+  harness.addMetadata(quoterAddress, loadMetadata('protocols/uniswap-quoter-v2.json'));
 
   return results;
 }

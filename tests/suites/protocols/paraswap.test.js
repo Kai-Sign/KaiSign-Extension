@@ -13,6 +13,7 @@
  */
 
 import { CONTRACTS } from '../../config.js';
+import { loadMetadata } from '../../lib/metadata-loader.js';
 
 export async function runTests(harness) {
   const results = [];
@@ -27,73 +28,7 @@ export async function runTests(harness) {
   // - callees: DEX contracts (off-chain computed)
   // - exchangeData: Encoded swap calls (off-chain computed)
 
-  harness.addMetadata(augustusAddress, {
-    context: {
-      contract: {
-        address: augustusAddress,
-        chainId: 1,
-        name: 'ParaSwap Augustus V6',
-        abi: [
-          {
-            type: 'function',
-            name: 'simpleSwap',
-            selector: '0x54e3f31b',
-            inputs: [
-              {
-                name: 'data',
-                type: 'tuple',
-                components: [
-                  { name: 'fromToken', type: 'address' },
-                  { name: 'toToken', type: 'address' },
-                  { name: 'fromAmount', type: 'uint256' },
-                  { name: 'toAmount', type: 'uint256' },
-                  { name: 'expectedAmount', type: 'uint256' },
-                  { name: 'callees', type: 'address[]' },
-                  { name: 'exchangeData', type: 'bytes' },
-                  { name: 'startIndexes', type: 'uint256[]' },
-                  { name: 'values', type: 'uint256[]' },
-                  { name: 'beneficiary', type: 'address' },
-                  { name: 'partner', type: 'address' },
-                  { name: 'feePercent', type: 'uint256' },
-                  { name: 'permit', type: 'bytes' },
-                  { name: 'deadline', type: 'uint256' },
-                  { name: 'uuid', type: 'bytes16' }
-                ]
-              }
-            ]
-          },
-          {
-            type: 'function',
-            name: 'multiSwap',
-            selector: '0xa94e78ef',
-            inputs: [{ name: 'data', type: 'tuple', components: [] }]
-          },
-          {
-            type: 'function',
-            name: 'megaSwap',
-            selector: '0x46c67b6d',
-            inputs: [{ name: 'data', type: 'tuple', components: [] }]
-          }
-        ]
-      }
-    },
-    display: {
-      formats: {
-        'simpleSwap(tuple)': {
-          intent: 'Swap {data.fromAmount} via ParaSwap',
-          fields: [
-            { path: 'data.fromToken', label: 'From Token', format: 'address' },
-            { path: 'data.toToken', label: 'To Token', format: 'address' },
-            { path: 'data.fromAmount', label: 'Amount In', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
-            { path: 'data.toAmount', label: 'Min Amount Out', format: 'amount', params: { decimals: 18, symbol: 'ETH' } },
-            { path: 'data.beneficiary', label: 'Recipient', format: 'address' }
-          ]
-        },
-        'multiSwap(tuple)': { intent: 'Multi-hop swap via ParaSwap', fields: [] },
-        'megaSwap(tuple)': { intent: 'Mega swap via ParaSwap', fields: [] }
-      }
-    }
-  });
+  harness.addMetadata(augustusAddress, loadMetadata('protocols/paraswap-augustus-v6.json'));
 
   // Real ParaSwap simpleSwap transaction calldata (simplified)
   // From tx: 0x... on mainnet
@@ -120,7 +55,13 @@ export async function runTests(harness) {
     name: 'ParaSwap simpleSwap',
     calldata: simpleSwapCalldata,
     contractAddress: augustusAddress,
-    expected: { shouldSucceed: true, selector: '0x54e3f31b', functionName: 'simpleSwap', intentContains: 'Swap' }
+    expected: {
+      shouldSucceed: true,
+      selector: '0x54e3f31b',
+      functionName: 'simpleSwap',
+      intent: 'Swap 1000000 via ParaSwap',
+      intentContains: 'Swap'
+    }
   }));
 
   return results;
