@@ -23,8 +23,20 @@ export async function runTests(harness) {
     },
     display: {
       formats: {
-        'supply(address,uint256)': { intent: 'Supply to Compound', fields: [] },
-        'withdraw(address,uint256)': { intent: 'Withdraw from Compound', fields: [] }
+        'supply(address,uint256)': {
+          intent: 'Supply {amount} to Compound',
+          fields: [
+            { path: 'asset', label: 'Token', format: 'address' },
+            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
+          ]
+        },
+        'withdraw(address,uint256)': {
+          intent: 'Withdraw {amount} from Compound',
+          fields: [
+            { path: 'asset', label: 'Token', format: 'address' },
+            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
+          ]
+        }
       }
     }
   });
@@ -35,7 +47,7 @@ export async function runTests(harness) {
       '000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' +
       '0000000000000000000000000000000000000000000000000000000005f5e100',
     contractAddress: cUSDCAddress,
-    expected: { shouldSucceed: true, selector: '0xf2b9fdb8', functionName: 'supply' }
+    expected: { shouldSucceed: true, selector: '0xf2b9fdb8', functionName: 'supply', intentContains: 'Supply' }
   }));
 
   return results;

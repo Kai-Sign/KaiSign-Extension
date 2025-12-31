@@ -1,15 +1,29 @@
 /**
  * Uniswap Protocol Tests
  *
- * Tests Universal Router execute() and all COMMANDS:
- * - V3_SWAP_EXACT_IN (0x00)
- * - V3_SWAP_EXACT_OUT (0x01)
- * - V2_SWAP_EXACT_IN (0x08)
- * - V2_SWAP_EXACT_OUT (0x09)
- * - WRAP_ETH (0x0b)
- * - UNWRAP_WETH (0x0c)
- * - PERMIT2_PERMIT (0x04)
- * - And all other commands...
+ * OFF-CHAIN ROUTING:
+ * Uniswap Auto Router API computes optimal swap path and returns:
+ *   - commands: Byte array where each byte is a command opcode
+ *   - inputs[]: ABI-encoded parameters for each command
+ *
+ * COMMAND OPCODES (computed off-chain by Auto Router):
+ *   0x00 = V3_SWAP_EXACT_IN      - Swap exact input on V3
+ *   0x01 = V3_SWAP_EXACT_OUT     - Swap exact output on V3
+ *   0x02 = PERMIT2_TRANSFER_FROM - Transfer via Permit2
+ *   0x03 = PERMIT2_PERMIT_BATCH  - Batch permit
+ *   0x04 = SWEEP                 - Sweep tokens to recipient
+ *   0x05 = TRANSFER              - Transfer tokens
+ *   0x06 = PAY_PORTION           - Pay portion of balance
+ *   0x08 = V2_SWAP_EXACT_IN      - Swap exact input on V2
+ *   0x09 = V2_SWAP_EXACT_OUT     - Swap exact output on V2
+ *   0x0a = PERMIT2_PERMIT        - Single permit
+ *   0x0b = WRAP_ETH              - Wrap ETH to WETH
+ *   0x0c = UNWRAP_WETH           - Unwrap WETH to ETH
+ *   0x0d = PERMIT2_TRANSFER_FROM_BATCH
+ *
+ * Example: commands = 0x0b00 means:
+ *   [0] = 0x0b (WRAP_ETH) - First wrap ETH
+ *   [1] = 0x00 (V3_SWAP_EXACT_IN) - Then swap on V3
  */
 
 import fs from 'fs';
@@ -37,6 +51,9 @@ export async function runTests(harness) {
   // Add Universal Router metadata for testing
   const universalRouterAddress = CONTRACTS.dex.uniswapUniversalRouter.address.toLowerCase();
 
+  // ERC-7730 compliant metadata with commandRegistries
+  // Each command has its own intent template with parameter substitution
+
   harness.addMetadata(universalRouterAddress, {
     context: {
       contract: {
@@ -55,47 +72,126 @@ export async function runTests(harness) {
         }]
       }
     },
+    // Command registry defines each command's intent template
+    commandRegistries: {
+      universalRouterCommands: {
+        '0x00': {
+          name: 'V3_SWAP_EXACT_IN',
+          intent: 'Swap {amountIn} for min {amountOutMin}',
+          inputs: [
+            { name: 'recipient', type: 'address' },
+            { name: 'amountIn', type: 'uint256', format: 'tokenAmount' },
+            { name: 'amountOutMin', type: 'uint256', format: 'tokenAmount' },
+            { name: 'path', type: 'bytes' },
+            { name: 'payerIsUser', type: 'bool' }
+          ]
+        },
+        '0x01': {
+          name: 'V3_SWAP_EXACT_OUT',
+          intent: 'Swap for exactly {amountOut}',
+          inputs: [
+            { name: 'recipient', type: 'address' },
+            { name: 'amountOut', type: 'uint256', format: 'tokenAmount' },
+            { name: 'amountInMax', type: 'uint256', format: 'tokenAmount' },
+            { name: 'path', type: 'bytes' },
+            { name: 'payerIsUser', type: 'bool' }
+          ]
+        },
+        '0x08': {
+          name: 'V2_SWAP_EXACT_IN',
+          intent: 'Swap {amountIn} via V2 for min {amountOutMin}',
+          inputs: [
+            { name: 'recipient', type: 'address' },
+            { name: 'amountIn', type: 'uint256', format: 'tokenAmount' },
+            { name: 'amountOutMin', type: 'uint256', format: 'tokenAmount' },
+            { name: 'path', type: 'address[]' },
+            { name: 'payerIsUser', type: 'bool' }
+          ]
+        },
+        '0x0b': {
+          name: 'WRAP_ETH',
+          intent: 'Wrap {amountMin} to WETH',
+          inputs: [
+            { name: 'recipient', type: 'address' },
+            { name: 'amountMin', type: 'uint256', format: 'ethAmount' }
+          ]
+        },
+        '0x0c': {
+          name: 'UNWRAP_WETH',
+          intent: 'Unwrap {amountMin} to ETH',
+          inputs: [
+            { name: 'recipient', type: 'address' },
+            { name: 'amountMin', type: 'uint256', format: 'ethAmount' }
+          ]
+        },
+        '0x04': {
+          name: 'SWEEP',
+          intent: 'Sweep {token} to recipient',
+          inputs: [
+            { name: 'token', type: 'address', format: 'tokenSymbol' },
+            { name: 'recipient', type: 'address' },
+            { name: 'amountMin', type: 'uint256' }
+          ]
+        }
+      }
+    },
     display: {
       formats: {
         'execute(bytes,bytes[],uint256)': {
-          intent: 'Execute Uniswap swap',
+          // Composite intent built from decoded commands
+          intent: {
+            type: 'composite',
+            source: 'commands',
+            separator: ' + ',
+            registry: 'universalRouterCommands'
+          },
           fields: [
-            { path: 'commands', label: 'Commands', format: 'hex' },
-            { path: 'inputs', label: 'Inputs', format: 'array' },
-            { path: 'deadline', label: 'Deadline', format: 'number' }
+            {
+              path: 'commands',
+              label: 'Commands',
+              nestedEncoding: {
+                type: 'commandArray',
+                registry: 'universalRouterCommands',
+                decodeWith: 'inputs'
+              }
+            },
+            { path: 'inputs', label: 'Inputs', format: 'hidden' },
+            { path: 'deadline', label: 'Deadline', format: 'timestamp' }
           ]
         }
       }
     }
   });
 
-  // Test basic execute function decoding
+  // Test: commands = 0x0b00 = [WRAP_ETH (0x0b), V3_SWAP_EXACT_IN (0x00)]
+  // This is a typical ETH → Token swap: wrap ETH first, then swap
   results.push(await harness.runTest({
-    name: 'Universal Router execute() function recognition',
+    name: 'Universal Router execute (WRAP_ETH + V3_SWAP)',
     calldata: '0x3593564c' +
-      '0000000000000000000000000000000000000000000000000000000000000060' +
-      '00000000000000000000000000000000000000000000000000000000000000a0' +
-      '0000000000000000000000000000000000000000000000000000000067680f80' +
-      '0000000000000000000000000000000000000000000000000000000000000002' +
-      '0b00000000000000000000000000000000000000000000000000000000000000' +
-      '0000000000000000000000000000000000000000000000000000000000000002' +
-      '0000000000000000000000000000000000000000000000000000000000000040' +
-      '00000000000000000000000000000000000000000000000000000000000000c0' +
-      '0000000000000000000000000000000000000000000000000000000000000040' +
-      '0000000000000000000000000000000000000000000000000000000000000002' +
-      '00000000000000000000000000000000000000000000000000005af3107a4000' +
-      '0000000000000000000000000000000000000000000000000000000000000040' +
-      '0000000000000000000000000000000000000000000000000000000000000001' +
-      '00000000000000000000000000000000000000000000000000005af3107a4000',
+      '0000000000000000000000000000000000000000000000000000000000000060' + // commands offset
+      '00000000000000000000000000000000000000000000000000000000000000a0' + // inputs offset
+      '0000000000000000000000000000000000000000000000000000000067680f80' + // deadline
+      '0000000000000000000000000000000000000000000000000000000000000002' + // commands length
+      '0b00000000000000000000000000000000000000000000000000000000000000' + // commands: [0x0b, 0x00] = WRAP_ETH, V3_SWAP
+      '0000000000000000000000000000000000000000000000000000000000000002' + // inputs.length = 2
+      '0000000000000000000000000000000000000000000000000000000000000040' + // inputs[0] offset
+      '00000000000000000000000000000000000000000000000000000000000000c0' + // inputs[1] offset
+      '0000000000000000000000000000000000000000000000000000000000000040' + // inputs[0] length
+      '0000000000000000000000000000000000000000000000000000000000000002' + // WRAP_ETH: recipient
+      '00000000000000000000000000000000000000000000000000005af3107a4000' + // WRAP_ETH: amountMin (0.001 ETH)
+      '0000000000000000000000000000000000000000000000000000000000000040' + // inputs[1] length
+      '0000000000000000000000000000000000000000000000000000000000000001' + // V3_SWAP: recipient
+      '00000000000000000000000000000000000000000000000000005af3107a4000', // V3_SWAP: amountIn
     contractAddress: universalRouterAddress,
     expected: {
       shouldSucceed: true,
       selector: '0x3593564c',
-      functionName: 'execute'
+      functionName: 'execute',
+      intentContains: 'Wrap' // Composite intent includes WRAP_ETH + V3_SWAP
     }
   }));
 
-  // Test each COMMAND type from fetched transactions
+  // Test each COMMAND type from fetched transactions (if available)
   if (commandTransactions.length > 0) {
     console.log(`  Testing ${commandTransactions.length} real Uniswap COMMAND transactions`);
 
@@ -110,24 +206,6 @@ export async function runTests(harness) {
           functionName: 'execute'
         }
       }));
-    }
-  } else {
-    console.log('  [WARN] No command transaction fixtures found. Run: npm run fetch-transactions');
-
-    // Add synthetic tests for each command type
-    for (const [commandName, commandValue] of Object.entries(UNISWAP_COMMANDS)) {
-      // Skip NFT commands for now (less common)
-      if (commandValue >= 0x10) continue;
-
-      results.push({
-        name: `Command ${commandName} (0x${commandValue.toString(16).padStart(2, '0')})`,
-        passed: false,
-        duration: 0,
-        result: null,
-        expected: { commandName },
-        error: 'No real transaction data available - run fetch-transactions first',
-        skipped: true
-      });
     }
   }
 

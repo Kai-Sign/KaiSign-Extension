@@ -25,10 +25,40 @@ export async function runTests(harness) {
     },
     display: {
       formats: {
-        'supply(address,uint256,address,uint16)': { intent: 'Supply to Aave', fields: [] },
-        'withdraw(address,uint256,address)': { intent: 'Withdraw from Aave', fields: [] },
-        'borrow(address,uint256,uint256,uint16,address)': { intent: 'Borrow from Aave', fields: [] },
-        'repay(address,uint256,uint256,address)': { intent: 'Repay Aave loan', fields: [] }
+        'supply(address,uint256,address,uint16)': {
+          intent: 'Supply {amount} to Aave',
+          fields: [
+            { path: 'asset', label: 'Token', format: 'address' },
+            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
+            { path: 'onBehalfOf', label: 'On Behalf Of', format: 'address' }
+          ]
+        },
+        'withdraw(address,uint256,address)': {
+          intent: 'Withdraw {amount} from Aave',
+          fields: [
+            { path: 'asset', label: 'Token', format: 'address' },
+            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
+            { path: 'to', label: 'Recipient', format: 'address' }
+          ]
+        },
+        'borrow(address,uint256,uint256,uint16,address)': {
+          intent: 'Borrow {amount} from Aave',
+          fields: [
+            { path: 'asset', label: 'Token', format: 'address' },
+            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
+            { path: 'interestRateMode', label: 'Rate Mode', format: 'number' },
+            { path: 'onBehalfOf', label: 'On Behalf Of', format: 'address' }
+          ]
+        },
+        'repay(address,uint256,uint256,address)': {
+          intent: 'Repay {amount} to Aave',
+          fields: [
+            { path: 'asset', label: 'Token', format: 'address' },
+            { path: 'amount', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } },
+            { path: 'interestRateMode', label: 'Rate Mode', format: 'number' },
+            { path: 'onBehalfOf', label: 'On Behalf Of', format: 'address' }
+          ]
+        }
       }
     }
   });
@@ -41,7 +71,7 @@ export async function runTests(harness) {
       '000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa96045' +
       '0000000000000000000000000000000000000000000000000000000000000000',
     contractAddress: poolAddress,
-    expected: { shouldSucceed: true, selector: '0x617ba037', functionName: 'supply' }
+    expected: { shouldSucceed: true, selector: '0x617ba037', functionName: 'supply', intentContains: 'Supply' }
   }));
 
   return results;

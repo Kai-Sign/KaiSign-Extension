@@ -217,6 +217,11 @@ export class TestHarness {
       return false;
     }
 
+    // Check exact intent match
+    if (expected.intent && result.intent !== expected.intent) {
+      return false;
+    }
+
     // Check intent contains
     if (expected.intentContains && !result.intent?.includes(expected.intentContains)) {
       return false;

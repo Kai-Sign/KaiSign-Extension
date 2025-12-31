@@ -385,9 +385,16 @@ async function decodeCalldata(data, contractAddress, chainId) {
 
     let format = metadata.display?.formats?.[functionSignature] || metadata.display?.formats?.[functionName];
 
+    // Store command registries from metadata for later use
+    const commandRegistries = metadata.commandRegistries || {};
+
     if (format) {
       // Handle ERC-7730 intent formats
-      if (format.intent?.template) {
+      if (format.intent?.type === 'composite') {
+        // Composite intent - will be built from decoded commands later
+        // Just mark it for now, actual building happens after decoding params
+        intent = { type: 'composite', config: format.intent };
+      } else if (format.intent?.template) {
         // Most common: intent.template string
         intent = format.intent.template;
       } else if (format.intent?.format && Array.isArray(format.intent.format)) {
@@ -449,19 +456,23 @@ async function decodeCalldata(data, contractAddress, chainId) {
     
     // Format results based on metadata ONLY
     const params = {};
+    const rawParams = {}; // Store original decoded values (not stringified)
     const formatted = {};
-    
+
     if (abiFunction) {
       // Use ABI from metadata to decode
       const iface = new SimpleInterface([abiFunction]);
       const decodedData = iface.decodeFunctionData(functionName, data);
-      
+
       // Generic formatting based on ABI inputs from metadata
       const inputs = abiFunction.inputs || [];
       for (let i = 0; i < decodedData.length && i < inputs.length; i++) {
         const input = inputs[i];
         const value = decodedData[i];
         const paramName = input.name || `param${i}`;
+
+        // Store original decoded value for composite intent building
+        rawParams[paramName] = value;
 
         // Get field info from metadata if available
         const fieldDef = fieldInfo[paramName];
@@ -528,15 +539,42 @@ async function decodeCalldata(data, contractAddress, chainId) {
       };
     }
 
-    // If formatted has a 'value' field, inject it into intent
-    // This ensures amounts are shown in intents like "Transfer 0.10 USDC" instead of "Transfer USDC"
-    if (formatted.value) {
-      const firstWord = intent.split(/\s+/)[0];
-      intent = firstWord + ' {value}';
-    }
+    // Handle composite intent (ERC-7730 command registries)
+    let finalIntent;
+    let decodedCommands = null;
 
-    // Substitute template variables in intent (e.g., "Swap {amount} {token}")
-    const finalIntent = substituteIntentTemplate(intent, params, formatted);
+    if (intent && typeof intent === 'object' && intent.type === 'composite') {
+      const intentConfig = intent.config;
+      const registryName = intentConfig.registry;
+      const registry = commandRegistries[registryName];
+      const sourceParam = intentConfig.source; // e.g., 'commands'
+
+      // Get the commands and inputs parameters from rawParams (not stringified)
+      const commandsValue = rawParams[sourceParam];
+      const inputsValue = rawParams['inputs']; // Universal Router uses 'inputs' array
+
+      if (commandsValue && registry) {
+        // Decode commands using the registry
+        decodedCommands = decodeCommandArray(commandsValue, inputsValue, registry);
+        finalIntent = buildCompositeIntent(intentConfig, decodedCommands);
+        console.log('[Decode] Built composite intent:', finalIntent);
+      } else {
+        finalIntent = 'Execute commands';
+        console.log('[Decode] Missing commands or registry for composite intent');
+      }
+    } else {
+      // Standard intent handling
+      // If formatted has a 'value' field, inject it into intent
+      // This ensures amounts are shown in intents like "Transfer 0.10 USDC" instead of "Transfer USDC"
+      if (formatted.value && typeof intent === 'string') {
+        const firstWord = intent.split(/\s+/)[0];
+        intent = firstWord + ' {value}';
+      }
+
+      // Substitute template variables in intent (e.g., "Swap {amount} {token}")
+      // Pass rawParams for nested object path resolution (e.g., "data.fromAmount" for tuples)
+      finalIntent = substituteIntentTemplate(intent, params, formatted, rawParams);
+    }
 
     return {
       success: true,
@@ -545,7 +583,8 @@ async function decodeCalldata(data, contractAddress, chainId) {
       functionName,
       params,
       intent: finalIntent,
-      formatted
+      formatted,
+      decodedCommands // Include decoded commands for display
     };
     
   } catch (error) {
@@ -606,6 +645,138 @@ function formatTokenAmount(rawValue, decimals, symbol) {
 }
 
 /**
+ * Decode Universal Router command array using registry
+ * @param {string} commands - Hex string of command bytes (e.g., "0x0b00")
+ * @param {Array} inputs - Array of ABI-encoded input data for each command
+ * @param {Object} registry - Command registry mapping byte codes to definitions
+ * @returns {Array} - Array of decoded command objects with intents
+ */
+function decodeCommandArray(commands, inputs, registry) {
+  if (!commands || !registry) return [];
+
+  // Remove 0x prefix if present
+  const commandBytes = commands.startsWith('0x') ? commands.slice(2) : commands;
+  const results = [];
+
+  for (let i = 0; i < commandBytes.length; i += 2) {
+    const cmdByte = '0x' + commandBytes.slice(i, i + 2).toLowerCase();
+    const cmdDef = registry[cmdByte];
+    const inputData = inputs?.[i / 2];
+
+    if (cmdDef) {
+      let decodedParams = {};
+      let intent = cmdDef.intent || cmdDef.name;
+
+      // Try to decode input data if available and command has input definitions
+      if (inputData && cmdDef.inputs && Array.isArray(cmdDef.inputs)) {
+        try {
+          // Create a mock ABI for decoding
+          const mockAbi = {
+            type: 'function',
+            name: 'decode',
+            inputs: cmdDef.inputs
+          };
+          const iface = new SimpleInterface([mockAbi]);
+          // Input data is already without selector, add a fake selector for decoding
+          const fakeCalldata = '0x00000000' + (inputData.startsWith('0x') ? inputData.slice(2) : inputData);
+          const decoded = iface.decodeFunctionData('decode', fakeCalldata);
+
+          // Map decoded values to parameter names
+          for (let j = 0; j < cmdDef.inputs.length && j < decoded.length; j++) {
+            const paramDef = cmdDef.inputs[j];
+            let value = decoded[j];
+
+            // Handle BigNumber-like objects
+            if (value && typeof value === 'object' && '_isBigNumber' in value) {
+              value = value.toString();
+            }
+
+            // Apply format if specified
+            if (paramDef.format === 'ethAmount' && value) {
+              // Convert wei to ETH (simple formatting)
+              try {
+                const wei = BigInt(value);
+                const eth = Number(wei) / 1e18;
+                value = eth.toFixed(eth < 0.001 ? 6 : 4) + ' ETH';
+              } catch {}
+            } else if (paramDef.format === 'tokenAmount' && value) {
+              // For token amounts, just show the raw value for now
+              // Full token symbol lookup would require additional metadata
+              value = value.toString();
+            }
+
+            decodedParams[paramDef.name] = value;
+          }
+
+          // Substitute template variables in intent
+          intent = substituteCommandIntent(cmdDef.intent || cmdDef.name, decodedParams);
+        } catch (e) {
+          console.log('[decodeCommandArray] Failed to decode input for command', cmdByte, e.message);
+        }
+      }
+
+      results.push({
+        command: cmdByte,
+        name: cmdDef.name,
+        intent: intent,
+        params: decodedParams
+      });
+    } else {
+      results.push({
+        command: cmdByte,
+        name: `UNKNOWN_${cmdByte}`,
+        intent: `Unknown command ${cmdByte}`,
+        params: {}
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Substitute template variables in command intent string
+ * @param {string} template - Intent template with {variable} placeholders
+ * @param {object} params - Decoded parameter values
+ * @returns {string} - Intent with substituted values
+ */
+function substituteCommandIntent(template, params) {
+  if (!template || typeof template !== 'string') return template;
+  if (!template.includes('{')) return template;
+
+  return template.replace(/\{(\w+)\}/g, (match, paramName) => {
+    if (params && params[paramName] !== undefined) {
+      return params[paramName];
+    }
+    return match;
+  });
+}
+
+/**
+ * Build composite intent from decoded command operations
+ * @param {Object} intentConfig - Intent configuration with type, separator, etc.
+ * @param {Array} decodedCommands - Array of decoded command objects
+ * @returns {string} - Combined intent string
+ */
+function buildCompositeIntent(intentConfig, decodedCommands) {
+  if (!decodedCommands || decodedCommands.length === 0) {
+    return 'Execute commands';
+  }
+
+  const separator = intentConfig.separator || ' + ';
+  const intents = decodedCommands.map(cmd => cmd.intent);
+
+  // Handle maxDisplay limit
+  if (intentConfig.maxDisplay && intents.length > intentConfig.maxDisplay) {
+    const shown = intents.slice(0, intentConfig.maxDisplay);
+    const overflow = intentConfig.overflow || `and ${intents.length - intentConfig.maxDisplay} more`;
+    return shown.join(separator) + separator + overflow;
+  }
+
+  return intents.join(separator);
+}
+
+/**
  * Substitute template variables in intent string
  * Supports {paramName} syntax for simple params
  * Supports {paramName:format} for formatted values (e.g., {amount:token})
@@ -614,7 +785,7 @@ function formatTokenAmount(rawValue, decimals, symbol) {
  * @param {object} formatted - Formatted parameter values with labels
  * @returns {string} - Intent with substituted values
  */
-function substituteIntentTemplate(template, params, formatted) {
+function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
   if (!template || typeof template !== 'string') return template;
 
   // Check if template has any placeholders
@@ -622,22 +793,44 @@ function substituteIntentTemplate(template, params, formatted) {
 
   let result = template;
 
-  // Replace {paramName} or {paramName:format} patterns
-  const regex = /\{(\w+)(?::(\w+))?\}/g;
-  result = result.replace(regex, (match, paramName, formatType) => {
-    // Try formatted value first
-    if (formatted && formatted[paramName]) {
-      const formattedParam = formatted[paramName];
-      // If format type specified, use it; otherwise use the value
-      if (formatType === 'label') {
-        return formattedParam.label || paramName;
+  // Replace {paramName} or {paramName:format} or {nested.path} patterns
+  const regex = /\{([\w.]+)(?::(\w+))?\}/g;
+  result = result.replace(regex, (match, paramPath, formatType) => {
+    // Helper to get nested value by path (e.g., "data.fromAmount")
+    const getNestedValue = (obj, path) => {
+      if (!obj) return undefined;
+      const parts = path.split('.');
+      let value = obj;
+      for (const part of parts) {
+        if (value === undefined || value === null) return undefined;
+        value = value[part];
       }
-      return formattedParam.value || match;
+      return value;
+    };
+
+    // Try formatted value first (using path)
+    const formattedValue = getNestedValue(formatted, paramPath);
+    if (formattedValue) {
+      if (formatType === 'label') {
+        return formattedValue.label || paramPath;
+      }
+      return formattedValue.value || match;
     }
 
-    // Fall back to raw params
-    if (params && params[paramName] !== undefined) {
-      return params[paramName];
+    // Fall back to raw params - try rawParams first for nested object paths
+    const rawObjValue = getNestedValue(rawParams, paramPath);
+    if (rawObjValue !== undefined && rawObjValue !== null) {
+      // Format as string for display
+      if (typeof rawObjValue === 'object' && '_isBigNumber' in rawObjValue) {
+        return rawObjValue.toString();
+      }
+      return String(rawObjValue);
+    }
+
+    // Try stringified params as fallback
+    const rawValue = getNestedValue(params, paramPath);
+    if (rawValue !== undefined) {
+      return rawValue;
     }
 
     // Return original placeholder if not found

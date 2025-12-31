@@ -40,6 +40,9 @@ const TEST_SUITES = [
   { name: 'protocols/lido.test.js', path: './suites/protocols/lido.test.js' },
   { name: 'protocols/seaport.test.js', path: './suites/protocols/seaport.test.js' },
   { name: 'protocols/1inch.test.js', path: './suites/protocols/1inch.test.js' },
+  { name: 'protocols/paraswap.test.js', path: './suites/protocols/paraswap.test.js' },
+  { name: 'protocols/0x.test.js', path: './suites/protocols/0x.test.js' },
+  { name: 'protocols/cow.test.js', path: './suites/protocols/cow.test.js' },
 
   // Account abstraction tests
   { name: 'aa/safe.test.js', path: './suites/aa/safe.test.js' },
