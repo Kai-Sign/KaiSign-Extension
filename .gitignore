@@ -1,0 +1,10 @@
+# Test HTML files (not the tests/ directory)
+test*.html
+test-*.html
+
+# Local metadata
+local-metadata
+
+# Test dependencies
+tests/node_modules/
+tests/.env
