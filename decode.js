@@ -101,15 +101,18 @@ class SimpleInterface {
   /**
    * Check if a type is dynamic (requires offset resolution)
    * @param {string} type - Solidity type
+   * @param {object} input - ABI input definition (for checking tuple components)
    * @returns {boolean}
    */
-  isDynamicType(type) {
+  isDynamicType(type, input = null) {
     if (!type) return false;
     // bytes, string, and any array type are dynamic
     if (type === 'bytes' || type === 'string') return true;
     if (type.endsWith('[]')) return true;
-    // Tuples with dynamic components are dynamic
-    if (type === 'tuple') return false; // Will be checked separately
+    // Tuples with any dynamic components are dynamic (requires offset resolution)
+    if (type === 'tuple' && input?.components) {
+      return input.components.some(c => this.isDynamicType(c.type, c));
+    }
     return false;
   }
 
@@ -182,7 +185,7 @@ class SimpleInterface {
       let tupleOffset = 0;
 
       for (const component of input.components) {
-        if (this.isDynamicType(component.type)) {
+        if (this.isDynamicType(component.type, component)) {
           // Dynamic component in tuple - need to handle offset
           const dynOffset = parseInt(paramData.slice(offset + tupleOffset, offset + tupleOffset + 64), 16) * 2;
           const dynResult = this.decodeDynamicType(component.type, paramData, offset + dynOffset, component);
@@ -258,6 +261,31 @@ class SimpleInterface {
       return results;
     }
 
+    // Dynamic tuple (tuple with dynamic components)
+    // The offset points to where the tuple data starts
+    if (type === 'tuple' && input?.components) {
+      const tupleData = {};
+      let tupleOffset = 0;
+
+      for (const component of input.components) {
+        if (this.isDynamicType(component.type, component)) {
+          // Dynamic component - read relative offset from tuple head, decode from tuple tail
+          const relOffsetHex = paramData.slice(offset + tupleOffset, offset + tupleOffset + 64);
+          const relOffset = parseInt(relOffsetHex, 16) * 2;
+          const dynResult = this.decodeDynamicType(component.type, paramData, offset + relOffset, component);
+          tupleData[component.name] = dynResult;
+          tupleOffset += 64;
+        } else {
+          // Static component - read inline
+          const result = this.decodeStaticType(component.type, paramData, offset + tupleOffset, component);
+          tupleData[component.name] = result.value;
+          tupleOffset += result.size;
+        }
+      }
+
+      return tupleData;
+    }
+
     // Fallback
     return '0x' + paramData.slice(offset, offset + 64);
   }
@@ -299,7 +327,7 @@ class SimpleInterface {
     for (let i = 0; i < inputs.length; i++) {
       const input = inputs[i];
 
-      if (this.isDynamicType(input.type)) {
+      if (this.isDynamicType(input.type, input)) {
         // Dynamic type: read offset from head, decode from tail later
         const offsetHex = paramData.slice(headOffset, headOffset + 64);
         const tailOffset = parseInt(offsetHex, 16) * 2;
