@@ -1327,8 +1327,26 @@ class AdvancedTransactionDecoder {
     try {
       const decimals = Number(params.decimals || 18);
 
-      // Fallback: simple BigInt-based formatting
-      const value = BigInt(rawValue);
+      // Convert to string to handle any input type
+      let valueStr = String(rawValue);
+
+      // Check for max uint256 (unlimited approval) FIRST before BigInt conversion
+      const MAX_UINT256 = '115792089237316195423570985008687907853269984665640564039457584007913129639935';
+
+      // Handle scientific notation (e.g., "1.157920892373162e+77")
+      // BigInt() cannot parse scientific notation, so detect and handle it
+      if (valueStr.includes('e') || valueStr.includes('E')) {
+        // Scientific notation of very large numbers typically means unlimited approval
+        return 'Unlimited';
+      }
+
+      // Check exact match for max uint256
+      if (valueStr === MAX_UINT256) {
+        return 'Unlimited';
+      }
+
+      // Safe to convert to BigInt now
+      const value = BigInt(valueStr);
       const divisor = BigInt(10 ** decimals);
       const integerPart = value / divisor;
       const fractionalPart = value % divisor;
