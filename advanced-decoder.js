@@ -140,6 +140,13 @@ class AdvancedTransactionDecoder {
       const nestedAnalysis = await this.analyzeNestedCalls(result.data, result.to, result.chainId, 0);
       result.nestedCalls = nestedAnalysis.calls;
       result.allIntents = nestedAnalysis.intents;
+      result.nestedIntents = nestedAnalysis.intents;
+
+      // Build aggregated intent from nested intents (like recursive-decoder.js pattern)
+      if (result.nestedIntents && result.nestedIntents.length > 0) {
+        result.aggregatedIntent = result.nestedIntents.join(' + ');
+        result.intent = result.aggregatedIntent;
+      }
     }
 
     return result;
@@ -191,6 +198,13 @@ class AdvancedTransactionDecoder {
       );
       result.nestedCalls = nestedAnalysis.calls;
       result.allIntents = nestedAnalysis.intents;
+      result.nestedIntents = nestedAnalysis.intents;
+
+      // Build aggregated intent from nested intents (like recursive-decoder.js pattern)
+      if (result.nestedIntents && result.nestedIntents.length > 0) {
+        result.aggregatedIntent = result.nestedIntents.join(' + ');
+        result.intent = result.aggregatedIntent;
+      }
     }
 
     return result;
@@ -263,7 +277,7 @@ class AdvancedTransactionDecoder {
         // Process each extracted bytecode
         for (const extracted of extractedBytecodes) {
           bytecodes.push(extracted);
-          
+
           // Decode the individual bytecode
           const nestedResult = await this.decodeCalldata(extracted.bytecode, extracted.target, chainId);
           
@@ -752,19 +766,43 @@ class AdvancedTransactionDecoder {
             parameterName: paramName
           });
         } else if (Array.isArray(paramValue)) {
-          // Handle arrays of call data
+          // Handle arrays of call data or tuple arrays like (address,uint256,bytes)[]
           for (let i = 0; i < paramValue.length; i++) {
-            if (this.looksLikeCalldata(paramValue[i])) {
+            const item = paramValue[i];
+
+            // Check if array element is direct calldata
+            if (this.looksLikeCalldata(item)) {
               extractedCalls.push({
                 index: callIndex++,
                 target: contractAddress,
-                bytecode: paramValue[i],
-                selector: this.extractFunctionSelector(paramValue[i]),
+                bytecode: item,
+                selector: this.extractFunctionSelector(item),
                 value: '0x0',
                 callType: 'CALL',
                 parentCall: abiFunction.name,
                 parameterName: `${paramName}[${i}]`
               });
+            }
+            // Check if array element is a tuple with (to, value, data) structure
+            else if (typeof item === 'object' && item !== null) {
+              // Handle tuple arrays like (address,uint256,bytes)[] for executeMultiple/executeBatch
+              const to = item.to || item[0];
+              const value = item.value || item[1] || '0x0';
+              const data = item.data || item[2];
+
+              if (to && data && this.looksLikeCalldata(data)) {
+                extractedCalls.push({
+                  index: callIndex++,
+                  target: to.toLowerCase ? to.toLowerCase() : to,
+                  bytecode: data,
+                  selector: this.extractFunctionSelector(data),
+                  value: value?.toString?.() || '0x0',
+                  callType: 'CALL',
+                  parentCall: abiFunction.name,
+                  parameterName: `${paramName}[${i}]`,
+                  tupleFields: { to, value, data }
+                });
+              }
             }
           }
         }
@@ -820,18 +858,60 @@ class AdvancedTransactionDecoder {
   decodeABIParameters(inputs, paramData) {
     const decoded = {};
     let offset = 0;
-    
+
     try {
       for (let i = 0; i < inputs.length; i++) {
         const input = inputs[i];
         const paramName = input.name || `param${i}`;
-        
+
         if (input.type === 'bytes' || input.type === 'bytes[]') {
           // Dynamic bytes - get offset and length
           const dataOffset = parseInt(paramData.slice(offset, offset + 64), 16) * 2;
           const dataLength = parseInt(paramData.slice(dataOffset, dataOffset + 64), 16) * 2;
           const data = '0x' + paramData.slice(dataOffset + 64, dataOffset + 64 + dataLength);
           decoded[paramName] = data;
+        } else if (input.type === 'tuple[]' && input.components) {
+          // Tuple array like (address,uint256,bytes)[] - common for executeMultiple/executeBatch
+          const arrayOffset = parseInt(paramData.slice(offset, offset + 64), 16) * 2;
+          const arrayLength = parseInt(paramData.slice(arrayOffset, arrayOffset + 64), 16);
+          const tuples = [];
+
+          // Each tuple element has an offset pointer
+          for (let j = 0; j < arrayLength; j++) {
+            const tupleOffsetPointer = arrayOffset + 64 + (j * 64);
+            const tupleRelOffset = parseInt(paramData.slice(tupleOffsetPointer, tupleOffsetPointer + 64), 16) * 2;
+            const tupleStart = arrayOffset + 64 + tupleRelOffset;
+
+            // Decode the tuple components (address, uint256, bytes) structure
+            const tuple = {};
+            let tupleInnerOffset = 0;
+
+            for (const comp of input.components) {
+              if (comp.type === 'address') {
+                tuple[comp.name] = '0x' + paramData.slice(tupleStart + tupleInnerOffset + 24, tupleStart + tupleInnerOffset + 64);
+                tupleInnerOffset += 64;
+              } else if (comp.type === 'uint256') {
+                tuple[comp.name] = '0x' + paramData.slice(tupleStart + tupleInnerOffset, tupleStart + tupleInnerOffset + 64);
+                tupleInnerOffset += 64;
+              } else if (comp.type === 'bytes') {
+                // Dynamic bytes within tuple
+                const bytesRelOffset = parseInt(paramData.slice(tupleStart + tupleInnerOffset, tupleStart + tupleInnerOffset + 64), 16) * 2;
+                const bytesStart = tupleStart + bytesRelOffset;
+                const bytesLen = parseInt(paramData.slice(bytesStart, bytesStart + 64), 16) * 2;
+                tuple[comp.name] = '0x' + paramData.slice(bytesStart + 64, bytesStart + 64 + bytesLen);
+                tupleInnerOffset += 64;
+              } else {
+                // Generic 32-byte value
+                tuple[comp.name] = '0x' + paramData.slice(tupleStart + tupleInnerOffset, tupleStart + tupleInnerOffset + 64);
+                tupleInnerOffset += 64;
+              }
+            }
+
+            tuples.push(tuple);
+          }
+
+          decoded[paramName] = tuples;
+          console.log(`[AdvDecoder] Decoded tuple[] with ${tuples.length} elements`);
         } else if (input.type === 'address') {
           const addressHex = paramData.slice(offset + 24, offset + 64);
           decoded[paramName] = '0x' + addressHex;
@@ -843,13 +923,13 @@ class AdvancedTransactionDecoder {
           const valueHex = paramData.slice(offset, offset + 64);
           decoded[paramName] = '0x' + valueHex;
         }
-        
+
         offset += 64;
       }
     } catch (error) {
       console.warn(`[AdvDecoder] ABI parameter decoding error:`, error.message);
     }
-    
+
     return decoded;
   }
 
@@ -998,14 +1078,21 @@ class AdvancedTransactionDecoder {
       const decodedResult = await this.decodeParametersWithFieldPaths(
         data, metadata, functionSignature, functionName, fieldInfo
       );
-      
+
+      // Substitute intent template with actual decoded values
+      const substitutedIntent = this.substituteIntentTemplate(
+        intent,
+        decodedResult.params,
+        decodedResult.formatted
+      );
+
       return {
         success: true,
         selector,
         function: functionSignature,
         functionName,
         params: decodedResult.params,
-        intent: intent || 'Contract interaction',
+        intent: substitutedIntent || 'Contract interaction',
         formatted: decodedResult.formatted,
         fieldPaths: decodedResult.fieldPaths
       };
@@ -1045,7 +1132,8 @@ class AdvancedTransactionDecoder {
             fieldInfo[field.path] = {
               label: field.label || field.path,
               format: field.format || 'raw',
-              description: field.description || ''
+              description: field.description || '',
+              params: field.params  // Include params for token formatting (decimals, symbol)
             };
           }
         }
@@ -1092,7 +1180,7 @@ class AdvancedTransactionDecoder {
     const params = {};
     const formatted = {};
     const fieldPaths = {};
-    
+
     try {
       // Find ABI function for decoding
       let abiFunction = null;
@@ -1105,19 +1193,38 @@ class AdvancedTransactionDecoder {
       if (abiFunction) {
         // Use ABI for accurate decoding
         const decodedData = await this.decodeWithABI(data, abiFunction);
-        
+
         // Process each decoded parameter
         const inputs = abiFunction.inputs || [];
-        for (let i = 0; i < decodedData.length && i < inputs.length; i++) {
-          const input = inputs[i];
-          const value = decodedData[i];
-          const paramName = input.name || `param${i}`;
-          
-          // Handle complex types (tuples, structs)
-          if (input.type === 'tuple' && input.components) {
-            this.processTupleParameter(value, input, paramName, params, formatted, fieldPaths, fieldInfo);
-          } else {
-            this.processSimpleParameter(value, input, paramName, params, formatted, fieldPaths, fieldInfo);
+
+        // Handle both array (from ethers) and object (from decodeABIParameters) results
+        if (Array.isArray(decodedData)) {
+          // Array result - iterate by index
+          for (let i = 0; i < decodedData.length && i < inputs.length; i++) {
+            const input = inputs[i];
+            const value = decodedData[i];
+            const paramName = input.name || `param${i}`;
+
+            if (input.type === 'tuple' && input.components) {
+              this.processTupleParameter(value, input, paramName, params, formatted, fieldPaths, fieldInfo);
+            } else {
+              this.processSimpleParameter(value, input, paramName, params, formatted, fieldPaths, fieldInfo);
+            }
+          }
+        } else if (decodedData && typeof decodedData === 'object') {
+          // Object result - iterate by input names
+          for (let i = 0; i < inputs.length; i++) {
+            const input = inputs[i];
+            const paramName = input.name || `param${i}`;
+            const value = decodedData[paramName];
+
+            if (value !== undefined) {
+              if (input.type === 'tuple' && input.components) {
+                this.processTupleParameter(value, input, paramName, params, formatted, fieldPaths, fieldInfo);
+              } else {
+                this.processSimpleParameter(value, input, paramName, params, formatted, fieldPaths, fieldInfo);
+              }
+            }
           }
         }
       } else {
@@ -1187,23 +1294,51 @@ class AdvancedTransactionDecoder {
    * Process simple parameter
    */
   processSimpleParameter(value, inputDef, paramName, params, formatted, fieldPaths, fieldInfo) {
-    const formattedValue = this.formatValue(value);
-    params[paramName] = formattedValue;
-    
+    const rawValue = this.formatValue(value);
+    params[paramName] = rawValue;
+
     // Get field definition for this parameter
     const fieldDef = fieldInfo[paramName];
-    
+
+    // Apply proper formatting based on field definition
+    let displayValue = rawValue;
+    if (fieldDef?.format === 'amount' && fieldDef?.params) {
+      // Format as token amount with decimals and symbol
+      displayValue = this.formatTokenAmountWithParams(rawValue, fieldDef.params);
+    }
+
     formatted[paramName] = {
       label: fieldDef?.label || this.toTitleCase(paramName),
-      value: formattedValue,
+      value: displayValue,
       format: fieldDef?.format || this.inferFormatFromType(inputDef.type),
       description: fieldDef?.description
     };
-    
+
     fieldPaths[paramName] = {
       paramName,
       type: inputDef.type
     };
+  }
+
+  /**
+   * Format token amount with decimals (no symbol - symbol comes from intent template)
+   */
+  formatTokenAmountWithParams(rawValue, params) {
+    try {
+      const decimals = Number(params.decimals || 18);
+
+      // Fallback: simple BigInt-based formatting
+      const value = BigInt(rawValue);
+      const divisor = BigInt(10 ** decimals);
+      const integerPart = value / divisor;
+      const fractionalPart = value % divisor;
+
+      const fractionalStr = fractionalPart.toString().padStart(decimals, '0').slice(0, 2);
+      return `${integerPart}.${fractionalStr}`;
+    } catch (e) {
+      console.warn('[AdvDecoder] formatTokenAmountWithParams error:', e);
+      return String(rawValue);
+    }
   }
 
   /**
@@ -1567,6 +1702,57 @@ class AdvancedTransactionDecoder {
     if (!data.startsWith('0x')) data = '0x' + data;
     if (data.length < 10) return null;
     return data.slice(0, 10).toLowerCase();
+  }
+
+  /**
+   * Substitute intent template placeholders with actual decoded values
+   * Handles both simple {paramName} and nested {param.field} paths
+   */
+  substituteIntentTemplate(template, params, formatted) {
+    if (!template || typeof template !== 'string') return template;
+    if (!template.includes('{')) return template;
+
+    let result = template;
+
+    // Replace {paramName} or {paramName:format} or {nested.path} patterns
+    const regex = /\{([\w.]+)(?::(\w+))?\}/g;
+    result = result.replace(regex, (match, paramPath, formatType) => {
+      // Helper to get nested value by path (e.g., "data.fromAmount")
+      const getNestedValue = (obj, path) => {
+        if (!obj) return undefined;
+        const parts = path.split('.');
+        let value = obj;
+        for (const part of parts) {
+          if (value === undefined || value === null) return undefined;
+          value = value[part];
+        }
+        return value;
+      };
+
+      // Try formatted value first (using path) - these have label/value structure
+      const formattedValue = getNestedValue(formatted, paramPath);
+      if (formattedValue && typeof formattedValue === 'object' && formattedValue.value !== undefined) {
+        if (formatType === 'label') {
+          return formattedValue.label || paramPath;
+        }
+        return formattedValue.value;
+      }
+
+      // Fall back to raw params for nested object paths
+      const rawValue = getNestedValue(params, paramPath);
+      if (rawValue !== undefined && rawValue !== null) {
+        // Format BigNumber-like objects
+        if (typeof rawValue === 'object' && rawValue._isBigNumber) {
+          return rawValue.toString();
+        }
+        return String(rawValue);
+      }
+
+      // Return original placeholder if not found
+      return match;
+    });
+
+    return result;
   }
 }
 
