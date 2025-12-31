@@ -1379,10 +1379,10 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     }
   }
 
-  // Auto-remove after 30 seconds (same as execute popup)
+  // Auto-remove after 5 minutes
   setTimeout(() => {
     if (popup.parentNode) popup.remove();
-  }, 30000);
+  }, 300000);
 }
 
 /**
@@ -2370,10 +2370,10 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
 
   document.body.appendChild(popup);
 
-  // Auto-remove after 30 seconds
+  // Auto-remove after 5 minutes
   setTimeout(() => {
     if (popup.parentNode) popup.remove();
-  }, 30000);
+  }, 300000);
 }
 
 // Generic bytecode parser - scans for any potential nested bytecodes

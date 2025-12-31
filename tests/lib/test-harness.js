@@ -236,6 +236,42 @@ export class TestHarness {
       }
     }
 
+    // NEW: Intent must NOT contain (negative validation)
+    if (expected.intentDoesNotContain) {
+      if (result.intent?.includes(expected.intentDoesNotContain)) {
+        console.error(`Intent should not contain "${expected.intentDoesNotContain}"`);
+        return false;
+      }
+    }
+
+    // NEW: Decoded commands validation (Uniswap command registry)
+    if (expected.decodedCommands) {
+      if (!Array.isArray(result.decodedCommands)) {
+        console.error('Expected decodedCommands array, got:', typeof result.decodedCommands);
+        return false;
+      }
+      if (result.decodedCommands.length !== expected.decodedCommands.length) {
+        console.error(`Command count: expected ${expected.decodedCommands.length}, got ${result.decodedCommands.length}`);
+        return false;
+      }
+      for (let i = 0; i < expected.decodedCommands.length; i++) {
+        const exp = expected.decodedCommands[i];
+        const act = result.decodedCommands[i];
+        if (exp.command && act.command !== exp.command) {
+          console.error(`Command ${i} opcode mismatch: expected ${exp.command}, got ${act.command}`);
+          return false;
+        }
+        if (exp.name && act.name !== exp.name) {
+          console.error(`Command ${i} name mismatch: expected ${exp.name}, got ${act.name}`);
+          return false;
+        }
+        if (exp.intent && act.intent !== exp.intent) {
+          console.error(`Command ${i} intent mismatch: expected "${exp.intent}", got "${act.intent}"`);
+          return false;
+        }
+      }
+    }
+
     return true;
   }
 
@@ -286,7 +322,83 @@ export class TestHarness {
       }
     }
 
-    return this.validateResult(result, expected);
+    // Check nested intent contains (important for multicall/handleOps)
+    if (expected.nestedIntentContains) {
+      const nestedIntents = result.nestedIntents || result.allIntents || [];
+      const aggregatedIntent = result.aggregatedIntent || result.intent || '';
+
+      for (const intentPart of expected.nestedIntentContains) {
+        const foundInNested = nestedIntents.some(intent =>
+          intent && intent.toString().includes(intentPart)
+        );
+        const foundInAggregated = aggregatedIntent.includes(intentPart);
+
+        if (!foundInNested && !foundInAggregated) {
+          return false;
+        }
+      }
+    }
+
+    // Check selector from mainCall if expected (advanced decoder stores it there)
+    if (expected.selector) {
+      const mainSelector = result.mainCall?.selector || result.selector;
+      if (mainSelector !== expected.selector) {
+        return false;
+      }
+    }
+
+    // Check functionName from mainCall if expected
+    if (expected.functionName) {
+      const mainFunctionName = result.mainCall?.functionName || result.functionName;
+      if (mainFunctionName !== expected.functionName) {
+        return false;
+      }
+    }
+
+    // Check shouldSucceed
+    if (expected.shouldSucceed !== undefined) {
+      if (expected.shouldSucceed !== false && !result.success) {
+        return false;
+      }
+      if (expected.shouldSucceed === false && result.success) {
+        return false;
+      }
+    }
+
+    // NEW: Enhanced nested intents validation (array of exact strings or objects)
+    if (expected.nestedIntents && Array.isArray(expected.nestedIntents)) {
+      const actualNested = result.nestedIntents || result.allIntents || [];
+      if (actualNested.length !== expected.nestedIntents.length) {
+        console.error(`Nested count: expected ${expected.nestedIntents.length}, got ${actualNested.length}`);
+        return false;
+      }
+
+      for (let i = 0; i < expected.nestedIntents.length; i++) {
+        const exp = expected.nestedIntents[i];
+        const act = actualNested[i];
+
+        if (typeof exp === 'string') {
+          // Exact string match or substring
+          const actStr = typeof act === 'string' ? act : act?.intent || act?.toString() || '';
+          if (actStr !== exp && !actStr.includes(exp)) {
+            console.error(`Nested intent ${i}: expected "${exp}", got "${actStr}"`);
+            return false;
+          }
+        } else {
+          // Object validation
+          if (exp.intent && act.intent !== exp.intent) {
+            console.error(`Nested intent ${i} text mismatch`);
+            return false;
+          }
+          if (exp.functionName && act.functionName !== exp.functionName) {
+            console.error(`Nested intent ${i} function mismatch`);
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
   }
 
   /**

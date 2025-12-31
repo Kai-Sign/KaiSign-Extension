@@ -294,14 +294,37 @@ class AdvancedTransactionDecoder {
           }
           
           // Recursively check for deeper nesting
-          if (this.looksLikeCalldata(extracted.bytecode) && this.looksLikeMulticall(extracted.bytecode)) {
-            const deeperNesting = await this.analyzeNestedCalls(
-              extracted.bytecode, extracted.target, chainId, depth + 1
-            );
-            
-            calls.push(...deeperNesting.calls);
-            intents.push(...deeperNesting.intents);
-            bytecodes.push(...deeperNesting.bytecodes);
+          if (this.looksLikeCalldata(extracted.bytecode)) {
+            if (this.looksLikeMulticall(extracted.bytecode)) {
+              // Multicall pattern - use full recursive analysis
+              const deeperNesting = await this.analyzeNestedCalls(
+                extracted.bytecode, extracted.target, chainId, depth + 1
+              );
+
+              calls.push(...deeperNesting.calls);
+              intents.push(...deeperNesting.intents);
+              bytecodes.push(...deeperNesting.bytecodes);
+            } else {
+              // Not a multicall, but may have embedded bytecodes (like execute's func param)
+              const embeddedBytecodes = await this.extractEmbeddedBytecodes(extracted.bytecode, extracted.target, chainId);
+
+              for (const embedded of embeddedBytecodes) {
+                bytecodes.push(embedded);
+
+                const embeddedResult = await this.decodeCalldata(embedded.bytecode, embedded.target, chainId);
+
+                calls.push({
+                  ...embedded,
+                  decoded: embeddedResult,
+                  intent: embeddedResult.success ? embeddedResult.intent : 'Unknown function',
+                  depth: depth + 2
+                });
+
+                if (embeddedResult.success) {
+                  intents.push(embeddedResult.intent);
+                }
+              }
+            }
           }
         }
       } catch (error) {
@@ -439,12 +462,13 @@ class AdvancedTransactionDecoder {
     // Look for address parameters in the same function call
     for (const [paramName, paramValue] of Object.entries(allParams)) {
       if (typeof paramValue === 'string' && this.isValidAddress(paramValue)) {
-        // If parameter name suggests it's a target (to, target, contract, etc.)
+        // If parameter name suggests it's a target (to, target, contract, dest, etc.)
         const lowerParamName = paramName.toLowerCase();
-        if (lowerParamName.includes('to') || 
-            lowerParamName.includes('target') || 
+        if (lowerParamName.includes('to') ||
+            lowerParamName.includes('target') ||
             lowerParamName.includes('contract') ||
-            lowerParamName.includes('recipient')) {
+            lowerParamName.includes('recipient') ||
+            lowerParamName.includes('dest')) {
           return paramValue;
         }
       }
@@ -801,6 +825,21 @@ class AdvancedTransactionDecoder {
                   parentCall: abiFunction.name,
                   parameterName: `${paramName}[${i}]`,
                   tupleFields: { to, value, data }
+                });
+              }
+              // Handle ERC-4337 UserOperation style tuples: (sender, nonce, initCode, callData, ...)
+              // sender = target address, callData = nested calldata
+              else if (item.sender && item.callData && this.looksLikeCalldata(item.callData)) {
+                extractedCalls.push({
+                  index: callIndex++,
+                  target: item.sender.toLowerCase ? item.sender.toLowerCase() : item.sender,
+                  bytecode: item.callData,
+                  selector: this.extractFunctionSelector(item.callData),
+                  value: '0x0',
+                  callType: 'USEROP',
+                  parentCall: abiFunction.name,
+                  parameterName: `${paramName}[${i}].callData`,
+                  tupleFields: { sender: item.sender, callData: item.callData }
                 });
               }
             }

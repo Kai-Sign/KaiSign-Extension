@@ -172,9 +172,15 @@ export class ResultFormatter {
       output += this.formatDecodedResult(decodedResult);
     }
 
-    // Show error if failed
+    // Show error - different formatting for expected vs unexpected errors
     if (error) {
-      output += `  ${this.color('Error:', 'red')} ${error}\n`;
+      if (passed && expected?.shouldSucceed === false) {
+        // Test passed by correctly rejecting invalid input - show as expected behavior
+        output += `  ${this.color('Correctly rejected:', 'dim')} ${error}\n`;
+      } else if (!passed) {
+        // Actual failure - show as error
+        output += `  ${this.color('Error:', 'red')} ${error}\n`;
+      }
     }
 
     // Show expected values if failed
@@ -321,17 +327,24 @@ export class ResultFormatter {
 
     switch (key) {
       case 'selector':
-        return result.selector;
+        // For advanced tests, selector is in mainCall
+        return result.selector || result.mainCall?.selector;
       case 'functionName':
-        return result.functionName;
+        // For advanced tests, functionName is in mainCall
+        return result.functionName || result.mainCall?.functionName;
       case 'functionSignature':
-        return result.function;
+        return result.function || result.mainCall?.function;
       case 'intentContains':
         return result.intent;
       case 'txType':
         return result.txType;
       case 'nestedIntentCount':
         return result.nestedIntents?.length;
+      case 'nestedIntentContains':
+        // Show aggregated intent and nested intents for debugging
+        const nested = result.nestedIntents || result.allIntents || [];
+        const agg = result.aggregatedIntent || result.intent || '';
+        return nested.length > 0 ? nested.join(', ') : agg;
       default:
         return result[key] || result.params?.[key];
     }

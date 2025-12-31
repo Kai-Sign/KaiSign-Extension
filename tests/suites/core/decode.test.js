@@ -75,7 +75,9 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: true,
       selector: '0xa9059cbb',
-      functionName: 'transfer'
+      functionName: 'transfer',
+      intent: 'Transfer 0.10 USDC',
+      intentContains: '0.10'
     }
   }));
 
@@ -86,7 +88,10 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: true,
       selector: '0x095ea7b3',
-      functionName: 'approve'
+      functionName: 'approve',
+      intent: 'Approve Unlimited USDC',
+      intentContains: 'Unlimited',
+      intentDoesNotContain: '115792089'  // Should NOT show raw max uint256
     }
   }));
 
@@ -372,14 +377,15 @@ export async function runTests(harness) {
     }
   });
 
-  // 1.5 USDC = 1500000 (6 decimals)
+  // 2.0 USDC = 2000000 (6 decimals)
   results.push(await harness.runTest({
     name: 'Token amount formatting (6 decimals)',
     calldata: '0xa9059cbb000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa9604500000000000000000000000000000000000000000000000000000000001e8480',
     contractAddress: '0xtest6666666666666666666666666666666666',
     expected: {
       shouldSucceed: true,
-      intentContains: 'Transfer'
+      intent: 'Transfer 2.00 USDC',
+      intentContains: '2.00'
     }
   }));
 
@@ -391,7 +397,9 @@ export async function runTests(harness) {
     contractAddress: '0xtest6666666666666666666666666666666666',
     expected: {
       shouldSucceed: true,
-      intentContains: 'Unlimited'
+      intent: 'Transfer Unlimited USDC',
+      intentContains: 'Unlimited',
+      intentDoesNotContain: '115792089'  // Should NOT show raw max uint256
     }
   }));
 
