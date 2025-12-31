@@ -20,6 +20,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 dotenv.config({ path: path.resolve(__dirname, '../../../Kai-Sign-Builder/.env') });
 
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || '';
+const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL || 'https://eth-mainnet.g.alchemy.com/v2/demo';
 const DELAY_MS = 250; // Rate limiting
 
 async function sleep(ms) {
@@ -28,10 +29,11 @@ async function sleep(ms) {
 
 /**
  * Fetch recent transactions for a contract
+ * Uses Etherscan V2 API (requires V2-enabled API key)
  */
 async function fetchRecentTransactions(address, chainId = 1, maxTxs = 100) {
-  const baseUrl = getEtherscanApiUrl(chainId);
-  const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&page=1&offset=${maxTxs}&apikey=${ETHERSCAN_API_KEY}`;
+  // Etherscan V2 API format
+  const url = `https://api.etherscan.io/v2/api?chainid=${chainId}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&page=1&offset=${maxTxs}&apikey=${ETHERSCAN_API_KEY}`;
 
   try {
     const response = await fetch(url);
@@ -40,6 +42,12 @@ async function fetchRecentTransactions(address, chainId = 1, maxTxs = 100) {
     if (data.status === '1' && Array.isArray(data.result)) {
       return data.result.filter(tx => tx.input && tx.input.length > 10);
     }
+
+    // V2 API requires a V2-enabled API key
+    if (data.message === 'NOTOK' && data.result?.includes('Invalid API Key')) {
+      console.warn(`  [WARN] Etherscan V2 API requires a V2-enabled API key. Get one at https://etherscan.io/myapikey`);
+    }
+
     return [];
   } catch (e) {
     console.error(`[Etherscan] Error fetching transactions:`, e.message);
@@ -48,14 +56,20 @@ async function fetchRecentTransactions(address, chainId = 1, maxTxs = 100) {
 }
 
 /**
- * Fetch single transaction by hash
+ * Fetch single transaction by hash using Alchemy RPC
  */
 async function fetchTransactionByHash(txHash, chainId = 1) {
-  const baseUrl = getEtherscanApiUrl(chainId);
-  const url = `${baseUrl}?module=proxy&action=eth_getTransactionByHash&txhash=${txHash}&apikey=${ETHERSCAN_API_KEY}`;
-
   try {
-    const response = await fetch(url);
+    const response = await fetch(ALCHEMY_RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getTransactionByHash',
+        params: [txHash]
+      })
+    });
     const data = await response.json();
 
     if (data.result) {
@@ -63,7 +77,7 @@ async function fetchTransactionByHash(txHash, chainId = 1) {
     }
     return null;
   } catch (e) {
-    console.error(`[Etherscan] Error fetching tx ${txHash}:`, e.message);
+    console.error(`[Alchemy] Error fetching tx ${txHash}:`, e.message);
     return null;
   }
 }
