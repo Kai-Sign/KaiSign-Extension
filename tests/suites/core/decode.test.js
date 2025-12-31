@@ -16,25 +16,77 @@ import { ethers } from 'ethers';
 export async function runTests(harness) {
   const results = [];
 
+  // ===== Add USDC metadata for selector tests =====
+  const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+  harness.addMetadata(usdcAddress, {
+    context: {
+      contract: {
+        address: usdcAddress,
+        chainId: 1,
+        name: 'USD Coin',
+        abi: [
+          {
+            type: 'function',
+            name: 'transfer',
+            selector: '0xa9059cbb',
+            inputs: [
+              { name: 'to', type: 'address' },
+              { name: 'value', type: 'uint256' }
+            ]
+          },
+          {
+            type: 'function',
+            name: 'approve',
+            selector: '0x095ea7b3',
+            inputs: [
+              { name: 'spender', type: 'address' },
+              { name: 'value', type: 'uint256' }
+            ]
+          }
+        ]
+      }
+    },
+    display: {
+      formats: {
+        'transfer(address,uint256)': {
+          intent: 'Transfer USDC',
+          fields: [
+            { path: 'to', label: 'To', format: 'address' },
+            { path: 'value', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
+          ]
+        },
+        'approve(address,uint256)': {
+          intent: 'Approve USDC spending',
+          fields: [
+            { path: 'spender', label: 'Spender', format: 'address' },
+            { path: 'value', label: 'Amount', format: 'amount', params: { decimals: 6, symbol: 'USDC' } }
+          ]
+        }
+      }
+    }
+  });
+
   // ===== Selector Calculation Tests =====
 
   results.push(await harness.runTest({
     name: 'ERC-20 transfer selector calculation',
     calldata: '0xa9059cbb000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa9604500000000000000000000000000000000000000000000000000000000000186a0',
-    contractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC
+    contractAddress: usdcAddress,
     expected: {
       shouldSucceed: true,
-      selector: '0xa9059cbb'
+      selector: '0xa9059cbb',
+      functionName: 'transfer'
     }
   }));
 
   results.push(await harness.runTest({
     name: 'ERC-20 approve selector',
     calldata: '0x095ea7b3000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa96045ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
-    contractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    contractAddress: usdcAddress,
     expected: {
       shouldSucceed: true,
-      selector: '0x095ea7b3'
+      selector: '0x095ea7b3',
+      functionName: 'approve'
     }
   }));
 

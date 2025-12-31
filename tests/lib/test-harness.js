@@ -72,11 +72,14 @@ export class TestHarness {
     try {
       // Validate inputs
       if (!calldata || calldata.length < 10) {
-        return this.createResult(name, false, null, expected, 'Invalid calldata', Date.now() - startTime);
+        // If test expects failure, this is correct behavior
+        const passed = expected.shouldSucceed === false;
+        return this.createResult(name, passed, { success: false }, expected, 'Invalid calldata', Date.now() - startTime);
       }
 
       if (!contractAddress) {
-        return this.createResult(name, false, null, expected, 'Missing contract address', Date.now() - startTime);
+        const passed = expected.shouldSucceed === false;
+        return this.createResult(name, passed, { success: false }, expected, 'Missing contract address', Date.now() - startTime);
       }
 
       // Decode the calldata
