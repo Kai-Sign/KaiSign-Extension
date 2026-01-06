@@ -242,8 +242,15 @@ class RecursiveCalldataDecoder {
 
       // Resolve target address using JSONPath or params.calleePath
       let targetAddress = fieldDef.to || fieldDef.params?.calleePath;
-      if (targetAddress?.startsWith('$.')) {
-        targetAddress = window.resolveJsonPath(targetAddress, params);
+      if (targetAddress) {
+        if (targetAddress.startsWith('$.')) {
+          // JSONPath format: "$.to" or "$.message.recipient"
+          targetAddress = window.resolveJsonPath(targetAddress, params);
+        } else if (!targetAddress.startsWith('0x')) {
+          // Simple field name: "to" -> resolve from params.to
+          targetAddress = params[targetAddress];
+        }
+        // else: already an address like "0x..."
       }
 
       if (!targetAddress) continue;

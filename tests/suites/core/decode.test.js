@@ -9,6 +9,7 @@
  */
 
 import { ethers } from 'ethers';
+import { loadMetadata } from '../../lib/metadata-loader.js';
 
 /**
  * Run all core decode tests
@@ -400,6 +401,26 @@ export async function runTests(harness) {
       intent: 'Transfer Unlimited USDC',
       intentContains: 'Unlimited',
       intentDoesNotContain: '115792089'  // Should NOT show raw max uint256
+    }
+  }));
+
+  // ===== Duplicate Symbol Prevention =====
+  // Test that intents like "Approve {amount} USDC" with formatted value "0.50 USDC"
+  // do NOT produce "Approve 0.50 USDC USDC"
+  // Uses the ACTUAL usdc.json fixture file to test real-world metadata
+
+  const realUsdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+  harness.addMetadata(realUsdcAddress, loadMetadata('tokens/usdc.json'));
+
+  // 0.10 USDC = 100000 (6 decimals)
+  results.push(await harness.runTest({
+    name: 'No duplicate symbol in intent (real USDC fixture)',
+    calldata: '0x095ea7b3000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa9604500000000000000000000000000000000000000000000000000000000000186a0',  // 100000 = 0.10 USDC
+    contractAddress: realUsdcAddress,
+    expected: {
+      shouldSucceed: true,
+      intent: 'Approve 0.10 USDC',
+      intentDoesNotContain: 'USDC USDC'  // Should NOT have duplicate symbol
     }
   }));
 

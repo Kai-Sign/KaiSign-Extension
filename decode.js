@@ -592,11 +592,22 @@ async function decodeCalldata(data, contractAddress, chainId) {
       }
     } else {
       // Standard intent handling
-      // If formatted has a 'value' field, inject it into intent
-      // This ensures amounts are shown in intents like "Transfer 0.10 USDC" instead of "Transfer USDC"
+      // Inject {value} into intent, but skip if value is zero (prevents "Execute 0" for Safe transactions)
       if (formatted.value && typeof intent === 'string') {
-        const firstWord = intent.split(/\s+/)[0];
-        intent = firstWord + ' {value}';
+        const formattedVal = formatted.value.value || '';
+        // Check if value is non-zero and meaningful (not just "0", "0x0", "0.00")
+        const valueIsZero = formattedVal === '0' ||
+                            formattedVal === '0x0' ||
+                            formattedVal === '0.00' ||
+                            formattedVal === '0.00 ETH' ||
+                            formattedVal === '0 ETH';
+
+        // Only inject {value} if the value is non-zero
+        // This avoids "Execute 0" for Safe transactions with value=0
+        if (!valueIsZero) {
+          const firstWord = intent.split(/\s+/)[0];
+          intent = firstWord + ' {value}';
+        }
       }
 
       // Substitute template variables in intent (e.g., "Swap {amount} {token}")
@@ -842,7 +853,21 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
       if (formatType === 'label') {
         return formattedValue.label || paramPath;
       }
-      return formattedValue.value || match;
+      let value = formattedValue.value || match;
+
+      // Check if template has a token symbol immediately after this placeholder
+      // e.g., "Approve {amount} USDC" with value "0.50 USDC" → avoid "0.50 USDC USDC"
+      const matchIndex = result.indexOf(match);
+      if (matchIndex !== -1) {
+        const afterMatch = result.slice(matchIndex + match.length);
+        const symbolMatch = afterMatch.match(/^\s+(USDC|USDT|DAI|WETH|ETH|WBTC|MATIC|BNB|AVAX|FTM|ARB|OP|[A-Z]{2,6})\b/i);
+        if (symbolMatch && value.toUpperCase().endsWith(symbolMatch[1].toUpperCase())) {
+          // Remove the duplicate symbol from the end of the value
+          value = value.replace(new RegExp(`\\s*${symbolMatch[1]}$`, 'i'), '');
+        }
+      }
+
+      return value;
     }
 
     // Fall back to raw params - try rawParams first for nested object paths

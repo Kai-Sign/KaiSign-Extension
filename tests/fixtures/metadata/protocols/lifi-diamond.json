@@ -1,0 +1,108 @@
+{
+  "$schema": "https://erc7730.org/schema/v1",
+  "context": {
+    "contract": {
+      "address": "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae",
+      "chainId": 1,
+      "name": "LiFi Diamond",
+      "abi": [
+        {
+          "type": "function",
+          "name": "swapTokensMultipleV3ERC20ToNative",
+          "selector": "0xd24c2325",
+          "inputs": [
+            { "name": "_transactionId", "type": "bytes32" },
+            { "name": "_integrator", "type": "string" },
+            { "name": "_referrer", "type": "string" },
+            { "name": "_receiver", "type": "address" },
+            { "name": "_minAmountOut", "type": "uint256" },
+            {
+              "name": "_swapData",
+              "type": "tuple[]",
+              "components": [
+                { "name": "callTo", "type": "address" },
+                { "name": "approveTo", "type": "address" },
+                { "name": "sendingAssetId", "type": "address" },
+                { "name": "receivingAssetId", "type": "address" },
+                { "name": "fromAmount", "type": "uint256" },
+                { "name": "callData", "type": "bytes" },
+                { "name": "requiresDeposit", "type": "bool" }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "function",
+          "name": "swapTokensSingleV3ERC20ToERC20",
+          "selector": "0x54e97ec9",
+          "inputs": [
+            { "name": "_transactionId", "type": "bytes32" },
+            { "name": "_integrator", "type": "string" },
+            { "name": "_referrer", "type": "string" },
+            { "name": "_receiver", "type": "address" },
+            { "name": "_minAmountOut", "type": "uint256" },
+            {
+              "name": "_swapData",
+              "type": "tuple",
+              "components": [
+                { "name": "callTo", "type": "address" },
+                { "name": "approveTo", "type": "address" },
+                { "name": "sendingAssetId", "type": "address" },
+                { "name": "receivingAssetId", "type": "address" },
+                { "name": "fromAmount", "type": "uint256" },
+                { "name": "callData", "type": "bytes" },
+                { "name": "requiresDeposit", "type": "bool" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "swapTokensMultipleV3ERC20ToNative(bytes32,string,string,address,uint256,tuple[])": {
+        "intent": "Swap tokens",
+        "fields": [
+          { "path": "_receiver", "label": "Receiver", "format": "addressName" },
+          { "path": "_minAmountOut", "label": "Minimum Output", "format": "raw" },
+          { "path": "_swapData.[].sendingAssetId", "label": "Input Token", "format": "addressName" },
+          { "path": "_swapData.[].receivingAssetId", "label": "Output Token", "format": "addressName" },
+          {
+            "path": "_swapData.[].fromAmount",
+            "label": "Swap Amount",
+            "format": "tokenAmount",
+            "params": { "tokenPath": "_swapData.[].sendingAssetId" }
+          },
+          {
+            "path": "_swapData.[].callData",
+            "label": "Swap Call",
+            "format": "calldata",
+            "params": { "calleePath": "_swapData.[].callTo" }
+          }
+        ]
+      },
+      "swapTokensSingleV3ERC20ToERC20(bytes32,string,string,address,uint256,tuple)": {
+        "intent": "Swap tokens",
+        "fields": [
+          { "path": "_receiver", "label": "Receiver", "format": "addressName" },
+          { "path": "_minAmountOut", "label": "Minimum Output", "format": "raw" },
+          { "path": "_swapData.sendingAssetId", "label": "Input Token", "format": "addressName" },
+          { "path": "_swapData.receivingAssetId", "label": "Output Token", "format": "addressName" },
+          {
+            "path": "_swapData.fromAmount",
+            "label": "Swap Amount",
+            "format": "tokenAmount",
+            "params": { "tokenPath": "_swapData.sendingAssetId" }
+          },
+          {
+            "path": "_swapData.callData",
+            "label": "Swap Call",
+            "format": "calldata",
+            "params": { "calleePath": "_swapData.callTo" }
+          }
+        ]
+      }
+    }
+  }
+}

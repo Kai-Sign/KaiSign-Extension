@@ -145,6 +145,39 @@ export async function runTests(harness) {
     }
   }));
 
+  // Test execTransaction with value=0 (should NOT show "Execute 0")
+  // This tests the fix for value substitution bug
+  results.push(await harness.runTest({
+    name: 'Safe execTransaction (value=0, intent should not be "Execute 0")',
+    calldata: '0x6a761202' +
+      '000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' + // to: USDC
+      '0000000000000000000000000000000000000000000000000000000000000000' + // value: 0
+      '0000000000000000000000000000000000000000000000000000000000000140' + // data offset
+      '0000000000000000000000000000000000000000000000000000000000000000' + // operation: Call
+      '0000000000000000000000000000000000000000000000000000000000000000' + // safeTxGas
+      '0000000000000000000000000000000000000000000000000000000000000000' + // baseGas
+      '0000000000000000000000000000000000000000000000000000000000000000' + // gasPrice
+      '0000000000000000000000000000000000000000000000000000000000000000' + // gasToken
+      '0000000000000000000000000000000000000000000000000000000000000000' + // refundReceiver
+      '00000000000000000000000000000000000000000000000000000000000001a0' + // signatures offset
+      '0000000000000000000000000000000000000000000000000000000000000044' + // data length (68 bytes = approve)
+      '095ea7b3' + // approve selector
+      '000000000000000000000000111111125421ca6dc452d289314280a0f8842a65' + // spender
+      'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' + // amount (max)
+      '0000000000000000000000000000000000000000000000000000000000000041' + // sig length
+      '0000000000000000000000000000000000000000000000000000000000000000' + // sig padding
+      '0000000000000000000000000000000000000000000000000000000000000000' + // sig padding
+      '0000000000000000000000000000000000000000000000000000000000000000', // sig padding
+    contractAddress: safeSingletonAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x6a761202',
+      functionName: 'execTransaction',
+      intent: 'Execute Safe transaction', // Should NOT be "Execute 0"
+      intentDoesNotContain: 'Execute 0'
+    }
+  }));
+
   // Load real Safe transactions from fixtures
   const safeOpsFile = path.resolve(__dirname, '../../fixtures/transactions/accountAbstraction-operations.json');
   if (fs.existsSync(safeOpsFile)) {
