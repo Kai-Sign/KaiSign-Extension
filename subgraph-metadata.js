@@ -315,7 +315,7 @@ class SubgraphMetadataService {
   }
 
   /**
-   * Get token metadata (symbol, decimals, name)
+   * Get token metadata (symbol, decimals, name) - fetches from on-chain if API doesn't provide
    * @param {string} address - Token address
    * @param {number} chainId - Chain ID
    * @returns {Promise<Object>} Token metadata
@@ -327,36 +327,97 @@ class SubgraphMetadataService {
     // Check token cache
     const cached = this.tokenCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+      console.log('[KaiSign API] Token cache hit:', normalizedAddress);
       return cached.data;
     }
 
+    let symbol = '';
+    let decimals = 18;
+    let name = 'Unknown Token';
+
+    // Try to get from API first
     try {
       const metadata = await this.getContractMetadata(normalizedAddress, chainId);
-
-      // Extract token info from metadata
-      const tokenInfo = {
-        symbol: metadata.metadata?.symbol || metadata.context?.contract?.symbol || 'TOKEN',
-        decimals: metadata.metadata?.decimals || metadata.context?.contract?.decimals || 18,
-        name: metadata.metadata?.name || metadata.context?.contract?.name || 'Unknown Token',
-        address: normalizedAddress
-      };
-
-      // Cache token info
-      this.tokenCache.set(cacheKey, {
-        data: tokenInfo,
-        timestamp: Date.now()
-      });
-
-      return tokenInfo;
+      symbol = metadata.metadata?.symbol || metadata.context?.contract?.symbol || '';
+      decimals = metadata.metadata?.decimals || metadata.context?.contract?.decimals || 0;
+      name = metadata.metadata?.name || metadata.context?.contract?.name || 'Unknown Token';
     } catch (error) {
-      console.warn('[Subgraph] Token metadata not found:', normalizedAddress, error.message);
-      // Return default values if not found
-      return {
-        symbol: 'UNKNOWN',
-        decimals: 18,
-        name: 'Unknown Token',
-        address: normalizedAddress
-      };
+      console.warn('[KaiSign API] Token API metadata not found:', normalizedAddress, error.message);
+    }
+
+    // If no decimals from API, fetch from on-chain
+    if (!decimals) {
+      console.log('[KaiSign API] Fetching token decimals on-chain:', normalizedAddress);
+      try {
+        // decimals() selector: 0x313ce567
+        const decimalsResult = await this.ethCall(normalizedAddress, '0x313ce567');
+        if (decimalsResult && decimalsResult !== '0x') {
+          decimals = parseInt(decimalsResult, 16);
+          console.log('[KaiSign API] Got decimals from on-chain:', decimals);
+        }
+      } catch (e) {
+        console.warn('[KaiSign API] Failed to fetch decimals on-chain:', e.message);
+        decimals = 18; // Default
+      }
+    }
+
+    // If no symbol from API, fetch from on-chain
+    if (!symbol) {
+      console.log('[KaiSign API] Fetching token symbol on-chain:', normalizedAddress);
+      try {
+        // symbol() selector: 0x95d89b41
+        const symbolResult = await this.ethCall(normalizedAddress, '0x95d89b41');
+        if (symbolResult && symbolResult !== '0x' && symbolResult.length > 2) {
+          // Decode string return value (ABI encoded)
+          symbol = this.decodeAbiString(symbolResult);
+          console.log('[KaiSign API] Got symbol from on-chain:', symbol);
+        }
+      } catch (e) {
+        console.warn('[KaiSign API] Failed to fetch symbol on-chain:', e.message);
+        symbol = `${normalizedAddress.slice(0, 6)}...${normalizedAddress.slice(-4)}`;
+      }
+    }
+
+    const tokenInfo = {
+      symbol: symbol || 'TOKEN',
+      decimals: decimals || 18,
+      name: name,
+      address: normalizedAddress
+    };
+
+    // Cache token info
+    this.tokenCache.set(cacheKey, {
+      data: tokenInfo,
+      timestamp: Date.now()
+    });
+
+    console.log('[KaiSign API] Token metadata resolved:', tokenInfo);
+    return tokenInfo;
+  }
+
+  /**
+   * Decode ABI-encoded string return value
+   * @param {string} hexData - Hex encoded string data
+   * @returns {string} Decoded string
+   */
+  decodeAbiString(hexData) {
+    try {
+      // Remove 0x prefix
+      const data = hexData.slice(2);
+      // Skip offset (32 bytes) and length (32 bytes), then decode UTF-8
+      const offset = parseInt(data.slice(0, 64), 16) * 2;
+      const length = parseInt(data.slice(offset, offset + 64), 16);
+      const strHex = data.slice(offset + 64, offset + 64 + length * 2);
+      // Convert hex to string
+      let str = '';
+      for (let i = 0; i < strHex.length; i += 2) {
+        const charCode = parseInt(strHex.slice(i, i + 2), 16);
+        if (charCode > 0) str += String.fromCharCode(charCode);
+      }
+      return str;
+    } catch (e) {
+      console.warn('[KaiSign API] Failed to decode ABI string:', e.message);
+      return '';
     }
   }
 

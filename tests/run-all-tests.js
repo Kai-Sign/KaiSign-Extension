@@ -32,6 +32,7 @@ const TEST_SUITES = [
   { name: 'core/decode.test.js', path: './suites/core/decode.test.js' },
   { name: 'core/recursive.test.js', path: './suites/core/recursive.test.js' },
   { name: 'core/advanced.test.js', path: './suites/core/advanced.test.js' },
+  { name: 'core/types-advanced.test.js', path: './suites/core/types-advanced.test.js' },
 
   // Protocol tests
   { name: 'protocols/uniswap.test.js', path: './suites/protocols/uniswap.test.js' },

@@ -2,29 +2,137 @@
  * Recursive Decoder Tests
  *
  * Tests nested calldata decoding:
- * - Multicall patterns
- * - Nested calldata resolution
- * - Intent aggregation
- * - Depth limiting
+ * - Calldata field resolution
+ * - Array path decoding (calls.[].data)
+ * - Intent aggregation from nested calls
  */
 
-/**
- * Run recursive decoder tests
- */
+import { ethers } from 'ethers';
+import { CONTRACTS } from '../../config.js';
+import { loadMetadata } from '../../lib/metadata-loader.js';
+
 export async function runTests(harness) {
   const results = [];
 
-  // TODO: Add recursive decoder tests when recursive decoder is available
-  console.log('  [INFO] Recursive decoder tests - placeholder');
+  const safeSingletonAddress = CONTRACTS.accountAbstraction.safeSingleton.address.toLowerCase();
+  const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
 
-  results.push({
-    name: 'Recursive decoder initialization',
-    passed: true,
-    duration: 0,
-    result: { success: true, intent: 'Placeholder test' },
-    expected: {},
-    error: null
+  harness.addMetadata(safeSingletonAddress, loadMetadata('aa/safe-singleton.json'));
+  harness.addMetadata(usdcAddress, loadMetadata('tokens/usdc.json'));
+
+  results.push(await harness.runRecursiveTest({
+    name: 'Recursive decode: Safe execTransaction → USDC approve',
+    calldata: '0x6a761202' +
+      '000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' + // to: USDC
+      '0000000000000000000000000000000000000000000000000000000000000000' + // value: 0
+      '0000000000000000000000000000000000000000000000000000000000000140' + // data offset
+      '0000000000000000000000000000000000000000000000000000000000000000' + // operation: Call
+      '0000000000000000000000000000000000000000000000000000000000000000' + // safeTxGas
+      '0000000000000000000000000000000000000000000000000000000000000000' + // baseGas
+      '0000000000000000000000000000000000000000000000000000000000000000' + // gasPrice
+      '0000000000000000000000000000000000000000000000000000000000000000' + // gasToken
+      '0000000000000000000000000000000000000000000000000000000000000000' + // refundReceiver
+      '00000000000000000000000000000000000000000000000000000000000001a0' + // signatures offset
+      '0000000000000000000000000000000000000000000000000000000000000044' + // data length
+      '095ea7b3' + // approve selector
+      '000000000000000000000000111111125421ca6dc452d289314280a0f8842a65' + // spender
+      'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' + // amount (max)
+      '0000000000000000000000000000000000000000000000000000000000000041' + // sig length
+      '0000000000000000000000000000000000000000000000000000000000000000' + // sig padding
+      '0000000000000000000000000000000000000000000000000000000000000000' + // sig padding
+      '0000000000000000000000000000000000000000000000000000000000000000', // sig padding
+    contractAddress: safeSingletonAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'execTransaction',
+      nestedIntentCount: 1,
+      nestedIntentContains: ['Approve Unlimited USDC']
+    }
+  }));
+
+  const multicallAddress = '0xtest9999999999999999999999999999999999';
+  const multicallIface = new ethers.Interface([
+    'function aggregate((address to, bytes data)[] calls)'
+  ]);
+  const multicallSelector = multicallIface.getFunction('aggregate').selector;
+  const multicallAbi = [
+    {
+      type: 'function',
+      name: 'aggregate',
+      selector: multicallSelector,
+      inputs: [
+        {
+          name: 'calls',
+          type: 'tuple[]',
+          components: [
+            { name: 'to', type: 'address' },
+            { name: 'data', type: 'bytes' }
+          ]
+        }
+      ]
+    }
+  ];
+
+  harness.addMetadata(multicallAddress, {
+    context: {
+      contract: {
+        address: multicallAddress,
+        chainId: 1,
+        name: 'Test Multicall',
+        abi: multicallAbi
+      }
+    },
+    display: {
+      formats: {
+        'aggregate(tuple[])': {
+          intent: 'Aggregate calls',
+          fields: [
+            {
+              path: 'calls.[].data',
+              label: 'Calls',
+              format: 'calldata',
+              type: 'calldata',
+              params: { calleePath: 'calls.[].to' }
+            }
+          ]
+        }
+      }
+    }
   });
+
+  const wethAddress = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+  harness.addMetadata(wethAddress, loadMetadata('tokens/weth.json'));
+
+  const usdcIface = new ethers.Interface([
+    'function approve(address spender,uint256 value)'
+  ]);
+  const wethIface = new ethers.Interface([
+    'function approve(address guy,uint256 wad)'
+  ]);
+
+  const spender = '0x111111125421ca6dc452d289314280a0f8842a65';
+  const multicallCalldata = multicallIface.encodeFunctionData('aggregate', [[
+    {
+      to: usdcAddress,
+      data: usdcIface.encodeFunctionData('approve', [spender, ethers.MaxUint256])
+    },
+    {
+      to: wethAddress,
+      data: wethIface.encodeFunctionData('approve', [spender, ethers.parseUnits('1', 18)])
+    }
+  ]]);
+
+  results.push(await harness.runRecursiveTest({
+    name: 'Recursive decode: array path calls.[].data',
+    calldata: multicallCalldata,
+    contractAddress: multicallAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'aggregate',
+      nestedIntentCount: 2,
+      nestedIntentContains: ['Approve Unlimited USDC', 'Approve WETH spending']
+    }
+  }));
 
   return results;
 }

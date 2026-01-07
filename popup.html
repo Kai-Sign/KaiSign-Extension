@@ -12,6 +12,7 @@
     <div class="logo">
       <span class="logo-icon">KS</span>
       <span class="logo-text">KaiSign</span>
+      <span class="tx-count-badge" id="txCount">0</span>
     </div>
     <div class="header-actions">
       <button class="btn-icon" id="refreshBtn" title="Refresh">
@@ -29,25 +30,13 @@
     </div>
   </header>
 
-  <!-- Stats Section -->
-  <section class="stats-section">
-    <div class="stats-grid">
-      <div class="stat-card">
-        <span class="stat-value" id="txCount">-</span>
-        <span class="stat-label">Transactions</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- Search Section -->
-  <section class="search-section">
-    <div class="search-box">
-      <svg viewBox="0 0 16 16" fill="currentColor">
-        <path fill-rule="evenodd" d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
-      </svg>
-      <input type="text" class="search-input" id="searchInput" placeholder="Search transactions...">
-    </div>
-  </section>
+  <!-- Search -->
+  <div class="search-wrapper">
+    <svg viewBox="0 0 16 16" fill="currentColor">
+      <path fill-rule="evenodd" d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+    </svg>
+    <input type="text" class="search-input" id="searchInput" placeholder="Search...">
+  </div>
 
   <!-- Transaction List -->
   <div class="tx-list-container">

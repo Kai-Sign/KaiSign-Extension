@@ -732,29 +732,8 @@ function getTokenSymbol(address) {
   return formatAddressShort(address);
 }
 
-/**
- * Format token amount - GENERIC, no hardcoded decimals
- * Assumes 18 decimals as safe default when unknown
- */
-function formatTokenAmount(amount, tokenOrSymbol) {
-  if (!amount) return '0';
-  const amtStr = amount.toString();
-
-  // No hardcoded token-specific decimals
-  // Default to 18 decimals (most common ERC-20 standard)
-  const decimals = 18;
-
-  try {
-    const bn = BigInt(amtStr);
-    const divisor = BigInt(10 ** decimals);
-    const whole = bn / divisor;
-    const frac = bn % divisor;
-    const fracStr = frac.toString().padStart(decimals, '0').slice(0, 4);
-    return `${whole}.${fracStr}`;
-  } catch {
-    return amtStr;
-  }
-}
+// formatTokenAmount is defined in decode.js - do not duplicate here
+// The decode.js version fetches decimals from API/on-chain for accurate formatting
 
 // Helper formatters for Permit2
 function formatAddressShort(addr) {

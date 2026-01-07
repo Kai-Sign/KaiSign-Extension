@@ -45,8 +45,9 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x0502b1c5',
       functionName: 'unoswap',
-      intent: 'Swap 100.00 USDC via 1inch',
-      intentContains: '100.00'
+      intentContains: 'Swap 100.00 USDC for at least'
+      // interpolatedIntent: "Swap {amount} for at least {minReturn}"
+      // Note: minReturn can't be formatted as token amount (no dstToken in function)
     }
   }));
 

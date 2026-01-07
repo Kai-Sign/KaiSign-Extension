@@ -56,8 +56,8 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x415565b0',
       functionName: 'transformERC20',
-      intent: 'Swap 1.00 USDC via 0x',
-      intentContains: '1.00'
+      intentContains: 'Swap 1.00 USDC for at least'
+      // interpolatedIntent: "Swap {inputTokenAmount} for at least {minOutputTokenAmount}"
     }
   }));
 
