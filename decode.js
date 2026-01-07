@@ -597,7 +597,8 @@ async function decodeCalldata(data, contractAddress, chainId) {
       // ERC-7730 interpolatedIntent - process template with field values
       const template = intent.template;
       console.log('[Decode] Processing interpolatedIntent template:', template);
-      finalIntent = substituteIntentTemplate(template, params, formatted, rawParams);
+      // Pass format.fields so we can apply formatters to nested paths
+      finalIntent = substituteInterpolatedIntent(template, rawParams, format.fields || []);
       console.log('[Decode] Interpolated result:', finalIntent);
     } else {
       // Standard intent handling
@@ -889,8 +890,15 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
       return value;
     };
 
-    // Try formatted value first (using path as-is, including #. prefix)
-    const formattedValue = getNestedValue(formatted, paramPath);
+    // Try formatted value first - check direct key lookup before nested navigation
+    // formatted object stores values by path as key: formatted["#._swapData.[0].fromAmount"]
+    let formattedValue = formatted[paramPath];
+
+    // If not found by direct key, try nested navigation
+    if (!formattedValue) {
+      formattedValue = getNestedValue(formatted, paramPath);
+    }
+
     if (formattedValue) {
       if (formatType === 'label') {
         return formattedValue.label || paramPath;
@@ -933,6 +941,139 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
   });
 
   return result;
+}
+
+/**
+ * ERC-7730 compliant interpolatedIntent processor
+ * Per spec: "For each expression, the wallet MUST resolve the path and locate the
+ * corresponding field format specification in the fields array"
+ * @param {string} template - interpolatedIntent template with {path} placeholders
+ * @param {object} rawParams - Decoded parameters
+ * @param {Array} fields - Field specifications from metadata
+ * @returns {string} - Intent with formatted values interpolated
+ */
+function substituteInterpolatedIntent(template, rawParams, fields) {
+  if (!template || typeof template !== 'string') return template;
+  if (!template.includes('{')) return template;
+
+  console.log('[interpolatedIntent] Template:', template);
+  console.log('[interpolatedIntent] Fields:', fields);
+
+  const regex = /\{([#@]?[\w.\[\]]+)(?::(\w+))?\}/g;
+
+  return template.replace(regex, (match, pathStr, formatType) => {
+    console.log(`[interpolatedIntent] Processing ${match}, pathStr="${pathStr}"`);
+
+    // Find field spec for this path
+    const fieldSpec = fields.find(f => f.path === pathStr);
+    if (!fieldSpec) {
+      console.warn(`[interpolatedIntent] No field spec found for path: ${pathStr}`);
+      return match;
+    }
+
+    console.log('[interpolatedIntent] Found field spec:', fieldSpec);
+
+    // Navigate to the value using the path
+    const value = resolveFieldPath(pathStr, rawParams);
+    if (value === undefined || value === null) {
+      console.warn(`[interpolatedIntent] No value found for path: ${pathStr}`);
+      return match;
+    }
+
+    console.log('[interpolatedIntent] Resolved value:', value);
+
+    // Apply the field's format and params (ERC-7730 requirement)
+    const formatted = applyFieldFormat(value, fieldSpec, rawParams);
+    console.log('[interpolatedIntent] Formatted value:', formatted);
+
+    return formatted;
+  });
+}
+
+/**
+ * Resolve a field path to its value in decoded params
+ * Supports ERC-7730 syntax: #._swapData.[0].fromAmount
+ */
+function resolveFieldPath(pathStr, params) {
+  // Remove #. or @. prefix
+  let currentPath = pathStr;
+  if (currentPath.startsWith('#.') || currentPath.startsWith('@.')) {
+    currentPath = currentPath.substring(2);
+  }
+
+  const parts = currentPath.split('.').filter(p => p);
+  let value = params;
+
+  for (const part of parts) {
+    if (value === undefined || value === null) return undefined;
+
+    // Handle array index: _swapData[0] or [0]
+    const arrayMatch = part.match(/^(.+?)?\[(\d+)\]$/);
+    if (arrayMatch) {
+      const fieldName = arrayMatch[1];
+      const index = parseInt(arrayMatch[2]);
+
+      if (fieldName) {
+        value = value[fieldName];
+        if (value === undefined || value === null) return undefined;
+      }
+
+      if (Array.isArray(value)) {
+        value = value[index];
+      } else {
+        return undefined;
+      }
+    } else {
+      value = value[part];
+    }
+  }
+
+  return value;
+}
+
+/**
+ * Apply ERC-7730 field format to a value
+ */
+function applyFieldFormat(value, fieldSpec, allParams) {
+  const format = fieldSpec.format;
+  const params = fieldSpec.params || {};
+
+  console.log(`[applyFieldFormat] format="${format}", value=`, value, 'params=', params);
+
+  // tokenAmount format
+  if (format === 'tokenAmount') {
+    const tokenPath = params.tokenPath;
+    if (!tokenPath) {
+      console.warn('[applyFieldFormat] tokenAmount format missing tokenPath');
+      return String(value);
+    }
+
+    // Resolve token address to get metadata
+    const tokenAddress = resolveFieldPath(tokenPath, allParams);
+    console.log('[applyFieldFormat] Token address:', tokenAddress);
+
+    // For now, use hardcoded USDC metadata (TODO: fetch from contract)
+    // This matches what the decode.js does for known tokens
+    let decimals = 18;
+    let symbol = '';
+
+    if (tokenAddress && tokenAddress.toLowerCase() === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48') {
+      decimals = 6;
+      symbol = 'USDC';
+    }
+
+    // Format the amount
+    return formatTokenAmount(String(value), decimals, symbol);
+  }
+
+  // addressName format
+  if (format === 'addressName') {
+    // TODO: Resolve ENS/address book
+    return String(value);
+  }
+
+  // Raw fallback
+  return String(value);
 }
 
 function toTitleCase(str) {
