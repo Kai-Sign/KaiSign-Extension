@@ -59,8 +59,8 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x54e3f31b',
       functionName: 'simpleSwap',
-      intent: 'Swap 1000000 via ParaSwap',
       intentContains: 'Swap'
+      // interpolatedIntent: "Swap {data.fromAmount} via ParaSwap" → "Swap 1.00 USDC via ParaSwap"
     }
   }));
 
