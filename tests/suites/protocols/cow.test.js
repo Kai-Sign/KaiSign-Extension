@@ -49,7 +49,13 @@ export async function runTests(harness) {
     name: 'CoW setPreSignature',
     calldata: setPreSignatureCalldata,
     contractAddress: cowAddress,
-    expected: { shouldSucceed: true, selector: '0xec6cb13f', functionName: 'setPreSignature', intent: 'Set CoW order pre-signature' }
+    expected: {
+      shouldSucceed: true,
+      selector: '0xec6cb13f',
+      functionName: 'setPreSignature',
+      intentContains: 'Set pre-signature for order'
+      // interpolatedIntent: "Set pre-signature for order {orderUid}"
+    }
   }));
 
   // CoW Protocol invalidateOrder calldata
@@ -64,7 +70,13 @@ export async function runTests(harness) {
     name: 'CoW invalidateOrder',
     calldata: invalidateOrderCalldata,
     contractAddress: cowAddress,
-    expected: { shouldSucceed: true, selector: '0x2d9a3f24', functionName: 'invalidateOrder', intent: 'Invalidate CoW order' }
+    expected: {
+      shouldSucceed: true,
+      selector: '0x2d9a3f24',
+      functionName: 'invalidateOrder',
+      intentContains: 'Invalidate order'
+      // interpolatedIntent: "Invalidate order {orderUid}"
+    }
   }));
 
   return results;

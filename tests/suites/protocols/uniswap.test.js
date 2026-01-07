@@ -29,6 +29,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { ethers } from 'ethers';
 import { CONTRACTS, UNISWAP_COMMANDS } from '../../config.js';
 import { loadMetadata } from '../../lib/metadata-loader.js';
 
@@ -117,6 +118,60 @@ export async function runTests(harness) {
   const permit2Address = CONTRACTS.dex.permit2.address.toLowerCase();
   harness.addMetadata(permit2Address, loadMetadata('protocols/permit2.json'));
 
+  const permit2Iface = new ethers.Interface([
+    'function permit(address owner, ((address token,uint160 amount,uint48 expiration,uint48 nonce) details,address spender,uint256 sigDeadline) permitSingle, bytes signature)',
+    'function permitTransferFrom(((address token,uint256 amount) permitted,uint256 nonce,uint256 deadline) permit, (address to,uint256 requestedAmount) transferDetails, address owner, bytes signature)'
+  ]);
+
+  const permitSignature = '0x' + '11'.repeat(65);
+  results.push(await harness.runTest({
+    name: 'Permit2 permit',
+    calldata: permit2Iface.encodeFunctionData('permit', [
+      '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+      {
+        details: {
+          token: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          amount: 1000n,
+          expiration: 1710000000n,
+          nonce: 1n
+        },
+        spender: '0x111111125421ca6dc452d289314280a0f8842a65',
+        sigDeadline: 1710000100n
+      },
+      permitSignature
+    ]),
+    contractAddress: permit2Address,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'permit'
+    }
+  }));
+
+  results.push(await harness.runTest({
+    name: 'Permit2 permitTransferFrom',
+    calldata: permit2Iface.encodeFunctionData('permitTransferFrom', [
+      {
+        permitted: {
+          token: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          amount: 5000n
+        },
+        nonce: 2n,
+        deadline: 1710000200n
+      },
+      {
+        to: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+        requestedAmount: 5000n
+      },
+      '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+      permitSignature
+    ]),
+    contractAddress: permit2Address,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'permitTransferFrom'
+    }
+  }));
+
   // Test V3 Factory
   const v3FactoryAddress = CONTRACTS.dex.uniswapV3Factory.address.toLowerCase();
   harness.addMetadata(v3FactoryAddress, loadMetadata('protocols/uniswap-v3-factory.json'));
@@ -138,6 +193,26 @@ export async function runTests(harness) {
   // Test Quoter V2
   const quoterAddress = CONTRACTS.dex.uniswapQuoterV2.address.toLowerCase();
   harness.addMetadata(quoterAddress, loadMetadata('protocols/uniswap-quoter-v2.json'));
+
+  const quoterIface = new ethers.Interface([
+    'function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96) params)'
+  ]);
+
+  results.push(await harness.runTest({
+    name: 'Quoter V2 quoteExactInputSingle',
+    calldata: quoterIface.encodeFunctionData('quoteExactInputSingle', [{
+      tokenIn: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      tokenOut: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+      amountIn: 1000000,
+      fee: 3000,
+      sqrtPriceLimitX96: 0
+    }]),
+    contractAddress: quoterAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'quoteExactInputSingle'
+    }
+  }));
 
   return results;
 }

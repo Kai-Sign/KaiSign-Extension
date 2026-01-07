@@ -144,14 +144,14 @@ function renderTransactions() {
           <path d="M5 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm-.5 2.5A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zM5 8a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm0 2a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1H5z"/>
           <path fill-rule="evenodd" d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm10-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1z"/>
         </svg>
-        <p>${currentSearch || currentFilter !== 'all' ? 'No matching transactions' : 'No transactions yet'}</p>
+        <p>${currentSearch ? 'No matching transactions' : 'No transactions yet'}</p>
       </div>
     `;
     return;
   }
 
   elements.txList.innerHTML = filtered.map(tx => {
-    const time = tx.time ? new Date(tx.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const time = tx.time ? formatTime(tx.time) : '';
     const intent = generateMeaningfulTitle(tx);
     const method = tx.method || '';
 
@@ -464,6 +464,18 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Format time - show time for today, date for older
+function formatTime(timestamp) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+
+  if (isToday) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 console.log('[KaiSign] Popup ready');

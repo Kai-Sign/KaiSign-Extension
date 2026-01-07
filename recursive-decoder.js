@@ -79,8 +79,9 @@ class RecursiveCalldataDecoder {
 
       // Process fields looking for nested calldata
       // Use function signature (e.g. "multicall(bytes)") if available, fallback to functionName
+      const paramsForRecursion = decoded.rawParams || decoded.params;
       const processedResult = await this.processFieldsRecursively(
-        decoded.params,
+        paramsForRecursion,
         decoded.function || decoded.functionName,
         metadata,
         { params: decoded.params, parentContext, targetAddress },
@@ -99,7 +100,7 @@ class RecursiveCalldataDecoder {
 
       return {
         ...decoded,
-        params: processedResult.params,
+        params: decoded.params,
         nestedDecodes: processedResult.nestedDecodes,
         nestedIntents,
         aggregatedIntent,

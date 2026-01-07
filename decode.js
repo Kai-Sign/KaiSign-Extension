@@ -631,6 +631,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
       function: functionSignature,
       functionName,
       params,
+      rawParams,
       intent: finalIntent,
       formatted,
       decodedCommands // Include decoded commands for display
