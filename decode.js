@@ -418,7 +418,10 @@ async function decodeCalldata(data, contractAddress, chainId) {
 
     if (format) {
       // Handle ERC-7730 intent formats
-      if (format.intent?.type === 'composite') {
+      if (format.interpolatedIntent) {
+        // ERC-7730 interpolatedIntent takes priority - will be processed after params are decoded
+        intent = { type: 'interpolated', template: format.interpolatedIntent };
+      } else if (format.intent?.type === 'composite') {
         // Composite intent - will be built from decoded commands later
         // Just mark it for now, actual building happens after decoding params
         intent = { type: 'composite', config: format.intent };
@@ -590,6 +593,12 @@ async function decodeCalldata(data, contractAddress, chainId) {
         finalIntent = 'Execute commands';
         console.log('[Decode] Missing commands or registry for composite intent');
       }
+    } else if (intent && typeof intent === 'object' && intent.type === 'interpolated') {
+      // ERC-7730 interpolatedIntent - process template with field values
+      const template = intent.template;
+      console.log('[Decode] Processing interpolatedIntent template:', template);
+      finalIntent = substituteIntentTemplate(template, params, formatted, rawParams);
+      console.log('[Decode] Interpolated result:', finalIntent);
     } else {
       // Standard intent handling
       // Inject {value} into intent, but skip if value is zero (prevents "Execute 0" for Safe transactions)
@@ -832,22 +841,55 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
 
   let result = template;
 
-  // Replace {paramName} or {paramName:format} or {nested.path} patterns
-  const regex = /\{([\w.]+)(?::(\w+))?\}/g;
+  // Replace {paramName} or {paramName:format} or {nested.path} or {#.path.[0].field} patterns
+  // Support ERC-7730 syntax: #. for parameters, [n] for array indices
+  const regex = /\{([#@]?[\w.\[\]]+)(?::(\w+))?\}/g;
   result = result.replace(regex, (match, paramPath, formatType) => {
-    // Helper to get nested value by path (e.g., "data.fromAmount")
+    // Helper to get nested value by path (e.g., "data.fromAmount" or "#._swapData.[0].fromAmount")
     const getNestedValue = (obj, path) => {
       if (!obj) return undefined;
-      const parts = path.split('.');
+
+      // Handle ERC-7730 path syntax: #._swapData.[0].fromAmount
+      // Split by dots but preserve array indices [n]
+      let currentPath = path;
+
+      // Remove #. or @. prefix - they just indicate the root
+      if (currentPath.startsWith('#.') || currentPath.startsWith('@.')) {
+        currentPath = currentPath.substring(2);
+      }
+
+      const parts = currentPath.split('.').filter(p => p);
       let value = obj;
+
       for (const part of parts) {
         if (value === undefined || value === null) return undefined;
-        value = value[part];
+
+        // Handle array index syntax: [0] or [1]
+        const arrayMatch = part.match(/^(.+?)\[(\d+)\]$/);
+        if (arrayMatch) {
+          const fieldName = arrayMatch[1];
+          const index = parseInt(arrayMatch[2]);
+
+          // First access the field name if it exists
+          if (fieldName) {
+            value = value[fieldName];
+            if (value === undefined || value === null) return undefined;
+          }
+
+          // Then access the array index
+          if (Array.isArray(value)) {
+            value = value[index];
+          } else {
+            return undefined;
+          }
+        } else {
+          value = value[part];
+        }
       }
       return value;
     };
 
-    // Try formatted value first (using path)
+    // Try formatted value first (using path as-is, including #. prefix)
     const formattedValue = getNestedValue(formatted, paramPath);
     if (formattedValue) {
       if (formatType === 'label') {
