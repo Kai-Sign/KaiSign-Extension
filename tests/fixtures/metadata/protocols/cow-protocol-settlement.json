@@ -1,7 +1,8 @@
 {
+  "$schema": "../../erc7730-v1.schema.json",
   "context": {
     "contract": {
-      "address": "0x9008d19f58aabd9ed0d60971565aa8510560ab41",
+      "address": "0x9008D19f58AAbD9eD0D60971565AA8510560ab41",
       "chainId": 1,
       "name": "CoW Protocol GPv2 Settlement",
       "abi": [
@@ -62,19 +63,18 @@
   },
   "display": {
     "formats": {
-      "settle(address[],uint256[],tuple[],tuple[][3])": {
+      "settle(address[],uint256[],(uint256,uint256,address,uint256,uint256,uint32,bytes32,uint256,uint256,uint256,bytes)[],(address,uint256,bytes)[][3])": {
         "intent": "Settle CoW batch auction",
         "fields": [
           { "path": "tokens", "label": "Tokens", "format": "array" },
-          { "path": "trades", "label": "Trades (off-chain matched)", "format": "array" },
-          { "path": "interactions", "label": "DEX Interactions", "format": "array" }
+          { "path": "trades", "label": "Trades", "format": "array" }
         ]
       },
       "setPreSignature(bytes,bool)": {
         "intent": "Set CoW order pre-signature",
         "fields": [
           { "path": "orderUid", "label": "Order UID", "format": "hex" },
-          { "path": "signed", "label": "Approve Order", "format": "boolean" }
+          { "path": "signed", "label": "Signed", "format": "boolean" }
         ]
       },
       "invalidateOrder(bytes)": {

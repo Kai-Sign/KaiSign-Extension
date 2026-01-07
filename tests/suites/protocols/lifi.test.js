@@ -18,11 +18,10 @@ export async function runTests(harness) {
   const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
   harness.addMetadata(usdcAddress, loadMetadata('tokens/usdc.json'));
 
-  // Test swapTokensMultipleV3ERC20ToNative - minimal calldata
-  // Just enough to test selector matching and intent
+  // Test swapTokensMultipleV3ERC20ToNative - uses selector 0x2c57e884 from backend metadata
   results.push(await harness.runTest({
     name: 'LiFi swapTokensMultipleV3ERC20ToNative (selector match)',
-    calldata: '0xd24c2325' +
+    calldata: '0x2c57e884' +
       // _transactionId (bytes32)
       'a482dfda03721a978ea9a5e8e3ea827a463f0a10529d1365061e99e14b01767a' +
       // minimal padding for string offsets and receiver
@@ -39,7 +38,7 @@ export async function runTests(harness) {
     contractAddress: lifiAddress,
     expected: {
       shouldSucceed: true,
-      selector: '0xd24c2325',
+      selector: '0x2c57e884',
       functionName: 'swapTokensMultipleV3ERC20ToNative',
       intentContains: 'Swap'
     }
