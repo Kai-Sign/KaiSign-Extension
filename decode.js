@@ -239,8 +239,8 @@ class SimpleInterface {
       const arrayLength = parseInt(paramData.slice(offset, offset + 64), 16);
       const results = [];
 
-      if (this.isDynamicType(baseType)) {
-        // Array of dynamic elements (e.g., bytes[], string[])
+      if (this.isDynamicType(baseType, input)) {
+        // Array of dynamic elements (e.g., bytes[], string[], tuple[] with dynamic components)
         // Each element has an offset pointer
         for (let i = 0; i < arrayLength; i++) {
           const elementOffsetHex = paramData.slice(offset + 64 + i * 64, offset + 64 + (i + 1) * 64);
@@ -597,8 +597,8 @@ async function decodeCalldata(data, contractAddress, chainId) {
       // ERC-7730 interpolatedIntent - process template with field values
       const template = intent.template;
       console.log('[Decode] Processing interpolatedIntent template:', template);
-      // Pass format.fields so we can apply formatters to nested paths
-      finalIntent = substituteInterpolatedIntent(template, rawParams, format.fields || []);
+      // Pass format.fields so we can apply formatters to nested paths (async for API token lookups)
+      finalIntent = await substituteInterpolatedIntent(template, rawParams, format.fields || [], chainId);
       console.log('[Decode] Interpolated result:', finalIntent);
     } else {
       // Standard intent handling
@@ -944,15 +944,16 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
 }
 
 /**
- * ERC-7730 compliant interpolatedIntent processor
+ * ERC-7730 compliant interpolatedIntent processor (async for API-based token lookups)
  * Per spec: "For each expression, the wallet MUST resolve the path and locate the
  * corresponding field format specification in the fields array"
  * @param {string} template - interpolatedIntent template with {path} placeholders
  * @param {object} rawParams - Decoded parameters
  * @param {Array} fields - Field specifications from metadata
- * @returns {string} - Intent with formatted values interpolated
+ * @param {number} chainId - Chain ID for token metadata lookups
+ * @returns {Promise<string>} - Intent with formatted values interpolated
  */
-function substituteInterpolatedIntent(template, rawParams, fields) {
+async function substituteInterpolatedIntent(template, rawParams, fields, chainId = 1) {
   if (!template || typeof template !== 'string') return template;
   if (!template.includes('{')) return template;
 
@@ -961,14 +962,26 @@ function substituteInterpolatedIntent(template, rawParams, fields) {
 
   const regex = /\{([#@]?[\w.\[\]]+)(?::(\w+))?\}/g;
 
-  return template.replace(regex, (match, pathStr, formatType) => {
-    console.log(`[interpolatedIntent] Processing ${match}, pathStr="${pathStr}"`);
+  // Collect all matches first
+  const matches = [];
+  let match;
+  while ((match = regex.exec(template)) !== null) {
+    matches.push({
+      fullMatch: match[0],
+      pathStr: match[1],
+      formatType: match[2]
+    });
+  }
+
+  // Process all matches async (fetch token metadata in parallel)
+  const replacements = await Promise.all(matches.map(async ({ fullMatch, pathStr, formatType }) => {
+    console.log(`[interpolatedIntent] Processing ${fullMatch}, pathStr="${pathStr}"`);
 
     // Find field spec for this path
     const fieldSpec = fields.find(f => f.path === pathStr);
     if (!fieldSpec) {
       console.warn(`[interpolatedIntent] No field spec found for path: ${pathStr}`);
-      return match;
+      return { match: fullMatch, value: fullMatch };
     }
 
     console.log('[interpolatedIntent] Found field spec:', fieldSpec);
@@ -977,17 +990,25 @@ function substituteInterpolatedIntent(template, rawParams, fields) {
     const value = resolveFieldPath(pathStr, rawParams);
     if (value === undefined || value === null) {
       console.warn(`[interpolatedIntent] No value found for path: ${pathStr}`);
-      return match;
+      return { match: fullMatch, value: fullMatch };
     }
 
     console.log('[interpolatedIntent] Resolved value:', value);
 
-    // Apply the field's format and params (ERC-7730 requirement)
-    const formatted = applyFieldFormat(value, fieldSpec, rawParams);
+    // Apply the field's format and params (ERC-7730 requirement) - async for token lookups
+    const formatted = await applyFieldFormat(value, fieldSpec, rawParams, chainId);
     console.log('[interpolatedIntent] Formatted value:', formatted);
 
-    return formatted;
-  });
+    return { match: fullMatch, value: formatted };
+  }));
+
+  // Apply all replacements
+  let result = template;
+  for (const { match, value } of replacements) {
+    result = result.replace(match, value);
+  }
+
+  return result;
 }
 
 /**
@@ -1031,30 +1052,16 @@ function resolveFieldPath(pathStr, params) {
   return value;
 }
 
-// Token registry for common ERC-20 tokens (mainnet)
-const KNOWN_TOKENS = {
-  '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': { symbol: 'USDC', decimals: 6 },
-  '0xdac17f958d2ee523a2206206994597c13d831ec7': { symbol: 'USDT', decimals: 6 },
-  '0x6b175474e89094c44da98b954eedeac495271d0f': { symbol: 'DAI', decimals: 18 },
-  '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': { symbol: 'WETH', decimals: 18 },
-  '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': { symbol: 'WBTC', decimals: 8 },
-  '0x514910771af9ca656af840dff83e8264ecf986ca': { symbol: 'LINK', decimals: 18 },
-  '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984': { symbol: 'UNI', decimals: 18 },
-  '0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9': { symbol: 'AAVE', decimals: 18 },
-  '0x0000000000000000000000000000000000000000': { symbol: 'ETH', decimals: 18 }, // Native ETH
-  '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': { symbol: 'ETH', decimals: 18 }  // Native ETH (common placeholder)
-};
-
 /**
- * Apply ERC-7730 field format to a value
+ * Apply ERC-7730 field format to a value (async - fetches token metadata from API)
  */
-function applyFieldFormat(value, fieldSpec, allParams) {
+async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
   const format = fieldSpec.format;
   const params = fieldSpec.params || {};
 
   console.log(`[applyFieldFormat] format="${format}", value=`, value, 'params=', params);
 
-  // tokenAmount format
+  // tokenAmount format - fetch token metadata from Railway API
   if (format === 'tokenAmount') {
     const tokenPath = params.tokenPath;
     if (!tokenPath) {
@@ -1062,29 +1069,54 @@ function applyFieldFormat(value, fieldSpec, allParams) {
       return String(value);
     }
 
-    // Resolve token address to get metadata
+    // Resolve token address from params
     const tokenAddress = resolveFieldPath(tokenPath, allParams);
     console.log('[applyFieldFormat] Token address:', tokenAddress);
 
-    // Look up token metadata from registry
-    let decimals = 18; // Default to 18 if unknown
+    let decimals = 18; // Default
     let symbol = '';
 
     if (tokenAddress) {
-      const tokenInfo = KNOWN_TOKENS[tokenAddress.toLowerCase()];
-      if (tokenInfo) {
-        decimals = tokenInfo.decimals;
-        symbol = tokenInfo.symbol;
+      // Handle native ETH addresses
+      const normalizedAddr = tokenAddress.toLowerCase();
+      if (normalizedAddr === '0x0000000000000000000000000000000000000000' ||
+          normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+        decimals = 18;
+        symbol = 'ETH';
       } else {
-        // Unknown token - show shortened address as symbol
-        symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
+        // Fetch token metadata from Railway API
+        try {
+          const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
+          console.log('[applyFieldFormat] Token info from API:', tokenInfo);
+          decimals = tokenInfo.decimals || 18;
+          symbol = tokenInfo.symbol || '';
+        } catch (error) {
+          console.warn('[applyFieldFormat] Failed to fetch token metadata:', error.message);
+          symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
+        }
       }
     }
 
     console.log(`[applyFieldFormat] Resolved token: ${symbol} (${decimals} decimals)`);
 
+    // Convert value to string - handle BigNumber objects from ethers.js
+    let valueStr;
+    if (value && typeof value === 'object') {
+      if (value._isBigNumber && value._hex) {
+        // ethers.js BigNumber - convert hex to decimal string
+        valueStr = BigInt(value._hex).toString();
+      } else if (typeof value.toString === 'function') {
+        valueStr = value.toString();
+      } else {
+        valueStr = String(value);
+      }
+    } else {
+      valueStr = String(value);
+    }
+    console.log(`[applyFieldFormat] Value string: ${valueStr}`);
+
     // Format the amount
-    return formatTokenAmount(String(value), decimals, symbol);
+    return formatTokenAmount(valueStr, decimals, symbol);
   }
 
   // addressName format
