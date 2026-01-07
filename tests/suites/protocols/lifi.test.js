@@ -79,5 +79,8 @@ export async function runTests(harness) {
     }
   }));
 
+  // Note: tuple[] with actual data test removed temporarily - hangs during async token metadata fetch.
+  // The fix for tuple[] dynamic type detection was applied in decode.js line 242.
+
   return results;
 }
