@@ -1031,6 +1031,20 @@ function resolveFieldPath(pathStr, params) {
   return value;
 }
 
+// Token registry for common ERC-20 tokens (mainnet)
+const KNOWN_TOKENS = {
+  '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': { symbol: 'USDC', decimals: 6 },
+  '0xdac17f958d2ee523a2206206994597c13d831ec7': { symbol: 'USDT', decimals: 6 },
+  '0x6b175474e89094c44da98b954eedeac495271d0f': { symbol: 'DAI', decimals: 18 },
+  '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': { symbol: 'WETH', decimals: 18 },
+  '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': { symbol: 'WBTC', decimals: 8 },
+  '0x514910771af9ca656af840dff83e8264ecf986ca': { symbol: 'LINK', decimals: 18 },
+  '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984': { symbol: 'UNI', decimals: 18 },
+  '0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9': { symbol: 'AAVE', decimals: 18 },
+  '0x0000000000000000000000000000000000000000': { symbol: 'ETH', decimals: 18 }, // Native ETH
+  '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': { symbol: 'ETH', decimals: 18 }  // Native ETH (common placeholder)
+};
+
 /**
  * Apply ERC-7730 field format to a value
  */
@@ -1052,15 +1066,22 @@ function applyFieldFormat(value, fieldSpec, allParams) {
     const tokenAddress = resolveFieldPath(tokenPath, allParams);
     console.log('[applyFieldFormat] Token address:', tokenAddress);
 
-    // For now, use hardcoded USDC metadata (TODO: fetch from contract)
-    // This matches what the decode.js does for known tokens
-    let decimals = 18;
+    // Look up token metadata from registry
+    let decimals = 18; // Default to 18 if unknown
     let symbol = '';
 
-    if (tokenAddress && tokenAddress.toLowerCase() === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48') {
-      decimals = 6;
-      symbol = 'USDC';
+    if (tokenAddress) {
+      const tokenInfo = KNOWN_TOKENS[tokenAddress.toLowerCase()];
+      if (tokenInfo) {
+        decimals = tokenInfo.decimals;
+        symbol = tokenInfo.symbol;
+      } else {
+        // Unknown token - show shortened address as symbol
+        symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
+      }
     }
+
+    console.log(`[applyFieldFormat] Resolved token: ${symbol} (${decimals} decimals)`);
 
     // Format the amount
     return formatTokenAmount(String(value), decimals, symbol);
