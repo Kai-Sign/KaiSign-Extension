@@ -310,7 +310,7 @@ class RecursiveCalldataDecoder {
     const fieldsToCheck = format?.fields || [];
     for (const field of fieldsToCheck) {
       // Look for multicallBatch format or transactions field
-      if (field.format === 'multicallBatch' || (field.path === 'transactions' && params.transactions)) {
+      if (field.format === 'multicallBatch' || field.path === 'transactions') {
         const paramName = field.path;
 
         // Skip if already processed
@@ -319,12 +319,31 @@ class RecursiveCalldataDecoder {
         const rawValue = params[paramName];
         if (!rawValue || rawValue === '0x' || rawValue.length < 4) continue;
 
+        // If transactions is ABI-encoded bytes, decode to raw packed hex first.
+        // If it's already raw bytes, leave it as-is.
+        let packedValue = rawValue;
+        if (typeof packedValue === 'string' && packedValue.startsWith('0x') && packedValue.length >= 66) {
+          try {
+            const hex = packedValue.slice(2);
+            const lenHex = hex.slice(0, 64);
+            const len = parseInt(lenHex, 16);
+            const remaining = hex.length - 64;
+            const paddedOk = remaining % 64 === 0;
+            const lengthFits = len > 0 && len * 2 <= remaining;
+            if (lengthFits && paddedOk) {
+              const dataStart = 64;
+              const dataEnd = dataStart + len * 2;
+              packedValue = '0x' + hex.slice(dataStart, dataEnd);
+            }
+          } catch {}
+        }
+
         processedMulticallPaths.add(paramName);
 
         // Use multicall structure from metadata
         const multicallResult = await this.handleMulticallDecoder(
           { path: paramName, format: { parseNestedCalls: true } },
-          rawValue,
+          packedValue,
           context,
           chainId,
           depth,

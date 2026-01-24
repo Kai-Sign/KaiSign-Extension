@@ -880,30 +880,6 @@ function getTokenSymbol(address) {
   return formatAddressShort(address);
 }
 
-/**
- * Format token amount - GENERIC, no hardcoded decimals
- * Assumes 18 decimals as safe default when unknown
- */
-function formatTokenAmount(amount, tokenOrSymbol) {
-  if (!amount) return '0';
-  const amtStr = amount.toString();
-
-  // No hardcoded token-specific decimals
-  // Default to 18 decimals (most common ERC-20 standard)
-  const decimals = 18;
-
-  try {
-    const bn = BigInt(amtStr);
-    const divisor = BigInt(10 ** decimals);
-    const whole = bn / divisor;
-    const frac = bn % divisor;
-    const fracStr = frac.toString().padStart(decimals, '0').slice(0, 4);
-    return `${whole}.${fracStr}`;
-  } catch {
-    return amtStr;
-  }
-}
-
 // Helper formatters for Permit2
 function formatAddressShort(addr) {
   if (!addr) return 'Unknown';
@@ -2166,7 +2142,7 @@ async function handleEIP5792Batch(calls, from, chainId, walletName) {
 
 // Get intent and show transaction
 async function getIntentAndShow(tx, method, walletName = 'Wallet', context = null) {
-  let intent = 'Processing transaction...';
+  let intent = 'Analyzing transaction...';
   let decodedResult = null;
   let extractedBytecodes = [];
   const selector = tx.data?.slice(0, 10);
@@ -2260,7 +2236,19 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
     }
   }
 
-  updateLoadingStatus('Complete');
+  if (!decodedResult) {
+    decodedResult = {
+      success: false,
+      selector,
+      error: 'Metadata not found',
+      statusTitle: 'Metadata not found',
+      statusDetail: 'No matching metadata for this contract'
+    };
+    intent = 'Unknown contract interaction';
+    updateLoadingStatus('Metadata not found');
+  } else {
+    updateLoadingStatus('Complete');
+  }
 
   // SHOW FINAL RESULT (only once, after all decoding is complete)
   showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
@@ -2299,7 +2287,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
             <span></span><span></span><span></span>
           </div>
           <div class="kaisign-loading-status">
-            Processing transaction...
+            Analyzing transaction...
           </div>
         </div>
       </div>
@@ -2998,13 +2986,25 @@ window.clearRpcActivity = function() {
 
 window.exportTransactionData = function(calldata, analyzedData) {
   try {
+    const safeStringify = (value) => JSON.stringify(value, (key, val) => {
+      if (typeof val === 'bigint') return val.toString();
+      return val;
+    }, 2);
+
+    let parsedAnalyzed;
+    try {
+      parsedAnalyzed = JSON.parse(analyzedData);
+    } catch {
+      parsedAnalyzed = analyzedData;
+    }
+
     const data = {
       timestamp: new Date().toISOString(),
       calldata: calldata,
-      analyzedData: JSON.parse(analyzedData)
+      analyzedData: parsedAnalyzed
     };
     
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const blob = new Blob([safeStringify(data)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

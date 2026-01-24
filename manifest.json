@@ -28,20 +28,15 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["inject-probe.js", "subgraph-metadata.js", "runtime-registry.js", "metadata.js", "eip712-decoder.js", "decode.js", "recursive-decoder.js", "advanced-decoder.js", "content-script.js"],
-      "run_at": "document_end"
+      "js": ["subgraph-metadata.js", "runtime-registry.js", "metadata.js", "eip712-decoder.js", "decode.js", "recursive-decoder.js", "advanced-decoder.js", "content-script.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
     },
     {
       "matches": ["<all_urls>"],
       "js": ["bridge-script.js"],
       "run_at": "document_end",
       "world": "ISOLATED"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["main-world-hook.js"],
-      "matches": ["<all_urls>"]
     }
   ],
   "background": {

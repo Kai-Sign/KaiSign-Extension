@@ -454,8 +454,8 @@ async function decodeCalldata(data, contractAddress, chainId) {
               format: field.format || 'raw',
               params: field.params || {},  // Store decimals, symbol, etc.
               // Store calldata target reference for recursive decoding
-              type: field.type || 'raw',
-              calldataTarget: field.type === 'calldata' ? field.to : null
+              type: field.type || (field.format === 'calldata' ? 'calldata' : 'raw'),
+              calldataTarget: field.type === 'calldata' ? field.to : (field.format === 'calldata' ? (field.params?.calleePath || field.params?.to || null) : null)
             };
           }
         }
@@ -537,9 +537,32 @@ async function decodeCalldata(data, contractAddress, chainId) {
               const divisor = BigInt(10) ** BigInt(dec);
               const integerPart = value / divisor;
               const fractionalPart = value % divisor;
-              let fractionalStr = fractionalPart.toString().padStart(dec, '0');
-              fractionalStr = fractionalStr.replace(/0+$/, '') || '0';
-              if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
+              if (value === 0n) {
+                displayValue = symbol ? `0 ${symbol}` : '0';
+                console.log(`[Decode] INLINE formatted: "${displayValue}"`);
+                params[paramName] = rawValue;
+                formatted[paramName] = {
+                  label: fieldDef?.label || toTitleCase(paramName),
+                  value: displayValue,
+                  rawValue: rawValue,
+                  format: fieldDef?.format || (input.type === 'address' ? 'address' :
+                                               input.type === 'uint256' ? 'token' : 'raw'),
+                  params: fieldDef?.params || {}
+                };
+                continue;
+              }
+              const fullFraction = fractionalPart.toString().padStart(dec, '0');
+              let fractionalStr = fullFraction.replace(/0+$/, '');
+              const maxDisplay = 6;
+              if (integerPart === 0n && fractionalPart > 0n) {
+                const firstNonZero = fullFraction.search(/[1-9]/);
+                if (firstNonZero !== -1) {
+                  const end = Math.min(firstNonZero + maxDisplay, fullFraction.length);
+                  fractionalStr = fullFraction.slice(0, end).replace(/0+$/, '');
+                }
+              }
+              if (fractionalStr === '') fractionalStr = '0';
+              if (fractionalStr.length > maxDisplay) fractionalStr = fractionalStr.slice(0, maxDisplay);
               displayValue = symbol ? `${integerPart}.${fractionalStr} ${symbol}` : `${integerPart}.${fractionalStr}`;
               console.log(`[Decode] INLINE formatted: "${displayValue}"`);
             } catch (e) {
@@ -586,7 +609,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
 
       if (commandsValue && registry) {
         // Decode commands using the registry
-        decodedCommands = decodeCommandArray(commandsValue, inputsValue, registry);
+        decodedCommands = await decodeCommandArray(commandsValue, inputsValue, registry, chainId);
         finalIntent = buildCompositeIntent(intentConfig, decodedCommands);
         console.log('[Decode] Built composite intent:', finalIntent);
       } else {
@@ -625,6 +648,46 @@ async function decodeCalldata(data, contractAddress, chainId) {
       finalIntent = substituteIntentTemplate(intent, params, formatted, rawParams);
     }
 
+    // Decode nested calldata fields (ERC-7730 calldata format)
+    const nestedIntents = [];
+    if (fieldInfo && Object.keys(fieldInfo).length > 0) {
+      for (const [fieldPath, fieldDef] of Object.entries(fieldInfo)) {
+        if (fieldDef.format === 'calldata') {
+          const calldataValue = rawParams[fieldPath];
+          if (typeof calldataValue === 'string' && calldataValue.startsWith('0x') && calldataValue.length > 10) {
+            let target = fieldDef.calldataTarget;
+            if (typeof target === 'string') {
+              if (target.startsWith('$.')) {
+                target = resolveJsonPath(target, rawParams);
+              } else if (rawParams[target]) {
+                target = rawParams[target];
+              }
+            }
+
+            if (target && window.decodeCalldataRecursive) {
+              try {
+                const nested = await window.decodeCalldataRecursive(calldataValue, target, chainId);
+                if (nested?.success) {
+                  if (nested.nestedIntents?.length) {
+                    nestedIntents.push(...nested.nestedIntents);
+                  } else if (nested.intent && nested.intent !== 'Contract interaction') {
+                    nestedIntents.push(nested.intent);
+                  }
+                }
+              } catch (e) {
+                // Ignore nested decode failures
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const aggregatedIntent = nestedIntents.length ? nestedIntents.join(' + ') : undefined;
+    if (aggregatedIntent) {
+      finalIntent = aggregatedIntent;
+    }
+
     return {
       success: true,
       selector,
@@ -634,7 +697,9 @@ async function decodeCalldata(data, contractAddress, chainId) {
       rawParams,
       intent: finalIntent,
       formatted,
-      decodedCommands // Include decoded commands for display
+      decodedCommands, // Include decoded commands for display
+      nestedIntents,
+      aggregatedIntent
     };
     
   } catch (error) {
@@ -674,14 +739,30 @@ function formatTokenAmount(rawValue, decimals, symbol) {
     console.log('[formatTokenAmount] divisor:', divisor.toString());
     const integerPart = value / divisor;
     const fractionalPart = value % divisor;
+    if (value === 0n) {
+      return symbol ? `0 ${symbol}` : '0';
+    }
     console.log('[formatTokenAmount] integerPart:', integerPart.toString(), 'fractionalPart:', fractionalPart.toString());
 
-    // Format fractional part with leading zeros
-    let fractionalStr = fractionalPart.toString().padStart(dec, '0');
-    console.log('[formatTokenAmount] fractionalStr after padStart:', fractionalStr);
-    // Trim trailing zeros but keep at least 2 decimal places for display
-    fractionalStr = fractionalStr.replace(/0+$/, '') || '0';
-    if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
+    // Format fractional part with leading zeros (full precision)
+    const fullFraction = fractionalPart.toString().padStart(dec, '0');
+    console.log('[formatTokenAmount] fractionalStr after padStart:', fullFraction);
+
+    const maxDisplay = 6;
+    let fractionalStr = fullFraction.replace(/0+$/, '');
+
+    // Ensure small non-zero values show at least one significant digit
+    if (integerPart === 0n && fractionalPart > 0n) {
+      const firstNonZero = fullFraction.search(/[1-9]/);
+      if (firstNonZero !== -1) {
+        const end = Math.min(firstNonZero + maxDisplay, fullFraction.length);
+        fractionalStr = fullFraction.slice(0, end).replace(/0+$/, '');
+      }
+    }
+
+    if (fractionalStr === '') fractionalStr = '0';
+    if (fractionalStr.length > maxDisplay) fractionalStr = fractionalStr.slice(0, maxDisplay);
+
     console.log('[formatTokenAmount] fractionalStr final:', fractionalStr);
 
     const formatted = `${integerPart}.${fractionalStr}`;
@@ -701,19 +782,39 @@ function formatTokenAmount(rawValue, decimals, symbol) {
  * @param {Object} registry - Command registry mapping byte codes to definitions
  * @returns {Array} - Array of decoded command objects with intents
  */
-function decodeCommandArray(commands, inputs, registry) {
+async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
   if (!commands || !registry) return [];
 
   // Remove 0x prefix if present
   const commandBytes = commands.startsWith('0x') ? commands.slice(2) : commands;
   const results = [];
 
+  const getTokenInfo = async (tokenAddress) => {
+    if (!tokenAddress) return { symbol: '', decimals: 18 };
+    const normalized = tokenAddress.toLowerCase();
+    if (normalized === '0x0000000000000000000000000000000000000000' ||
+        normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+      return { symbol: 'ETH', decimals: 18 };
+    }
+    try {
+      const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
+      return { symbol: tokenInfo.symbol || '', decimals: tokenInfo.decimals || 18 };
+    } catch {
+      return { symbol: `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`, decimals: 18 };
+    }
+  };
+
+  const parseV3Path = (pathHex) => {
+    if (!pathHex) return null;
+    const hex = pathHex.startsWith('0x') ? pathHex.slice(2) : pathHex;
+    if (hex.length < 40) return null;
+    const tokenIn = '0x' + hex.slice(0, 40);
+    const tokenOut = '0x' + hex.slice(hex.length - 40);
+    return { tokenIn, tokenOut };
+  };
+
   for (let i = 0; i < commandBytes.length; i += 2) {
-    const rawHex = commandBytes.slice(i, i + 2).toLowerCase();
-    const rawVal = parseInt(rawHex, 16);
-    const cmdId = rawVal & 0x1f; // mask out command flags
-    const cmdByte = '0x' + cmdId.toString(16).padStart(2, '0');
-    const allowRevert = (rawVal & 0x80) !== 0;
+    const cmdByte = '0x' + commandBytes.slice(i, i + 2).toLowerCase();
     const cmdDef = registry[cmdByte];
     const inputData = inputs?.[i / 2];
 
@@ -747,29 +848,96 @@ function decodeCommandArray(commands, inputs, registry) {
 
             // Apply format if specified
             if (paramDef.format === 'ethAmount' && value) {
-              // Convert wei to ETH (simple formatting)
               try {
-                const wei = BigInt(value);
-                const eth = Number(wei) / 1e18;
-                value = eth.toFixed(eth < 0.001 ? 6 : 4) + ' ETH';
+                value = formatTokenAmount(value.toString(), 18, 'ETH');
               } catch {}
             } else if (paramDef.format === 'tokenAmount' && value) {
-              // For token amounts, just show the raw value for now
-              // Full token symbol lookup would require additional metadata
               value = value.toString();
-            } else if (paramDef.type === 'bytes' && typeof value === 'string') {
-              const hex = value.startsWith('0x') ? value.slice(2) : value;
-              const byteLen = Math.max(0, Math.floor(hex.length / 2));
-              value = `${byteLen} bytes`;
-            } else if (paramDef.type === 'bytes[]' && Array.isArray(value)) {
-              value = `${value.length} params`;
             }
 
             decodedParams[paramDef.name] = value;
           }
 
-          // Substitute template variables in intent
-          intent = substituteCommandIntent(cmdDef.intent || cmdDef.name, decodedParams);
+          // Enhance swap intents with token symbols/decimals when path is present
+          if (cmdDef.name && cmdDef.name.toUpperCase().includes('SWAP')) {
+            let tokenInAddr;
+            let tokenOutAddr;
+
+            const pickAddr = (val) => {
+              if (!val) return null;
+              if (typeof val === 'string' && /^0x[a-fA-F0-9]{40}$/.test(val)) return val;
+              return null;
+            };
+
+            // V3/V2 path support
+            if (decodedParams.path && typeof decodedParams.path === 'string') {
+              const parsed = parseV3Path(decodedParams.path);
+              if (parsed) {
+                tokenInAddr = parsed.tokenIn;
+                tokenOutAddr = parsed.tokenOut;
+              }
+            } else if (Array.isArray(decodedParams.path)) {
+              tokenInAddr = decodedParams.path[0];
+              tokenOutAddr = decodedParams.path[decodedParams.path.length - 1];
+            }
+
+            // V4-style or generic param naming
+            if (!tokenInAddr || !tokenOutAddr) {
+              const directIn = pickAddr(decodedParams.tokenIn || decodedParams.currencyIn || decodedParams.currency0 || decodedParams.token0);
+              const directOut = pickAddr(decodedParams.tokenOut || decodedParams.currencyOut || decodedParams.currency1 || decodedParams.token1);
+              tokenInAddr = tokenInAddr || directIn;
+              tokenOutAddr = tokenOutAddr || directOut;
+            }
+
+            // Nested poolKey/common structs
+            if ((!tokenInAddr || !tokenOutAddr) && decodedParams.poolKey && typeof decodedParams.poolKey === 'object') {
+              const poolKey = decodedParams.poolKey;
+              const pkIn = pickAddr(poolKey.currency0 || poolKey.token0 || poolKey.currencyIn || poolKey.tokenIn);
+              const pkOut = pickAddr(poolKey.currency1 || poolKey.token1 || poolKey.currencyOut || poolKey.tokenOut);
+              tokenInAddr = tokenInAddr || pkIn;
+              tokenOutAddr = tokenOutAddr || pkOut;
+            }
+
+            if (tokenInAddr && tokenOutAddr) {
+              const [tokenInInfo, tokenOutInfo] = await Promise.all([
+                getTokenInfo(tokenInAddr),
+                getTokenInfo(tokenOutAddr)
+              ]);
+
+              const formatAmount = (raw, info) => {
+                if (!raw && raw !== 0) return raw;
+                return formatTokenAmount(raw.toString(), info.decimals, info.symbol);
+              };
+
+              if (decodedParams.amountIn !== undefined && decodedParams.amountOutMin !== undefined) {
+                const amountIn = formatAmount(decodedParams.amountIn, tokenInInfo);
+                const amountOutMin = formatAmount(decodedParams.amountOutMin, tokenOutInfo);
+                intent = `Swap ${amountIn} for min ${amountOutMin}`;
+              } else if (decodedParams.amountOut !== undefined && decodedParams.amountInMax !== undefined) {
+                const amountOut = formatAmount(decodedParams.amountOut, tokenOutInfo);
+                const amountInMax = formatAmount(decodedParams.amountInMax, tokenInInfo);
+                intent = `Swap for exactly ${amountOut} (max ${amountInMax})`;
+              }
+            }
+          }
+
+          // Apply tokenAmount formatting using metadata tokenPath (ERC-7730)
+          for (const paramDef of cmdDef.inputs) {
+            if (paramDef.format === 'tokenAmount' && paramDef.params?.tokenPath) {
+              const rawVal = decodedParams[paramDef.name];
+              if (rawVal !== undefined && rawVal !== null) {
+                try {
+                  const formattedVal = await applyFieldFormat(rawVal, paramDef, decodedParams, chainId);
+                  decodedParams[paramDef.name] = formattedVal;
+                } catch {}
+              }
+            }
+          }
+
+          // Substitute template variables in intent (fallback)
+          if (!intent || intent === cmdDef.intent || intent === cmdDef.name) {
+            intent = substituteCommandIntent(cmdDef.intent || cmdDef.name, decodedParams);
+          }
         } catch (e) {
           console.log('[decodeCommandArray] Failed to decode input for command', cmdByte, e.message);
         }
@@ -777,8 +945,6 @@ function decodeCommandArray(commands, inputs, registry) {
 
       results.push({
         command: cmdByte,
-        rawCommand: '0x' + rawHex,
-        allowRevert,
         name: cmdDef.name,
         intent: intent,
         params: decodedParams
@@ -786,8 +952,6 @@ function decodeCommandArray(commands, inputs, registry) {
     } else {
       results.push({
         command: cmdByte,
-        rawCommand: '0x' + rawHex,
-        allowRevert,
         name: `UNKNOWN_${cmdByte}`,
         intent: `Unknown command ${cmdByte}`,
         params: {}
@@ -1043,9 +1207,39 @@ function resolveFieldPath(pathStr, params) {
   for (const part of parts) {
     if (value === undefined || value === null) return undefined;
 
+    // Handle slice selector: path.[0:19] or path.[-20:-1]
+    const sliceMatch = part.match(/^(.+?)?\[(-?\d+):(-?\d+)\]$/);
     // Handle array index: _swapData[0] or [0]
     const arrayMatch = part.match(/^(.+?)?\[(\d+)\]$/);
-    if (arrayMatch) {
+
+    if (sliceMatch) {
+      const fieldName = sliceMatch[1];
+      const startIdx = parseInt(sliceMatch[2]);
+      const endIdx = parseInt(sliceMatch[3]);
+
+      if (fieldName) {
+        value = value[fieldName];
+        if (value === undefined || value === null) return undefined;
+      }
+
+      if (typeof value === 'string') {
+        const hex = value.startsWith('0x') ? value.slice(2) : value;
+        const byteLen = Math.floor(hex.length / 2);
+        const start = startIdx < 0 ? byteLen + startIdx : startIdx;
+        const end = endIdx < 0 ? byteLen + endIdx : endIdx;
+        if (start < 0 || end < start || start >= byteLen) return undefined;
+        const sliceHex = hex.slice(start * 2, (end + 1) * 2);
+        return '0x' + sliceHex;
+      }
+
+      if (Array.isArray(value)) {
+        const start = startIdx < 0 ? value.length + startIdx : startIdx;
+        const end = endIdx < 0 ? value.length + endIdx : endIdx;
+        return value.slice(start, end + 1);
+      }
+
+      return undefined;
+    } else if (arrayMatch) {
       const fieldName = arrayMatch[1];
       const index = parseInt(arrayMatch[2]);
 
@@ -1079,18 +1273,17 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
   // tokenAmount format - fetch token metadata from Railway API
   if (format === 'tokenAmount') {
     const tokenPath = params.tokenPath;
-    const directTokenAddress = params.tokenAddress;
-    if (!tokenPath && !directTokenAddress) {
-      console.warn('[applyFieldFormat] tokenAmount format missing tokenPath/tokenAddress');
+    if (!tokenPath) {
+      console.warn('[applyFieldFormat] tokenAmount format missing tokenPath');
       return String(value);
     }
 
-    // Resolve token address from params or directly provided tokenAddress
-    const tokenAddress = directTokenAddress || resolveFieldPath(tokenPath, allParams);
+    // Resolve token address from params
+    const tokenAddress = resolveFieldPath(tokenPath, allParams);
     console.log('[applyFieldFormat] Token address:', tokenAddress);
 
-    let decimals = typeof params.decimals === 'number' ? params.decimals : 18; // Default
-    let symbol = params.symbol || '';
+    let decimals = 18; // Default
+    let symbol = '';
 
     if (tokenAddress) {
       // Handle native ETH addresses
@@ -1108,7 +1301,7 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
           symbol = tokenInfo.symbol || '';
         } catch (error) {
           console.warn('[applyFieldFormat] Failed to fetch token metadata:', error.message);
-          if (!symbol) symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
+          symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
         }
       }
     }
