@@ -5,6 +5,7 @@ console.log('[KaiSign] Popup loading...');
 let transactions = [];
 let currentSearch = '';
 let importData = null;
+let activeDetailTx = null;
 
 // DOM Elements
 const elements = {
@@ -25,6 +26,16 @@ const elements = {
   confirmImport: document.getElementById('confirmImport'),
   cancelImport: document.getElementById('cancelImport'),
   closeModal: document.getElementById('closeModal'),
+  txDetailModal: document.getElementById('txDetailModal'),
+  txDetailTitle: document.getElementById('txDetailTitle'),
+  txDetailGrid: document.getElementById('txDetailGrid'),
+  txDetailSummary: document.getElementById('txDetailSummary'),
+  txDetailRaw: document.getElementById('txDetailRaw'),
+  txDetailJson: document.getElementById('txDetailJson'),
+  closeDetailModal: document.getElementById('closeDetailModal'),
+  closeDetailModalBtn: document.getElementById('closeDetailModalBtn'),
+  copyRawBtn: document.getElementById('copyRawBtn'),
+  copyJsonBtn: document.getElementById('copyJsonBtn'),
   toast: document.getElementById('toast')
 };
 
@@ -317,6 +328,15 @@ function setupEventListeners() {
     if (e.target === elements.importModal) closeImportModal();
   });
 
+  // Close details modal
+  elements.closeDetailModal.addEventListener('click', closeDetailModal);
+  elements.closeDetailModalBtn.addEventListener('click', closeDetailModal);
+  elements.txDetailModal.addEventListener('click', (e) => {
+    if (e.target === elements.txDetailModal) closeDetailModal();
+  });
+  elements.copyRawBtn.addEventListener('click', () => copyTransactionData(activeDetailTx, 'raw'));
+  elements.copyJsonBtn.addEventListener('click', () => copyTransactionData(activeDetailTx, 'json'));
+
   // File drop area
   elements.fileDrop.addEventListener('click', () => {
     elements.fileInput.click();
@@ -542,18 +562,65 @@ function handleClear() {
 
 // Copy transaction data to clipboard
 function showTransactionDetails(tx) {
-  // For EIP-712 signatures, copy the complete typed data JSON
-  // For regular transactions, copy the raw transaction data
+  activeDetailTx = tx;
+  const status = getTransactionStatus(tx);
+  const title = generateMeaningfulTitle(tx, status);
+
+  elements.txDetailTitle.textContent = title || 'Transaction Details';
+
+  const gridItems = [
+    { label: 'Time', value: tx.time ? new Date(tx.time).toLocaleString() : 'N/A' },
+    { label: 'Method', value: tx.method || 'N/A' },
+    { label: 'To', value: tx.to || 'N/A' },
+    { label: 'From', value: tx.from || 'N/A' },
+    { label: 'Chain', value: tx.chainId || 'N/A' },
+    { label: 'Value', value: tx.value || '0' }
+  ];
+
+  elements.txDetailGrid.innerHTML = gridItems.map(item => `
+    <div class="detail-item">
+      <span class="label">${escapeHtml(item.label)}</span>
+      <span class="value">${escapeHtml(String(item.value))}</span>
+    </div>
+  `).join('');
+
+  const summaryLines = [];
+  if (status?.label) summaryLines.push(`Status: ${status.label}`);
+  if (tx.intent) summaryLines.push(`Intent: ${tx.intent}`);
+  if (tx.decodedResult?.protocolName) summaryLines.push(`Protocol: ${tx.decodedResult.protocolName}`);
+  if (tx.decodedResult?.functionName) summaryLines.push(`Function: ${tx.decodedResult.functionName}`);
+  if (tx.decodedResult?.selector) summaryLines.push(`Selector: ${tx.decodedResult.selector}`);
+  elements.txDetailSummary.textContent = summaryLines.length ? summaryLines.join('\n') : 'No decoded summary available.';
+
+  const rawData = tx.isEIP712 && tx.eip712TypedData
+    ? JSON.stringify(tx.eip712TypedData, null, 2)
+    : (tx.data || '0x');
+  elements.txDetailRaw.textContent = rawData;
+
+  elements.txDetailJson.textContent = JSON.stringify(tx, null, 2);
+
+  elements.txDetailModal.classList.add('show');
+}
+
+function closeDetailModal() {
+  elements.txDetailModal.classList.remove('show');
+  activeDetailTx = null;
+}
+
+function copyTransactionData(tx, type) {
+  if (!tx) return;
   let dataToCopy;
-  if (tx.isEIP712 && tx.eip712TypedData) {
+  if (type === 'json') {
+    dataToCopy = JSON.stringify(tx, null, 2);
+  } else if (tx.isEIP712 && tx.eip712TypedData) {
     dataToCopy = JSON.stringify(tx.eip712TypedData, null, 2);
   } else {
     dataToCopy = tx.data || '0x';
   }
 
   navigator.clipboard.writeText(dataToCopy).then(() => {
-    const dataType = tx.isEIP712 ? 'EIP-712 data' : 'Transaction data';
-    showToast(`${dataType} copied!`, 'success');
+    const label = type === 'json' ? 'Full JSON' : (tx.isEIP712 ? 'EIP-712 data' : 'Transaction data');
+    showToast(`${label} copied!`, 'success');
   }).catch(() => {
     showToast('Failed to copy', 'error');
   });

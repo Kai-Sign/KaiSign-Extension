@@ -8,8 +8,7 @@ if (typeof chrome === 'undefined' || !chrome.runtime) {
 
 // Listen for messages from MAIN world content script
 window.addEventListener('message', (event) => {
-  // Only accept messages from same origin
-  if (event.source !== window) return;
+  // Accept messages from page context (MAIN world)
 
   const message = event.data;
 

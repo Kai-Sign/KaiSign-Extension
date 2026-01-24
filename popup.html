@@ -126,6 +126,35 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="txDetailModal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 class="modal-title" id="txDetailTitle">Transaction Details</h3>
+        <button class="modal-close" id="closeDetailModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-grid" id="txDetailGrid"></div>
+        <div class="detail-section">
+          <div class="detail-section-title">Decoded Summary</div>
+          <div class="detail-card" id="txDetailSummary"></div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Raw Data</div>
+          <pre class="detail-code" id="txDetailRaw"></pre>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Full Record</div>
+          <pre class="detail-code" id="txDetailJson"></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="copyRawBtn">Copy Raw</button>
+        <button class="btn btn-secondary" id="copyJsonBtn">Copy Full JSON</button>
+        <button class="btn btn-primary" id="closeDetailModalBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 

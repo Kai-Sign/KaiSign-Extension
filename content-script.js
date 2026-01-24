@@ -209,6 +209,75 @@ function bindPopupClose(popup) {
   }, true);
 }
 
+function sanitizeForStorage(data) {
+  try {
+    return JSON.parse(JSON.stringify(data, (_, value) => (typeof value === 'bigint' ? value.toString() : value)));
+  } catch {
+    return data;
+  }
+}
+
+function saveTransactionDirect(transactionData) {
+  if (!chrome?.storage?.local || !chrome?.runtime?.id) return;
+  try {
+    chrome.storage.local.get(['kaisign-transactions', 'kaisign-settings'], (result) => {
+      const existing = result['kaisign-transactions'] || [];
+      const safeData = sanitizeForStorage(transactionData);
+      if (existing.some((tx) => tx.id === safeData.id)) return;
+      const settings = result['kaisign-settings'] || {};
+      const maxTx = settings.maxTransactions || 100;
+      existing.unshift(safeData);
+      if (existing.length > maxTx) existing.splice(maxTx);
+      chrome.storage.local.set({ 'kaisign-transactions': existing }, () => {});
+    });
+  } catch {}
+}
+
+function saveTransactionViaAllChannels(transactionData) {
+  const safeTxData = sanitizeForStorage(transactionData);
+  saveTransactionDirect(safeTxData);
+  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage && chrome.runtime?.id) {
+    chrome.runtime.sendMessage({ type: 'SAVE_TRANSACTION', data: safeTxData }, () => {});
+  }
+  window.postMessage({ type: 'KAISIGN_SAVE_TX', data: safeTxData }, '*');
+}
+
+function attachSaveButton(popup, transactionData) {
+  if (!popup || !transactionData) return;
+  const handler = (btn) => {
+    if (!btn) return;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Saving...';
+    btn.dataset.txId = transactionData.id;
+
+    saveTransactionViaAllChannels(transactionData);
+
+    setTimeout(() => {
+      if (!chrome?.storage?.local) {
+        btn.textContent = 'Saved?';
+        btn.disabled = false;
+        return;
+      }
+      chrome.storage.local.get(['kaisign-transactions'], (result) => {
+        const list = result['kaisign-transactions'] || [];
+        const found = list.some((tx) => tx.id === transactionData.id);
+        btn.textContent = found ? 'Saved' : 'Save failed';
+        if (!found) {
+          btn.disabled = false;
+          setTimeout(() => {
+            btn.textContent = originalText;
+          }, 1500);
+        }
+      });
+    }, 300);
+  };
+
+  popup.querySelectorAll('.kaisign-save-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handler(btn));
+  });
+}
+
 function getStoredTheme() {
   return 'dark';
 }
@@ -1292,7 +1361,8 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     </div>
 
     <div class="kaisign-action-bar">
-      <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
+      <button class="kaisign-btn kaisign-btn-primary kaisign-save-btn">Save</button>
+      <button class="kaisign-btn kaisign-btn-secondary" onclick="showTransactionHistory()">History</button>
       <button class="kaisign-btn kaisign-btn-secondary" onclick="this.closest('.kaisign-popup').remove()">Close</button>
     </div>
   `;
@@ -1301,40 +1371,29 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   bindPopupClose(popup);
   attachPopupDrag(popup);
 
-  // Save EIP-712 signature to transaction history
-  try {
-    const transactionData = {
-      id: Date.now().toString(),
-      method: 'eth_signTypedData_v4',
-      time: new Date().toISOString(),
-      // Original EIP-712 typed data (unmodified)
-      to: domain.verifyingContract,
-      value: '0',
-      data: '0x', // EIP-712 has no bytecode, data is in eip712TypedData field
-      eip712TypedData: typedData, // Store complete original typed data
-      // Decoded/analyzed data (for display only)
-      intent: displayData.intent || 'Sign Message',
-      decodedResult: {
-        success: true,
-        functionName: displayData.primaryType,
-        protocolName: domain.name || 'EIP-712',
-        nestedIntents: displayData.nestedIntents
-      },
-      isEIP712: true,
-      primaryType: displayData.primaryType,
-      domainName: domain.name
-    };
+  const transactionData = {
+    id: Date.now().toString(),
+    method: 'eth_signTypedData_v4',
+    time: new Date().toISOString(),
+    // Original EIP-712 typed data (unmodified)
+    to: domain.verifyingContract,
+    value: '0',
+    data: '0x', // EIP-712 has no bytecode, data is in eip712TypedData field
+    eip712TypedData: typedData, // Store complete original typed data
+    // Decoded/analyzed data (for display only)
+    intent: displayData.intent || 'Sign Message',
+    decodedResult: {
+      success: true,
+      functionName: displayData.primaryType,
+      protocolName: domain.name || 'EIP-712',
+      nestedIntents: displayData.nestedIntents
+    },
+    isEIP712: true,
+    primaryType: displayData.primaryType,
+    domainName: domain.name
+  };
 
-    chrome.runtime.sendMessage({
-      type: 'SAVE_TRANSACTION',
-      data: transactionData
-    }, () => {});
-
-    console.log('[KaiSign] EIP-712 signature saved to history');
-        console.log('[KaiSign] EIP-712 data size:', JSON.stringify(typedData).length, 'chars');
-  } catch (error) {
-    console.error('[KaiSign] Error saving EIP-712 signature:', error);
-  }
+  attachSaveButton(popup, transactionData);
 
   // Add decode button handler if decode section exists
   if (displayData.showDecodeOption) {
@@ -2252,49 +2311,35 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     return; // Don't continue to full popup
   }
 
-  // Save transaction via bridge script (MAIN → ISOLATED → background)
-  try {
-    const transactionData = {
-      id: Date.now().toString(),
-      method: method,
-      time: new Date().toISOString(),
-      // Original transaction data from dApp (unmodified)
-      to: tx.to,
-      from: tx.from,
-      value: tx.value,
-      data: tx.data, // Original raw bytecode from dApp
-      gas: tx.gas,
-      gasPrice: tx.gasPrice,
-      maxFeePerGas: tx.maxFeePerGas,
-      maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
-      nonce: tx.nonce,
-      chainId: tx.chainId,
-      // EIP-7702 and EIP-2930 fields
-      type: tx.type,                           // Transaction type (0, 1, 2, or 4)
-      authorizationList: tx.authorizationList, // EIP-7702 authorization tuples
-      accessList: tx.accessList,               // EIP-2930 access list
-      // EIP-712 typed data (if applicable)
-      isEIP712: context?.isEIP712 || false,
-      eip712TypedData: tx.eip712TypedData || null,
-      primaryType: context?.primaryType || null,
-      domainName: context?.domainName || null,
-      // Decoded/analyzed data (for display only, not for sending)
-      intent: intent,
-      decodedResult: decodedResult,
-      extractedBytecodes: extractedBytecodes
-    };
-
-    chrome.runtime.sendMessage({
-      type: 'SAVE_TRANSACTION',
-      data: transactionData
-    }, () => {});
-
-    console.log('[KaiSign] Transaction sent to bridge for saving');
-    console.log('[KaiSign] tx.data length:', tx.data ? tx.data.length : 0, 'bytes');
-    console.log('[KaiSign] tx.data preview:', tx.data ? tx.data.slice(0, 66) : 'none');
-  } catch (error) {
-    console.error('[KaiSign] Error sending transaction to bridge:', error);
-  }
+  const transactionData = {
+    id: Date.now().toString(),
+    method: method,
+    time: new Date().toISOString(),
+    // Original transaction data from dApp (unmodified)
+    to: tx.to,
+    from: tx.from,
+    value: tx.value,
+    data: tx.data, // Original raw bytecode from dApp
+    gas: tx.gas,
+    gasPrice: tx.gasPrice,
+    maxFeePerGas: tx.maxFeePerGas,
+    maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+    nonce: tx.nonce,
+    chainId: tx.chainId,
+    // EIP-7702 and EIP-2930 fields
+    type: tx.type,                           // Transaction type (0, 1, 2, or 4)
+    authorizationList: tx.authorizationList, // EIP-7702 authorization tuples
+    accessList: tx.accessList,               // EIP-2930 access list
+    // EIP-712 typed data (if applicable)
+    isEIP712: context?.isEIP712 || false,
+    eip712TypedData: tx.eip712TypedData || null,
+    primaryType: context?.primaryType || null,
+    domainName: context?.domainName || null,
+    // Decoded/analyzed data (for display only, not for sending)
+    intent: intent,
+    decodedResult: decodedResult,
+    extractedBytecodes: extractedBytecodes
+  };
 
   // Remove old popup if exists
   const old = document.getElementById('kaisign-popup');
@@ -2454,7 +2499,8 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     </div>
 
     <div class="kaisign-action-bar">
-      <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
+      <button class="kaisign-btn kaisign-btn-primary kaisign-save-btn">Save</button>
+      <button class="kaisign-btn kaisign-btn-secondary" onclick="showTransactionHistory()">History</button>
       <button class="kaisign-btn kaisign-btn-secondary" onclick="exportTransactionData('${escapeHtml(tx.data)}', ${JSON.stringify(JSON.stringify({decodedResult, extractedBytecodes}))})">Export</button>
     </div>
   `;
@@ -2462,6 +2508,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   document.body.appendChild(popup);
   bindPopupClose(popup);
   attachPopupDrag(popup);
+  attachSaveButton(popup, transactionData);
 
   // Auto-remove after 30 seconds
   setTimeout(() => {
