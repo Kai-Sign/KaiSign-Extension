@@ -1361,8 +1361,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     </div>
 
     <div class="kaisign-action-bar">
-      <button class="kaisign-btn kaisign-btn-primary kaisign-save-btn">Save</button>
-      <button class="kaisign-btn kaisign-btn-secondary" onclick="showTransactionHistory()">History</button>
+      <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
       <button class="kaisign-btn kaisign-btn-secondary" onclick="this.closest('.kaisign-popup').remove()">Close</button>
     </div>
   `;
@@ -1393,7 +1392,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     domainName: domain.name
   };
 
-  attachSaveButton(popup, transactionData);
+  saveTransactionViaAllChannels(transactionData);
 
   // Add decode button handler if decode section exists
   if (displayData.showDecodeOption) {
@@ -2499,8 +2498,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     </div>
 
     <div class="kaisign-action-bar">
-      <button class="kaisign-btn kaisign-btn-primary kaisign-save-btn">Save</button>
-      <button class="kaisign-btn kaisign-btn-secondary" onclick="showTransactionHistory()">History</button>
+      <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
       <button class="kaisign-btn kaisign-btn-secondary" onclick="exportTransactionData('${escapeHtml(tx.data)}', ${JSON.stringify(JSON.stringify({decodedResult, extractedBytecodes}))})">Export</button>
     </div>
   `;
@@ -2508,7 +2506,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   document.body.appendChild(popup);
   bindPopupClose(popup);
   attachPopupDrag(popup);
-  attachSaveButton(popup, transactionData);
+  saveTransactionViaAllChannels(transactionData);
 
   // Auto-remove after 30 seconds
   setTimeout(() => {
