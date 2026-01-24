@@ -45,6 +45,7 @@ const TEST_SUITES = [
   { name: 'protocols/0x.test.js', path: './suites/protocols/0x.test.js' },
   { name: 'protocols/cow.test.js', path: './suites/protocols/cow.test.js' },
   { name: 'protocols/lifi.test.js', path: './suites/protocols/lifi.test.js' },
+  { name: 'protocols/fluid.test.js', path: './suites/protocols/fluid.test.js' },
 
   // Account abstraction tests
   { name: 'aa/safe.test.js', path: './suites/aa/safe.test.js' },

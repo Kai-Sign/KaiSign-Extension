@@ -709,7 +709,11 @@ function decodeCommandArray(commands, inputs, registry) {
   const results = [];
 
   for (let i = 0; i < commandBytes.length; i += 2) {
-    const cmdByte = '0x' + commandBytes.slice(i, i + 2).toLowerCase();
+    const rawHex = commandBytes.slice(i, i + 2).toLowerCase();
+    const rawVal = parseInt(rawHex, 16);
+    const cmdId = rawVal & 0x1f; // mask out command flags
+    const cmdByte = '0x' + cmdId.toString(16).padStart(2, '0');
+    const allowRevert = (rawVal & 0x80) !== 0;
     const cmdDef = registry[cmdByte];
     const inputData = inputs?.[i / 2];
 
@@ -753,6 +757,12 @@ function decodeCommandArray(commands, inputs, registry) {
               // For token amounts, just show the raw value for now
               // Full token symbol lookup would require additional metadata
               value = value.toString();
+            } else if (paramDef.type === 'bytes' && typeof value === 'string') {
+              const hex = value.startsWith('0x') ? value.slice(2) : value;
+              const byteLen = Math.max(0, Math.floor(hex.length / 2));
+              value = `${byteLen} bytes`;
+            } else if (paramDef.type === 'bytes[]' && Array.isArray(value)) {
+              value = `${value.length} params`;
             }
 
             decodedParams[paramDef.name] = value;
@@ -767,6 +777,8 @@ function decodeCommandArray(commands, inputs, registry) {
 
       results.push({
         command: cmdByte,
+        rawCommand: '0x' + rawHex,
+        allowRevert,
         name: cmdDef.name,
         intent: intent,
         params: decodedParams
@@ -774,6 +786,8 @@ function decodeCommandArray(commands, inputs, registry) {
     } else {
       results.push({
         command: cmdByte,
+        rawCommand: '0x' + rawHex,
+        allowRevert,
         name: `UNKNOWN_${cmdByte}`,
         intent: `Unknown command ${cmdByte}`,
         params: {}
@@ -1065,17 +1079,18 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
   // tokenAmount format - fetch token metadata from Railway API
   if (format === 'tokenAmount') {
     const tokenPath = params.tokenPath;
-    if (!tokenPath) {
-      console.warn('[applyFieldFormat] tokenAmount format missing tokenPath');
+    const directTokenAddress = params.tokenAddress;
+    if (!tokenPath && !directTokenAddress) {
+      console.warn('[applyFieldFormat] tokenAmount format missing tokenPath/tokenAddress');
       return String(value);
     }
 
-    // Resolve token address from params
-    const tokenAddress = resolveFieldPath(tokenPath, allParams);
+    // Resolve token address from params or directly provided tokenAddress
+    const tokenAddress = directTokenAddress || resolveFieldPath(tokenPath, allParams);
     console.log('[applyFieldFormat] Token address:', tokenAddress);
 
-    let decimals = 18; // Default
-    let symbol = '';
+    let decimals = typeof params.decimals === 'number' ? params.decimals : 18; // Default
+    let symbol = params.symbol || '';
 
     if (tokenAddress) {
       // Handle native ETH addresses
@@ -1093,7 +1108,7 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
           symbol = tokenInfo.symbol || '';
         } catch (error) {
           console.warn('[applyFieldFormat] Failed to fetch token metadata:', error.message);
-          symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
+          if (!symbol) symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
         }
       }
     }

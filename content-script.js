@@ -8,42 +8,45 @@
   const style = document.createElement('style');
   style.id = 'kaisign-styles';
   style.textContent = `
-    /* KaiSign Complete Embedded Styles - Minimalist Dark Theme */
-    .kaisign-popup { position: fixed; top: 20px; right: 20px; width: 420px; max-height: 85vh; overflow-y: auto; background: #161b22; color: #e6edf3; padding: 0; border-radius: 12px; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.5; box-shadow: 0 16px 48px rgba(0,0,0,0.5); border: 1px solid #30363d; }
+    /* KaiSign Complete Embedded Styles - Atelier Light Theme */
+    .kaisign-popup { position: fixed; top: 20px; right: 20px; width: 420px; max-height: 85vh; overflow-y: auto; background: #fff9f1; color: #2b2722; padding: 0; border-radius: 16px; z-index: 2147483647; font-family: "Sora", "Avenir Next", "Segoe UI", sans-serif; font-size: 13px; line-height: 1.5; box-shadow: 0 18px 50px rgba(43,39,34,0.18); border: 1px solid #e6dccf; }
     .kaisign-popup * { box-sizing: border-box; }
-    .kaisign-popup-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid #30363d; background: #0d1117; border-radius: 12px 12px 0 0; }
+    .kaisign-popup-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid #e6dccf; background: linear-gradient(120deg, #fff4e6 0%, #f6f0e7 60%, #f2f7f5 100%); border-radius: 16px 16px 0 0; }
+    .kaisign-popup-header { cursor: grab; }
+    .kaisign-popup.dragging .kaisign-popup-header { cursor: grabbing; }
+    .kaisign-popup.dragging { user-select: none; }
     .kaisign-popup-logo { display: flex; align-items: center; gap: 10px; }
-    .kaisign-popup-logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #58a6ff, #a371f7); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 10px; color: white; }
-    .kaisign-popup-title { font-size: 14px; font-weight: 600; color: #e6edf3; }
-    .kaisign-popup-subtitle { font-size: 11px; color: #8b949e; }
-    .kaisign-close-btn { width: 28px; height: 28px; background: transparent; border: 1px solid #30363d; border-radius: 6px; color: #8b949e; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
-    .kaisign-close-btn:hover { background: #f85149; border-color: #f85149; color: white; }
-    .kaisign-warning { padding: 10px 16px; background: rgba(248, 81, 73, 0.1); border-bottom: 1px solid #30363d; font-size: 11px; color: #f85149; text-align: center; }
-    .kaisign-intent-section { padding: 16px; background: #21262d; border-bottom: 1px solid #30363d; }
-    .kaisign-wrapper-context { font-size: 11px; color: #8b949e; margin-bottom: 4px; padding: 4px 8px; background: rgba(139, 148, 158, 0.1); border-radius: 4px; display: inline-block; }
-    .kaisign-intent { font-size: 16px; font-weight: 600; color: #3fb950; margin-bottom: 12px; }
+    .kaisign-popup-logo-icon { width: 30px; height: 30px; background: linear-gradient(135deg, #0f9f9a, #2563eb); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 10px; color: white; box-shadow: 0 8px 16px rgba(37,99,235,0.25); }
+    .kaisign-popup-title { font-size: 14px; font-weight: 700; color: #2b2722; }
+    .kaisign-popup-subtitle { font-size: 11px; color: #7a6f63; }
+    .kaisign-close-btn { width: 28px; height: 28px; background: transparent; border: 1px solid #e6dccf; border-radius: 8px; color: #7a6f63; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
+    .kaisign-close-btn:hover { background: #ef4444; border-color: #ef4444; color: white; }
+    .kaisign-warning { padding: 10px 16px; background: rgba(220, 38, 38, 0.08); border-bottom: 1px solid #e6dccf; font-size: 11px; color: #dc2626; text-align: center; }
+    .kaisign-intent-section { padding: 16px; background: #f7efe5; border-bottom: 1px solid #e6dccf; }
+    .kaisign-wrapper-context { font-size: 11px; color: #7a6f63; margin-bottom: 4px; padding: 4px 8px; background: rgba(15, 159, 154, 0.08); border-radius: 6px; display: inline-block; }
+    .kaisign-intent { font-size: 16px; font-weight: 700; color: #0f9f9a; margin-bottom: 12px; }
     .kaisign-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .kaisign-detail-item { font-size: 12px; }
-    .kaisign-detail-label { color: #ffd700; font-weight: 500; }
-    .kaisign-detail-value { color: #e6edf3; word-break: break-all; font-family: 'SF Mono', Consolas, monospace; }
+    .kaisign-detail-label { color: #c2410c; font-weight: 600; }
+    .kaisign-detail-value { color: #2b2722; word-break: break-all; font-family: 'SF Mono', Consolas, monospace; }
     .kaisign-popup-content { padding: 16px; }
-    .kaisign-section { margin-bottom: 16px; padding: 12px; background: #0d1117; border-radius: 8px; border-left: 3px solid #58a6ff; }
-    .kaisign-section.success { border-left-color: #3fb950; }
-    .kaisign-section.error { border-left-color: #f85149; }
-    .kaisign-section.purple { border-left-color: #a371f7; }
+    .kaisign-section { margin-bottom: 16px; padding: 12px; background: #ffffff; border-radius: 10px; border: none; box-shadow: 0 8px 16px rgba(43,39,34,0.08); }
+    .kaisign-section.success { box-shadow: 0 8px 16px rgba(22,163,74,0.12); }
+    .kaisign-section.error { box-shadow: 0 8px 16px rgba(220,38,38,0.12); }
+    .kaisign-section.purple { box-shadow: 0 8px 16px rgba(139,92,246,0.12); }
     .kaisign-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .kaisign-section-title { font-size: 12px; font-weight: 600; color: #58a6ff; display: flex; align-items: center; gap: 6px; }
-    .kaisign-section-title.green { color: #3fb950; }
-    .kaisign-section-title.red { color: #f85149; }
-    .kaisign-section-title.purple { color: #a371f7; }
-    .kaisign-copy-btn { padding: 4px 8px; background: #58a6ff; color: white; border: none; border-radius: 4px; font-size: 10px; cursor: pointer; transition: all 0.2s ease; }
-    .kaisign-copy-btn:hover { background: #4c8ed9; }
-    .kaisign-copy-btn.copied { background: #3fb950; }
-    .kaisign-bytecode { background: #0d1117; padding: 8px; border-radius: 4px; word-break: break-all; max-height: 100px; overflow-y: auto; font-family: 'SF Mono', Consolas, monospace; font-size: 10px; color: #8b949e; border: 1px solid #30363d; }
-    .kaisign-bytecode-info { margin-top: 8px; font-size: 10px; color: #6e7681; }
-    .kaisign-tree { background: #0d1117; padding: 12px; border-radius: 6px; margin-top: 8px; }
-    .kaisign-tree-header { font-size: 11px; font-weight: 600; color: #3fb950; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #30363d; }
-    .kaisign-tree-item { margin: 6px 0; padding: 8px; background: #161b22; border-radius: 4px; border-left: 3px solid #ffd700; }
+    .kaisign-section-title { font-size: 12px; font-weight: 700; color: #0f9f9a; display: flex; align-items: center; gap: 6px; }
+    .kaisign-section-title.green { color: #16a34a; }
+    .kaisign-section-title.red { color: #dc2626; }
+    .kaisign-section-title.purple { color: #8b5cf6; }
+    .kaisign-copy-btn { padding: 4px 8px; background: #0f9f9a; color: white; border: none; border-radius: 6px; font-size: 10px; cursor: pointer; transition: all 0.2s ease; }
+    .kaisign-copy-btn:hover { background: #0b7f7b; }
+    .kaisign-copy-btn.copied { background: #16a34a; }
+    .kaisign-bytecode { background: #f7f3ee; padding: 8px; border-radius: 6px; word-break: break-all; max-height: 100px; overflow-y: auto; font-family: 'SF Mono', Consolas, monospace; font-size: 10px; color: #7a6f63; border: 1px solid #e6dccf; }
+    .kaisign-bytecode-info { margin-top: 8px; font-size: 10px; color: #9a8f82; }
+    .kaisign-tree { background: #f7f3ee; padding: 12px; border-radius: 8px; margin-top: 8px; border: none; }
+    .kaisign-tree-header { font-size: 11px; font-weight: 700; color: #16a34a; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e6dccf; }
+    .kaisign-tree-item { margin: 6px 0; padding: 8px; background: #fff; border-radius: 6px; border: none; box-shadow: 0 6px 12px rgba(43,39,34,0.08); }
     .kaisign-tree-item.level-1 { border-left-color: #ffd700; }
     .kaisign-tree-item.level-2 { border-left-color: #f85149; margin-left: 16px; }
     .kaisign-tree-item.level-3 { border-left-color: #4ecdc4; margin-left: 32px; }
@@ -57,7 +60,22 @@
     .kaisign-tree-intent { color: #ffd700; font-weight: 500; }
     .kaisign-tree-bytecode { margin-top: 6px; }
     .kaisign-tree-bytecode-label { font-size: 9px; font-weight: 600; color: #a371f7; margin-bottom: 4px; }
-    .kaisign-tree-bytecode-value { background: #0d1117; padding: 6px; border-radius: 3px; word-break: break-all; max-height: 50px; overflow-y: auto; font-size: 8px; color: #8b949e; font-family: 'SF Mono', Consolas, monospace; }
+    .kaisign-tree-bytecode-value { background: #f7f3ee; padding: 6px; border-radius: 3px; word-break: break-all; max-height: 50px; overflow-y: auto; font-size: 8px; color: #7a6f63; font-family: 'SF Mono', Consolas, monospace; }
+    .kaisign-popup.theme-dark { background: #161b22; color: #e6edf3; border-color: #30363d; }
+    .kaisign-popup.theme-dark .kaisign-popup-header { background: #0d1117; border-bottom-color: #30363d; }
+    .kaisign-popup.theme-dark .kaisign-popup-title { color: #e6edf3; }
+    .kaisign-popup.theme-dark .kaisign-popup-subtitle { color: #8b949e; }
+    .kaisign-popup.theme-dark .kaisign-intent-section { background: #21262d; border-bottom-color: #30363d; }
+    .kaisign-popup.theme-dark .kaisign-intent { color: #3fb950; }
+    .kaisign-popup.theme-dark .kaisign-detail-label { color: #ffd700; }
+    .kaisign-popup.theme-dark .kaisign-detail-value { color: #e6edf3; }
+    .kaisign-popup.theme-dark .kaisign-section { background: #0d1117; border: none; box-shadow: 0 12px 24px rgba(0,0,0,0.35); }
+    .kaisign-popup.theme-dark .kaisign-section-title { color: #58a6ff; }
+    .kaisign-popup.theme-dark .kaisign-copy-btn { background: #58a6ff; }
+    .kaisign-popup.theme-dark .kaisign-bytecode { background: #0d1117; border-color: #30363d; color: #8b949e; }
+    .kaisign-popup.theme-dark .kaisign-tree { background: #0d1117; border: none; }
+    .kaisign-popup.theme-dark .kaisign-tree-item { background: #161b22; border: none; box-shadow: 0 8px 16px rgba(0,0,0,0.35); }
+    .kaisign-popup.theme-dark .kaisign-tree-bytecode-value { background: #0d1117; color: #8b949e; }
     .kaisign-tree-footer { margin-top: 8px; padding-top: 8px; border-top: 1px solid #30363d; font-size: 9px; color: #3fb950; text-align: center; }
     .kaisign-decode-result { font-size: 11px; }
     .kaisign-decode-success { color: #3fb950; margin-bottom: 4px; }
@@ -123,6 +141,8 @@
     @keyframes kaisign-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
   `;
   document.head.appendChild(style);
+  window.__kaisignInjected = true;
+  console.log('[KaiSign] Content script injected');
   console.log('[KaiSign] Embedded styles injected');
 })();
 
@@ -132,6 +152,80 @@
 function updateLoadingStatus(text) {
   const statusEl = document.querySelector('.kaisign-loading-status');
   if (statusEl) statusEl.textContent = text;
+}
+
+async function getStoredTheme() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get(['kaisignTheme'], (result) => {
+        resolve(result.kaisignTheme || 'light');
+      });
+    } catch (e) {
+      resolve('light');
+    }
+  });
+}
+
+async function getStoredPopupPosition() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get(['kaisignPopupPos'], (result) => {
+        resolve(result.kaisignPopupPos || null);
+      });
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
+function storePopupPosition(pos) {
+  try {
+    chrome.storage.local.set({ kaisignPopupPos: pos });
+  } catch {}
+}
+
+function attachPopupDrag(popup) {
+  const header = popup.querySelector('.kaisign-popup-header');
+  if (!header) return;
+
+  let startX = 0;
+  let startY = 0;
+  let startLeft = 0;
+  let startTop = 0;
+  let dragging = false;
+
+  const onMouseMove = (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    const nextLeft = Math.max(8, Math.min(window.innerWidth - popup.offsetWidth - 8, startLeft + dx));
+    const nextTop = Math.max(8, Math.min(window.innerHeight - popup.offsetHeight - 8, startTop + dy));
+    popup.style.left = `${nextLeft}px`;
+    popup.style.top = `${nextTop}px`;
+    popup.style.right = 'auto';
+  };
+
+  const onMouseUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    popup.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    storePopupPosition({ left: popup.style.left, top: popup.style.top });
+  };
+
+  header.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const rect = popup.getBoundingClientRect();
+    dragging = true;
+    popup.classList.add('dragging');
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = rect.left;
+    startTop = rect.top;
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
 }
 
 // =============================================================================
@@ -998,7 +1092,7 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
         }
 
         updateLoadingStatus('Complete');
-        showEIP712TypedDataDisplay(typedData, displayData, walletName);
+        await showEIP712TypedDataDisplay(typedData, displayData, walletName);
         return;
       }
     }
@@ -1041,7 +1135,7 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
  * Show EIP-712 typed data with rich metadata-driven display
  * Uses same popup structure as execute transaction for consistency
  */
-function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
+async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   console.log('[KaiSign] Showing EIP-712 display:', displayData);
 
   // Remove old popup if exists
@@ -1143,7 +1237,20 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   // Create popup using same structure as execute transaction
   const popup = document.createElement('div');
   popup.id = 'kaisign-popup';
-  popup.className = 'kaisign-popup';
+  const theme = await getStoredTheme();
+  popup.className = `kaisign-popup ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`;
+  const savedPos = await getStoredPopupPosition();
+  if (savedPos?.left && savedPos?.top) {
+    popup.style.left = savedPos.left;
+    popup.style.top = savedPos.top;
+    popup.style.right = 'auto';
+  }
+  const savedPos = await getStoredPopupPosition();
+  if (savedPos?.left && savedPos?.top) {
+    popup.style.left = savedPos.left;
+    popup.style.top = savedPos.top;
+    popup.style.right = 'auto';
+  }
 
   popup.innerHTML = `
     <div class="kaisign-warning">
@@ -1197,6 +1304,8 @@ function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   `;
 
   document.body.appendChild(popup);
+  attachPopupDrag(popup);
+  attachPopupDrag(popup);
 
   // Save EIP-712 signature to transaction history
   try {
@@ -2003,6 +2112,24 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   let decodedResult = null;
   let extractedBytecodes = [];
   const selector = tx.data?.slice(0, 10);
+  const chainId = context?.chainId || tx.chainId || 1;
+
+  const buildDecodeFailureStatus = (errorMessage) => {
+    const message = errorMessage || 'Unable to decode transaction';
+    const lower = message.toLowerCase();
+    let title = 'Decode failed';
+
+    if (lower.includes('metadata')) {
+      title = 'Metadata not found';
+    } else if (lower.includes('function not found') || lower.includes('abi')) {
+      title = 'Unknown function';
+    }
+
+    const address = tx.to ? `${tx.to.slice(0, 8)}...${tx.to.slice(-6)}` : 'unknown contract';
+    const detail = `${title} for ${address} on chain ${chainId}`;
+
+    return { title, detail, message };
+  };
 
   // SHOW LOADING POPUP IMMEDIATELY (only once)
   showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false, isLoading: true }, []);
@@ -2025,8 +2152,6 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
     try {
       // Determine chainId - use mainnet (1) as default
-      const chainId = context?.chainId || tx.chainId || 1;
-
       // GENERIC: Use ERC-7730 metadata to parse ANY transaction
       // Try recursive decoder first for full nested intent resolution
       let decoded;
@@ -2060,9 +2185,30 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         }
 
         console.log(`[KaiSign] Decoded transaction: ${intent}`);
+      } else if (decoded && !decoded.success) {
+        const failure = buildDecodeFailureStatus(decoded.error);
+        intent = failure.title;
+        decodedResult = {
+          success: false,
+          selector,
+          error: decoded.error || failure.message,
+          statusTitle: failure.title,
+          statusDetail: failure.detail
+        };
+        updateLoadingStatus(failure.detail);
       }
     } catch (decodeError) {
       console.error('[KaiSign] Transaction decoding error:', decodeError);
+      const failure = buildDecodeFailureStatus(decodeError?.message);
+      intent = failure.title;
+      decodedResult = {
+        success: false,
+        selector,
+        error: decodeError?.message || failure.message,
+        statusTitle: failure.title,
+        statusDetail: failure.detail
+      };
+      updateLoadingStatus(failure.detail);
     }
   }
 
@@ -2105,12 +2251,19 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
 
   // If loading state, show loading popup with bouncing dots
   if (decodedResult?.isLoading) {
+    const theme = await getStoredTheme();
     const old = document.getElementById('kaisign-popup');
     if (old) old.remove();
 
     const popup = document.createElement('div');
     popup.id = 'kaisign-popup';
-    popup.className = 'kaisign-popup';
+    popup.className = `kaisign-popup ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`;
+    const savedPos = await getStoredPopupPosition();
+    if (savedPos?.left && savedPos?.top) {
+      popup.style.left = savedPos.left;
+      popup.style.top = savedPos.top;
+      popup.style.right = 'auto';
+    }
     popup.innerHTML = `
       <div class="kaisign-warning">
         DEMONSTRATION VERSION - USE AT YOUR OWN RISK
@@ -2137,6 +2290,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       </div>
     `;
     document.body.appendChild(popup);
+    attachPopupDrag(popup);
     return; // Don't continue to full popup
   }
 
@@ -2192,7 +2346,8 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   // Create enhanced popup using CSS classes
   const popup = document.createElement('div');
   popup.id = 'kaisign-popup';
-  popup.className = 'kaisign-popup';
+  const theme = await getStoredTheme();
+  popup.className = `kaisign-popup ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`;
 
   // Helper to escape HTML
   const escapeHtml = (str) => {
@@ -2229,7 +2384,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     </div>
   ` : '';
 
-  // Only show decoding section if successful - hide failed results
+  // Show decoding section for success or failure
   const decodingSection = decodedResult?.success ? `
     <div class="kaisign-section success">
       <div class="kaisign-section-header">
@@ -2239,6 +2394,16 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         <div class="kaisign-decode-success">Success</div>
         <div class="kaisign-decode-detail">Function: ${escapeHtml(decodedResult.functionName || 'Unknown')}</div>
         <div class="kaisign-decode-detail">Selector: ${escapeHtml(decodedResult.selector)}</div>
+      </div>
+    </div>
+  ` : decodedResult?.error ? `
+    <div class="kaisign-section" style="border-left: 3px solid #f59e0b;">
+      <div class="kaisign-section-header">
+        <span class="kaisign-section-title" style="color: #f59e0b;">Decoding Status</span>
+      </div>
+      <div class="kaisign-decode-result">
+        <div class="kaisign-decode-detail"><strong>${escapeHtml(decodedResult.statusTitle || 'Decode failed')}</strong></div>
+        <div class="kaisign-decode-detail">${escapeHtml(decodedResult.statusDetail || decodedResult.error)}</div>
       </div>
     </div>
   ` : '';
@@ -2932,6 +3097,3 @@ Features:
 
 // Start wallet detection
 waitForWallets();
-
-
-

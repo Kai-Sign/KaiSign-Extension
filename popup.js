@@ -19,6 +19,7 @@ const elements = {
   clearBtn: document.getElementById('clearBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
   refreshBtn: document.getElementById('refreshBtn'),
+  themeToggleBtn: document.getElementById('themeToggleBtn'),
   fileDrop: document.getElementById('fileDrop'),
   fileInput: document.getElementById('fileInput'),
   confirmImport: document.getElementById('confirmImport'),
@@ -31,8 +32,28 @@ const elements = {
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+  await loadTheme();
   await loadData();
   setupEventListeners();
+}
+
+async function loadTheme() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['kaisignTheme'], (result) => {
+      const theme = result.kaisignTheme || 'light';
+      document.body.classList.toggle('theme-dark', theme === 'dark');
+      document.body.classList.toggle('theme-light', theme !== 'dark');
+      resolve();
+    });
+  });
+}
+
+function toggleTheme() {
+  const isDark = document.body.classList.contains('theme-dark');
+  const nextTheme = isDark ? 'light' : 'dark';
+  document.body.classList.toggle('theme-dark', nextTheme === 'dark');
+  document.body.classList.toggle('theme-light', nextTheme !== 'dark');
+  chrome.storage.local.set({ kaisignTheme: nextTheme });
 }
 
 // Load data from storage
@@ -57,7 +78,11 @@ async function loadData() {
 }
 
 // Generate meaningful title for transaction
-function generateMeaningfulTitle(tx) {
+function generateMeaningfulTitle(tx, status) {
+  if (status?.useAsTitle && status.label) {
+    return status.label;
+  }
+
   // 1. Try decoded protocol name
   if (tx.decodedResult?.protocolName) {
     return tx.decodedResult.protocolName;
@@ -69,8 +94,8 @@ function generateMeaningfulTitle(tx) {
     const invalidPatterns = [
       'Parsing',
       'Loading',
+      'Processing',
       'Contract interaction',
-      'Unknown',
       '...',
       'undefined'
     ];
@@ -125,10 +150,90 @@ function filterTransactions(txs) {
   const searchLower = currentSearch.toLowerCase();
   return txs.filter(tx => {
     return (tx.intent || '').toLowerCase().includes(searchLower) ||
+      (tx.decodedResult?.error || '').toLowerCase().includes(searchLower) ||
+      (tx.decodedResult?.statusTitle || '').toLowerCase().includes(searchLower) ||
+      (tx.decodedResult?.statusDetail || '').toLowerCase().includes(searchLower) ||
       (tx.to || '').toLowerCase().includes(searchLower) ||
       (tx.method || '').toLowerCase().includes(searchLower) ||
       (tx.data || '').toLowerCase().includes(searchLower);
   });
+}
+
+function getTransactionStatus(tx) {
+  const error = tx.decodedResult?.error || '';
+  const statusTitle = tx.decodedResult?.statusTitle || '';
+  const statusDetail = tx.decodedResult?.statusDetail || '';
+  const intentLower = (tx.intent || '').toLowerCase();
+  const errorLower = error.toLowerCase();
+
+  if (error) {
+    if (errorLower.includes('metadata')) {
+      return {
+        label: statusTitle || 'Metadata not found',
+        tone: 'warning',
+        useAsTitle: true,
+        detail: statusDetail || 'No metadata available for this contract.'
+      };
+    }
+    if (errorLower.includes('function not found') || errorLower.includes('abi')) {
+      return {
+        label: statusTitle || 'Unknown function',
+        tone: 'warning',
+        useAsTitle: true,
+        detail: statusDetail || 'Function signature not found in metadata.'
+      };
+    }
+    return {
+      label: statusTitle || 'Decode failed',
+      tone: 'error',
+      useAsTitle: true,
+      detail: statusDetail || error
+    };
+  }
+
+  if (intentLower.includes('processing')) {
+    return {
+      label: 'Pending decode',
+      tone: 'info',
+      useAsTitle: true,
+      detail: 'Awaiting metadata and intent parsing.'
+    };
+  }
+
+  if (tx.isEIP712) {
+    return {
+      label: 'Signature',
+      tone: 'accent',
+      useAsTitle: false,
+      detail: tx.primaryType ? `Type: ${tx.primaryType}` : ''
+    };
+  }
+
+  return { label: '', tone: '', useAsTitle: false, detail: '' };
+}
+
+function formatAddressShort(address) {
+  if (!address || address.length < 10) return address || '';
+  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+}
+
+function getContextLine(tx, status) {
+  if (status?.detail) return status.detail;
+  if (tx.to) {
+    const chain = tx.chainId ? ` • Chain ${tx.chainId}` : '';
+    return `To ${formatAddressShort(tx.to)}${chain}`;
+  }
+  return '';
+}
+
+function getTxIconLabel(tx, status) {
+  if (tx.isEIP712) return 'SIG';
+  if (status?.tone === 'warning') return 'META';
+  if (status?.tone === 'error') return 'ERR';
+  if (status?.tone === 'accent') return 'SIG';
+  if (tx.method?.includes('sign')) return 'SIGN';
+  if (tx.method?.includes('send')) return 'SEND';
+  return 'TX';
 }
 
 // Render transactions
@@ -150,20 +255,29 @@ function renderTransactions() {
     return;
   }
 
-  elements.txList.innerHTML = filtered.map(tx => {
+  elements.txList.innerHTML = filtered.map((tx, index) => {
     const time = tx.time ? formatTime(tx.time) : '';
-    const intent = generateMeaningfulTitle(tx);
+    const status = getTransactionStatus(tx);
+    const intent = generateMeaningfulTitle(tx, status);
     const method = tx.method || '';
+    const contextLine = getContextLine(tx, status);
+    const statusBadge = status.label ? `
+      <span class="tx-status ${status.tone}">${escapeHtml(status.label)}</span>
+    ` : '';
 
     return `
-      <div class="tx-item" data-id="${tx.id || ''}">
-        <div class="tx-icon">📄</div>
+      <div class="tx-item ${status.tone}" data-id="${tx.id || ''}" style="animation-delay: ${index * 40}ms;">
+        <div class="tx-icon ${status.tone}"><span class="tx-icon-label">${getTxIconLabel(tx, status)}</span></div>
         <div class="tx-content">
-          <div class="tx-intent">${escapeHtml(intent)}</div>
+          <div class="tx-title-row">
+            <div class="tx-intent">${escapeHtml(intent)}</div>
+            ${statusBadge}
+          </div>
           <div class="tx-meta">
             <span class="tx-method">${escapeHtml(method)}</span>
             <span class="tx-time">${time}</span>
           </div>
+          ${contextLine ? `<div class="tx-context">${escapeHtml(contextLine)}</div>` : ''}
         </div>
         <span class="tx-arrow">›</span>
       </div>
@@ -254,6 +368,9 @@ function setupEventListeners() {
     elements.loadingState.style.display = 'flex';
     loadData();
   });
+
+  // Theme toggle
+  elements.themeToggleBtn.addEventListener('click', toggleTheme);
 
   // Transaction item click
   elements.txList.addEventListener('click', (e) => {
