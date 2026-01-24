@@ -38,22 +38,13 @@ async function init() {
 }
 
 async function loadTheme() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['kaisignTheme'], (result) => {
-      const theme = result.kaisignTheme || 'light';
-      document.body.classList.toggle('theme-dark', theme === 'dark');
-      document.body.classList.toggle('theme-light', theme !== 'dark');
-      resolve();
-    });
-  });
+  document.body.classList.add('theme-dark');
+  document.body.classList.remove('theme-light');
 }
 
 function toggleTheme() {
-  const isDark = document.body.classList.contains('theme-dark');
-  const nextTheme = isDark ? 'light' : 'dark';
-  document.body.classList.toggle('theme-dark', nextTheme === 'dark');
-  document.body.classList.toggle('theme-light', nextTheme !== 'dark');
-  chrome.storage.local.set({ kaisignTheme: nextTheme });
+  document.body.classList.add('theme-dark');
+  document.body.classList.remove('theme-light');
 }
 
 // Load data from storage
@@ -370,7 +361,9 @@ function setupEventListeners() {
   });
 
   // Theme toggle
-  elements.themeToggleBtn.addEventListener('click', toggleTheme);
+  if (elements.themeToggleBtn) {
+    elements.themeToggleBtn.addEventListener('click', toggleTheme);
+  }
 
   // Transaction item click
   elements.txList.addEventListener('click', (e) => {

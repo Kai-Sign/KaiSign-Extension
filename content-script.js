@@ -8,6 +8,7 @@
   const style = document.createElement('style');
   style.id = 'kaisign-styles';
   style.textContent = `
+
     /* KaiSign Complete Embedded Styles - Atelier Light Theme */
     .kaisign-popup { position: fixed; top: 20px; right: 20px; width: 420px; max-height: 85vh; overflow-y: auto; background: #fff9f1; color: #2b2722; padding: 0; border-radius: 16px; z-index: 2147483647; font-family: "Sora", "Avenir Next", "Segoe UI", sans-serif; font-size: 13px; line-height: 1.5; box-shadow: 0 18px 50px rgba(43,39,34,0.18); border: 1px solid #e6dccf; }
     .kaisign-popup * { box-sizing: border-box; }
@@ -141,31 +142,7 @@
     @keyframes kaisign-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
   `;
   document.head.appendChild(style);
-  try {
-    document.documentElement.setAttribute('data-kaisign-injected', 'true');
-  } catch {}
-  window.__kaisignInjected = true;
-  console.log('[KaiSign] Content script injected');
   console.log('[KaiSign] Embedded styles injected');
-})();
-
-// Ensure MAIN-world hook is injected (fallback when MAIN world is not available)
-(function ensureMainWorldHook() {
-  try {
-    if (window.__kaisignMainHookInjected) return;
-    const marker = document.getElementById('kaisign-main-hook');
-    if (marker) return;
-    const script = document.createElement('script');
-    script.id = 'kaisign-main-hook';
-    script.src = chrome.runtime.getURL('main-world-hook.js');
-    script.onload = () => {
-      script.remove();
-    };
-    document.documentElement.appendChild(script);
-    window.__kaisignMainHookInjected = true;
-  } catch (e) {
-    console.warn('[KaiSign] Failed to inject main-world hook:', e);
-  }
 })();
 
 // =============================================================================
@@ -176,58 +153,11 @@ function updateLoadingStatus(text) {
   if (statusEl) statusEl.textContent = text;
 }
 
-async function getStoredTheme() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get(['kaisignTheme'], (result) => {
-        resolve(result.kaisignTheme || 'light');
-      });
-    } catch (e) {
-      resolve('light');
-    }
-  });
-}
-
-async function getStoredPopupPosition() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get(['kaisignPopupPos'], (result) => {
-        resolve(result.kaisignPopupPos || null);
-      });
-    } catch (e) {
-      resolve(null);
-    }
-  });
-}
-
-function storePopupPosition(pos) {
-  try {
-    chrome.storage.local.set({ kaisignPopupPos: pos });
-  } catch {}
-}
-
-async function applyStoredPopupPosition(popup) {
-  const savedPos = await getStoredPopupPosition();
-  if (!savedPos?.left || !savedPos?.top) return;
-
-  const left = parseFloat(savedPos.left);
-  const top = parseFloat(savedPos.top);
-  if (!Number.isFinite(left) || !Number.isFinite(top)) return;
-
-  const maxLeft = Math.max(8, window.innerWidth - popup.offsetWidth - 8);
-  const maxTop = Math.max(8, window.innerHeight - popup.offsetHeight - 8);
-  const clampedLeft = Math.max(8, Math.min(maxLeft, left));
-  const clampedTop = Math.max(8, Math.min(maxTop, top));
-
-  popup.style.left = `${clampedLeft}px`;
-  popup.style.top = `${clampedTop}px`;
-  popup.style.right = 'auto';
-}
-
 function attachPopupDrag(popup) {
   const header = popup.querySelector('.kaisign-popup-header');
   if (!header) return;
 
+  header.style.cursor = 'grab';
   let startX = 0;
   let startY = 0;
   let startLeft = 0;
@@ -248,17 +178,16 @@ function attachPopupDrag(popup) {
   const onMouseUp = () => {
     if (!dragging) return;
     dragging = false;
-    popup.classList.remove('dragging');
+    header.style.cursor = 'grab';
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
-    storePopupPosition({ left: popup.style.left, top: popup.style.top });
   };
 
   header.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     const rect = popup.getBoundingClientRect();
     dragging = true;
-    popup.classList.add('dragging');
+    header.style.cursor = 'grabbing';
     startX = e.clientX;
     startY = e.clientY;
     startLeft = rect.left;
@@ -266,6 +195,22 @@ function attachPopupDrag(popup) {
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   });
+}
+
+function bindPopupClose(popup) {
+  if (!popup) return;
+  popup.addEventListener('click', (event) => {
+    const closeBtn = event.target.closest('.kaisign-close-btn');
+    const closeAction = event.target.closest('.kaisign-btn-secondary');
+    const isCloseAction = closeAction && closeAction.textContent.trim().toLowerCase() === 'close';
+    if (closeBtn || isCloseAction) {
+      popup.remove();
+    }
+  }, true);
+}
+
+function getStoredTheme() {
+  return 'dark';
 }
 
 // =============================================================================
@@ -591,38 +536,38 @@ function waitForWallets() {
 function detectAndHookWallets() {
 
   // 1. MetaMask (window.ethereum) - but check it's not Ambire first
-  if (window.ethereum && window.ethereum.request && (!hookedWallets.has('ethereum') || !window.ethereum.request.__kaisignWrapped)) {
+  if (window.ethereum && window.ethereum.request && !hookedWallets.has('ethereum')) {
     const walletName = getWalletName(window.ethereum);
     hookWalletProvider(window.ethereum, 'ethereum', walletName);
     hookedWallets.add('ethereum');
   }
   
   // 2. Rabby (window.rabby)
-  if (window.rabby && window.rabby.request && (!hookedWallets.has('rabby') || !window.rabby.request.__kaisignWrapped)) {
+  if (window.rabby && window.rabby.request && !hookedWallets.has('rabby')) {
     hookWalletProvider(window.rabby, 'rabby');
     hookedWallets.add('rabby');
   }
   
   // 3. Coinbase Wallet (window.coinbaseWalletExtension)
-  if (window.coinbaseWalletExtension && window.coinbaseWalletExtension.request && (!hookedWallets.has('coinbase') || !window.coinbaseWalletExtension.request.__kaisignWrapped)) {
+  if (window.coinbaseWalletExtension && window.coinbaseWalletExtension.request && !hookedWallets.has('coinbase')) {
     hookWalletProvider(window.coinbaseWalletExtension, 'coinbase');
     hookedWallets.add('coinbase');
   }
   
   // 4. Trust Wallet (window.trustWallet)
-  if (window.trustWallet && window.trustWallet.request && (!hookedWallets.has('trust') || !window.trustWallet.request.__kaisignWrapped)) {
+  if (window.trustWallet && window.trustWallet.request && !hookedWallets.has('trust')) {
     hookWalletProvider(window.trustWallet, 'trust');
     hookedWallets.add('trust');
   }
   
   // 5. Phantom (window.phantom?.ethereum)
-  if (window.phantom?.ethereum && window.phantom.ethereum.request && (!hookedWallets.has('phantom') || !window.phantom.ethereum.request.__kaisignWrapped)) {
+  if (window.phantom?.ethereum && window.phantom.ethereum.request && !hookedWallets.has('phantom')) {
     hookWalletProvider(window.phantom.ethereum, 'phantom');
     hookedWallets.add('phantom');
   }
 
   // 6. Ambire Wallet (window.ambire)
-  if (window.ambire && window.ambire.request && (!hookedWallets.has('ambire') || !window.ambire.request.__kaisignWrapped)) {
+  if (window.ambire && window.ambire.request && !hookedWallets.has('ambire')) {
     hookWalletProvider(window.ambire, 'ambire', 'Ambire');
     hookedWallets.add('ambire');
   }
@@ -631,7 +576,7 @@ function detectAndHookWallets() {
   if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
     window.ethereum.providers.forEach((provider, index) => {
       const walletKey = `provider-${index}`;
-      if (provider.request && (!hookedWallets.has(walletKey) || !provider.request.__kaisignWrapped)) {
+      if (provider.request && !hookedWallets.has(walletKey)) {
         const walletName = getWalletName(provider);
         hookWalletProvider(provider, walletKey, walletName);
         hookedWallets.add(walletKey);
@@ -661,87 +606,6 @@ function getWalletName(provider) {
 // Cache for Permit2 data - stores intent details by EIP-712 struct hash
 // This allows wrapper messages to display original intent details when the original data was seen
 window.kaisignPermit2Cache = window.kaisignPermit2Cache || new Map();
-
-async function handleRpcRequest(args, walletName = 'Wallet') {
-  if (!args || !args.method) return;
-
-  // Check if it's any Ethereum RPC method we want to monitor
-  if (isMonitoredEthereumMethod(args.method)) {
-    console.log(`[KaiSign] Intercepted ${args.method} from ${walletName}`, args.params);
-
-    // Handle different method categories
-    if (isTransactionMethod(args.method)) {
-      // Transaction and signature methods
-      if (args.method.startsWith('eth_signTypedData')) {
-        // Handle ALL EIP-712 typed data signature requests (v1, v3, v4, etc.)
-        const typedDataRaw = args.params?.[1];
-        const address = args.params?.[0];
-
-        console.log('[KaiSign] EIP-712 request via:', args.method);
-
-        if (typedDataRaw) {
-          // Parse JSON string if needed
-          let typedData;
-          try {
-            typedData = typeof typedDataRaw === 'string' ? JSON.parse(typedDataRaw) : typedDataRaw;
-            console.log('[KaiSign] Parsed typedData:', { hasTypes: !!typedData.types, primaryType: typedData.primaryType });
-
-            // Cache typed data by content-based key for later lookup
-            // Skip caching wrapper types that contain nested messages (detected by having 'message' field with embedded typed data)
-            const isWrapperType = typedData.message?.message !== undefined ||
-                                  (typedData.message?.data && typedData.message?.to);
-            if (typedData.primaryType && !isWrapperType) {
-              const cacheKey = JSON.stringify(typedData.message);
-              window.kaisignTypedDataCache = window.kaisignTypedDataCache || new Map();
-              window.kaisignTypedDataCache.set(cacheKey, typedData);
-              console.log('[KaiSign] Cached typed data:', typedData.primaryType);
-            }
-          } catch (e) {
-            console.error('[KaiSign] Failed to parse typedData:', e);
-            typedData = typedDataRaw;
-          }
-
-          handleTypedDataSignature(typedData, address, walletName);
-        }
-      } else if (args.method === 'personal_sign') {
-        // Handle personal message signing - use same popup UI
-        const message = args.params?.[0];
-        const address = args.params?.[1];
-        console.log('[KaiSign] Processing personal_sign request:', message);
-        handlePersonalSign(message, address, walletName);
-      } else if (args.method === 'wallet_sendCalls') {
-        // EIP-5792 batch calls (Ambire, Safe, etc.)
-        console.log('[KaiSign] EIP-5792 wallet_sendCalls detected:', args.params);
-        const batchParams = args.params?.[0] || {};
-        const calls = batchParams.calls || [];
-
-        // Convert hex chainId to number if needed
-        let chainId = batchParams.chainId;
-        if (typeof chainId === 'string' && chainId.startsWith('0x')) {
-          chainId = parseInt(chainId, 16);
-        }
-
-        // Process batch as single consolidated transaction
-        handleEIP5792Batch(calls, batchParams.from, chainId, walletName);
-      } else {
-        // Handle regular transactions (eth_sendTransaction, eth_signTransaction)
-        const tx = args.params?.[0] || {};
-        getIntentAndShow(tx, args.method, walletName, null);
-      }
-    } else {
-      // Handle all other RPC methods (queries, utilities, etc.)
-      handleRpcMethod(args.method, args.params, walletName);
-    }
-  }
-}
-
-// Receive MAIN-world forwarded RPC events
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  const message = event.data;
-  if (!message || message.type !== 'KAISIGN_RPC') return;
-  handleRpcRequest(message.args, message.walletName || 'Wallet');
-});
 
 
 /**
@@ -947,8 +811,29 @@ function getTokenSymbol(address) {
   return formatAddressShort(address);
 }
 
-// formatTokenAmount is defined in decode.js - do not duplicate here
-// The decode.js version fetches decimals from API/on-chain for accurate formatting
+/**
+ * Format token amount - GENERIC, no hardcoded decimals
+ * Assumes 18 decimals as safe default when unknown
+ */
+function formatTokenAmount(amount, tokenOrSymbol) {
+  if (!amount) return '0';
+  const amtStr = amount.toString();
+
+  // No hardcoded token-specific decimals
+  // Default to 18 decimals (most common ERC-20 standard)
+  const decimals = 18;
+
+  try {
+    const bn = BigInt(amtStr);
+    const divisor = BigInt(10 ** decimals);
+    const whole = bn / divisor;
+    const frac = bn % divisor;
+    const fracStr = frac.toString().padStart(decimals, '0').slice(0, 4);
+    return `${whole}.${fracStr}`;
+  } catch {
+    return amtStr;
+  }
+}
 
 // Helper formatters for Permit2
 function formatAddressShort(addr) {
@@ -1277,17 +1162,6 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
   };
 
-  const safeStringify = (value) => {
-    try {
-      return JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
-    } catch (error) {
-      console.warn('[KaiSign] Failed to stringify analyzed data:', error);
-      return JSON.stringify({ error: 'stringify_failed', message: error.message });
-    }
-  };
-
-  const safeExportData = safeStringify({ decodedResult, extractedBytecodes });
-
   // Build nested intents section if present
   let intentsSection = '';
   if (displayData.nestedIntents?.length > 0) {
@@ -1370,7 +1244,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   const popup = document.createElement('div');
   popup.id = 'kaisign-popup';
   const theme = await getStoredTheme();
-  popup.className = `kaisign-popup ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`;
+  popup.className = 'kaisign-popup theme-dark';
 
   popup.innerHTML = `
     <div class="kaisign-warning">
@@ -1424,9 +1298,8 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   `;
 
   document.body.appendChild(popup);
-  await applyStoredPopupPosition(popup);
+  bindPopupClose(popup);
   attachPopupDrag(popup);
-  console.log('[KaiSign] EIP-712 popup rendered');
 
   // Save EIP-712 signature to transaction history
   try {
@@ -1452,10 +1325,10 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
       domainName: domain.name
     };
 
-    window.postMessage({
-      type: 'KAISIGN_SAVE_TX',
+    chrome.runtime.sendMessage({
+      type: 'SAVE_TRANSACTION',
       data: transactionData
-    }, '*');
+    }, () => {});
 
     console.log('[KaiSign] EIP-712 signature saved to history');
         console.log('[KaiSign] EIP-712 data size:', JSON.stringify(typedData).length, 'chars');
@@ -1468,6 +1341,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     const container = document.getElementById('kaisign-decode-input-container');
     const decodeBtn = document.getElementById('kaisign-decode-btn');
     const decodeResult = document.getElementById('kaisign-decode-result');
+    const theme = await getStoredTheme();
 
     // Create iframe to completely isolate textarea from Safe's event listeners
     const iframe = document.createElement('iframe');
@@ -1478,6 +1352,11 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     // Wait for iframe to load then add textarea
     const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
     iframeDoc.open();
+    const textareaBg = theme === 'dark' ? '#0d1117' : '#fff7ee';
+    const textareaBorder = theme === 'dark' ? '#30363d' : '#e6dccf';
+    const textareaColor = theme === 'dark' ? '#e6edf3' : '#2b2722';
+    const textareaFocus = theme === 'dark' ? '#58a6ff' : '#0f9f9a';
+
     iframeDoc.write(`
       <!DOCTYPE html>
       <html>
@@ -1488,17 +1367,17 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
           textarea {
             width: 100%;
             height: 80px;
-            background: #0d1117;
-            border: 1px solid #30363d;
+            background: ${textareaBg};
+            border: 1px solid ${textareaBorder};
             border-radius: 6px;
-            color: #e6edf3;
+            color: ${textareaColor};
             padding: 8px;
             font-family: monospace;
             font-size: 11px;
             resize: none;
             outline: none;
           }
-          textarea:focus { border-color: #58a6ff; }
+          textarea:focus { border-color: ${textareaFocus}; }
         </style>
       </head>
       <body>
@@ -1588,7 +1467,10 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
     }
   }
 
-  // Keep popup until user closes it
+  // Auto-remove after 30 seconds (same as execute popup)
+  setTimeout(() => {
+    if (popup.parentNode) popup.remove();
+  }, 30000);
 }
 
 /**
@@ -1980,21 +1862,84 @@ function showRpcActivityNotification(method, params, category, walletName) {
 function hookWalletProvider(provider, walletKey, walletName = walletKey) {
   if (!provider.request) return;
 
-  if (provider.request.__kaisignWrapped) {
-    return;
-  }
-
   const originalRequest = provider.request.bind(provider);
 
   provider.request = async function(args) {
-    await handleRpcRequest(args, walletName);
+
+    // Check if it's any Ethereum RPC method we want to monitor
+    if (isMonitoredEthereumMethod(args.method)) {
+
+      console.log(`[KaiSign] Intercepted ${args.method} from ${walletName}`, args.params);
+      
+      // Handle different method categories
+      if (isTransactionMethod(args.method)) {
+        // Transaction and signature methods
+        if (args.method.startsWith('eth_signTypedData')) {
+          // Handle ALL EIP-712 typed data signature requests (v1, v3, v4, etc.)
+          const typedDataRaw = args.params?.[1];
+          const address = args.params?.[0];
+
+          console.log('[KaiSign] EIP-712 request via:', args.method);
+
+          if (typedDataRaw) {
+            // Parse JSON string if needed
+            let typedData;
+            try {
+              typedData = typeof typedDataRaw === 'string' ? JSON.parse(typedDataRaw) : typedDataRaw;
+              console.log('[KaiSign] Parsed typedData:', { hasTypes: !!typedData.types, primaryType: typedData.primaryType });
+
+              // Cache typed data by content-based key for later lookup
+              // Skip caching wrapper types that contain nested messages (detected by having 'message' field with embedded typed data)
+              const isWrapperType = typedData.message?.message !== undefined ||
+                                    (typedData.message?.data && typedData.message?.to);
+              if (typedData.primaryType && !isWrapperType) {
+                const cacheKey = JSON.stringify(typedData.message);
+                window.kaisignTypedDataCache = window.kaisignTypedDataCache || new Map();
+                window.kaisignTypedDataCache.set(cacheKey, typedData);
+                console.log('[KaiSign] Cached typed data:', typedData.primaryType);
+              }
+            } catch (e) {
+              console.error('[KaiSign] Failed to parse typedData:', e);
+              typedData = typedDataRaw;
+            }
+
+            handleTypedDataSignature(typedData, address, walletName);
+          }
+        } else if (args.method === 'personal_sign') {
+          // Handle personal message signing - use same popup UI
+          const message = args.params?.[0];
+          const address = args.params?.[1];
+          console.log('[KaiSign] Processing personal_sign request:', message);
+          handlePersonalSign(message, address, walletName);
+        } else if (args.method === 'wallet_sendCalls') {
+          // EIP-5792 batch calls (Ambire, Safe, etc.)
+          console.log('[KaiSign] EIP-5792 wallet_sendCalls detected:', args.params);
+          const batchParams = args.params?.[0] || {};
+          const calls = batchParams.calls || [];
+
+          // Convert hex chainId to number if needed
+          let chainId = batchParams.chainId;
+          if (typeof chainId === 'string' && chainId.startsWith('0x')) {
+            chainId = parseInt(chainId, 16);
+          }
+
+          // Process batch as single consolidated transaction
+          handleEIP5792Batch(calls, batchParams.from, chainId, walletName);
+        } else {
+          // Handle regular transactions (eth_sendTransaction, eth_signTransaction)
+          const tx = args.params?.[0] || {};
+          getIntentAndShow(tx, args.method, walletName, null);
+        }
+      } else {
+        // Handle all other RPC methods (queries, utilities, etc.)
+        handleRpcMethod(args.method, args.params, walletName);
+      }
+    }
 
     // Call original wallet request
     return await originalRequest(args);
   };
 
-  provider.request.__kaisignWrapped = true;
-  provider.__kaisignHooked = true;
 }
 
 // Handle personal_sign - use same popup UI as other methods
@@ -2167,24 +2112,6 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   let decodedResult = null;
   let extractedBytecodes = [];
   const selector = tx.data?.slice(0, 10);
-  const chainId = context?.chainId || tx.chainId || 1;
-
-  const buildDecodeFailureStatus = (errorMessage) => {
-    const message = errorMessage || 'Unable to decode transaction';
-    const lower = message.toLowerCase();
-    let title = 'Decode failed';
-
-    if (lower.includes('metadata')) {
-      title = 'Metadata not found';
-    } else if (lower.includes('function not found') || lower.includes('abi')) {
-      title = 'Unknown function';
-    }
-
-    const address = tx.to ? `${tx.to.slice(0, 8)}...${tx.to.slice(-6)}` : 'unknown contract';
-    const detail = `${title} for ${address} on chain ${chainId}`;
-
-    return { title, detail, message };
-  };
 
   // SHOW LOADING POPUP IMMEDIATELY (only once)
   showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false, isLoading: true }, []);
@@ -2207,6 +2134,8 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
     try {
       // Determine chainId - use mainnet (1) as default
+      const chainId = context?.chainId || tx.chainId || 1;
+
       // GENERIC: Use ERC-7730 metadata to parse ANY transaction
       // Try recursive decoder first for full nested intent resolution
       let decoded;
@@ -2240,30 +2169,9 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         }
 
         console.log(`[KaiSign] Decoded transaction: ${intent}`);
-      } else if (decoded && !decoded.success) {
-        const failure = buildDecodeFailureStatus(decoded.error);
-        intent = failure.title;
-        decodedResult = {
-          success: false,
-          selector,
-          error: decoded.error || failure.message,
-          statusTitle: failure.title,
-          statusDetail: failure.detail
-        };
-        updateLoadingStatus(failure.detail);
       }
     } catch (decodeError) {
       console.error('[KaiSign] Transaction decoding error:', decodeError);
-      const failure = buildDecodeFailureStatus(decodeError?.message);
-      intent = failure.title;
-      decodedResult = {
-        success: false,
-        selector,
-        error: decodeError?.message || failure.message,
-        statusTitle: failure.title,
-        statusDetail: failure.detail
-      };
-      updateLoadingStatus(failure.detail);
     }
   }
 
@@ -2306,13 +2214,13 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
 
   // If loading state, show loading popup with bouncing dots
   if (decodedResult?.isLoading) {
-    const theme = await getStoredTheme();
     const old = document.getElementById('kaisign-popup');
     if (old) old.remove();
 
     const popup = document.createElement('div');
     popup.id = 'kaisign-popup';
-    popup.className = `kaisign-popup ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`;
+    const theme = await getStoredTheme();
+    popup.className = 'kaisign-popup theme-dark';
     popup.innerHTML = `
       <div class="kaisign-warning">
         DEMONSTRATION VERSION - USE AT YOUR OWN RISK
@@ -2332,16 +2240,15 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
           <div class="kaisign-loading-dots">
             <span></span><span></span><span></span>
           </div>
-          <div class="kaisign-loading-status" style="margin-top: 12px; color: #8b949e;">
+          <div class="kaisign-loading-status">
             Processing transaction...
           </div>
         </div>
       </div>
     `;
     document.body.appendChild(popup);
-    await applyStoredPopupPosition(popup);
+    bindPopupClose(popup);
     attachPopupDrag(popup);
-    console.log('[KaiSign] Loading popup rendered');
     return; // Don't continue to full popup
   }
 
@@ -2377,11 +2284,10 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       extractedBytecodes: extractedBytecodes
     };
 
-    // Send to ISOLATED world bridge script via postMessage
-    window.postMessage({
-      type: 'KAISIGN_SAVE_TX',
+    chrome.runtime.sendMessage({
+      type: 'SAVE_TRANSACTION',
       data: transactionData
-    }, '*');
+    }, () => {});
 
     console.log('[KaiSign] Transaction sent to bridge for saving');
     console.log('[KaiSign] tx.data length:', tx.data ? tx.data.length : 0, 'bytes');
@@ -2398,7 +2304,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   const popup = document.createElement('div');
   popup.id = 'kaisign-popup';
   const theme = await getStoredTheme();
-  popup.className = `kaisign-popup ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`;
+  popup.className = 'kaisign-popup theme-dark';
 
   // Helper to escape HTML
   const escapeHtml = (str) => {
@@ -2435,7 +2341,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     </div>
   ` : '';
 
-  // Show decoding section for success or failure
+  // Only show decoding section if successful - hide failed results
   const decodingSection = decodedResult?.success ? `
     <div class="kaisign-section success">
       <div class="kaisign-section-header">
@@ -2445,16 +2351,6 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         <div class="kaisign-decode-success">Success</div>
         <div class="kaisign-decode-detail">Function: ${escapeHtml(decodedResult.functionName || 'Unknown')}</div>
         <div class="kaisign-decode-detail">Selector: ${escapeHtml(decodedResult.selector)}</div>
-      </div>
-    </div>
-  ` : decodedResult?.error ? `
-    <div class="kaisign-section" style="border-left: 3px solid #f59e0b;">
-      <div class="kaisign-section-header">
-        <span class="kaisign-section-title" style="color: #f59e0b;">Decoding Status</span>
-      </div>
-      <div class="kaisign-decode-result">
-        <div class="kaisign-decode-detail"><strong>${escapeHtml(decodedResult.statusTitle || 'Decode failed')}</strong></div>
-        <div class="kaisign-decode-detail">${escapeHtml(decodedResult.statusDetail || decodedResult.error)}</div>
       </div>
     </div>
   ` : '';
@@ -2559,16 +2455,18 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
 
     <div class="kaisign-action-bar">
       <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
-      <button class="kaisign-btn kaisign-btn-secondary" onclick="exportTransactionData('${escapeHtml(tx.data)}', ${JSON.stringify(safeExportData)})">Export</button>
+      <button class="kaisign-btn kaisign-btn-secondary" onclick="exportTransactionData('${escapeHtml(tx.data)}', ${JSON.stringify(JSON.stringify({decodedResult, extractedBytecodes}))})">Export</button>
     </div>
   `;
 
   document.body.appendChild(popup);
-  await applyStoredPopupPosition(popup);
+  bindPopupClose(popup);
   attachPopupDrag(popup);
-  console.log('[KaiSign] Popup rendered');
 
-  // Keep popup until user closes it
+  // Auto-remove after 30 seconds
+  setTimeout(() => {
+    if (popup.parentNode) popup.remove();
+  }, 30000);
 }
 
 // Generic bytecode parser - scans for any potential nested bytecodes
