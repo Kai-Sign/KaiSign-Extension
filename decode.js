@@ -412,6 +412,16 @@ async function decodeCalldata(data, contractAddress, chainId) {
     let fieldInfo = {};
 
     let format = metadata.display?.formats?.[functionSignature] || metadata.display?.formats?.[functionName];
+    if (!format && metadata.display?.formats && functionName) {
+      const baseName = functionName;
+      for (const key of Object.keys(metadata.display.formats)) {
+        const keyBase = key.includes('(') ? key.split('(')[0] : key;
+        if (keyBase === baseName) {
+          format = metadata.display.formats[key];
+          break;
+        }
+      }
+    }
 
     // Store command registries from metadata for later use
     const commandRegistries = metadata.commandRegistries || {};
@@ -484,10 +494,15 @@ async function decodeCalldata(data, contractAddress, chainId) {
         }
       }
     }
+    // No display format - fall back to humanized function name
+    else if (functionName) {
+      intent = humanizeFunctionName(functionName);
+    }
     
     // Format results based on metadata ONLY
     const params = {};
     const rawParams = {}; // Store original decoded values (not stringified)
+    rawParams.__calldata = data;
     const formatted = {};
 
     if (abiFunction) {
@@ -562,6 +577,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
                 }
               }
               if (fractionalStr === '') fractionalStr = '0';
+              if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
               if (fractionalStr.length > maxDisplay) fractionalStr = fractionalStr.slice(0, maxDisplay);
               displayValue = symbol ? `${integerPart}.${fractionalStr} ${symbol}` : `${integerPart}.${fractionalStr}`;
               console.log(`[Decode] INLINE formatted: "${displayValue}"`);
@@ -684,7 +700,29 @@ async function decodeCalldata(data, contractAddress, chainId) {
     }
 
     const aggregatedIntent = nestedIntents.length ? nestedIntents.join(' + ') : undefined;
-    if (aggregatedIntent) {
+    const shouldOverrideWithNested = (() => {
+      if (!aggregatedIntent) return false;
+
+      // Safe proxy creation should keep the top-level intent
+      if (functionName === 'createProxyWithNonce' || functionName === 'createProxyWithCallback') {
+        return false;
+      }
+
+      // Safe execTransaction: only override for delegatecall (operation == 1)
+      if (functionName === 'execTransaction') {
+        const opRaw = rawParams?.operation;
+        let op = null;
+        if (typeof opRaw === 'number') op = opRaw;
+        else if (typeof opRaw === 'string') op = Number(opRaw);
+        else if (typeof opRaw === 'bigint') op = Number(opRaw);
+        else if (opRaw && typeof opRaw.toString === 'function') op = Number(opRaw.toString());
+        return op === 1;
+      }
+
+      return true;
+    })();
+
+    if (shouldOverrideWithNested) {
       finalIntent = aggregatedIntent;
     }
 
@@ -714,6 +752,16 @@ async function decodeCalldata(data, contractAddress, chainId) {
 }
 
 // Helper functions
+
+function humanizeFunctionName(name) {
+  if (!name || typeof name !== 'string') return 'Contract interaction';
+  const withSpaces = name
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .trim();
+  return withSpaces ? withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1) : 'Contract interaction';
+}
 
 /**
  * Format token amount with decimals
@@ -749,18 +797,20 @@ function formatTokenAmount(rawValue, decimals, symbol) {
     console.log('[formatTokenAmount] fractionalStr after padStart:', fullFraction);
 
     const maxDisplay = 6;
-    let fractionalStr = fullFraction.replace(/0+$/, '');
+    let fractionalStr = fullFraction.slice(0, maxDisplay);
 
-    // Ensure small non-zero values show at least one significant digit
     if (integerPart === 0n && fractionalPart > 0n) {
-      const firstNonZero = fullFraction.search(/[1-9]/);
-      if (firstNonZero !== -1) {
-        const end = Math.min(firstNonZero + maxDisplay, fullFraction.length);
-        fractionalStr = fullFraction.slice(0, end).replace(/0+$/, '');
+      // Keep fixed precision for small values (e.g., 0.000100)
+      if (fractionalStr.length < maxDisplay) {
+        fractionalStr = fractionalStr.padEnd(maxDisplay, '0');
       }
+    } else {
+      // Trim trailing zeros, but keep at least 2 decimals for readability
+      fractionalStr = fractionalStr.replace(/0+$/, '');
+      if (fractionalStr.length < 2) fractionalStr = fractionalStr.padEnd(2, '0');
     }
 
-    if (fractionalStr === '') fractionalStr = '0';
+    if (fractionalStr === '') fractionalStr = '00';
     if (fractionalStr.length > maxDisplay) fractionalStr = fractionalStr.slice(0, maxDisplay);
 
     console.log('[formatTokenAmount] fractionalStr final:', fractionalStr);
@@ -1326,6 +1376,64 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
 
     // Format the amount
     return formatTokenAmount(valueStr, decimals, symbol);
+  }
+
+  // tokenSymbol format - resolve token metadata and return symbol only
+  if (format === 'tokenSymbol') {
+    const normalizeChainId = (raw) => {
+      if (raw === undefined || raw === null) return undefined;
+      if (typeof raw === 'bigint') return Number(raw);
+      if (typeof raw === 'number') return raw;
+      if (typeof raw === 'string') {
+        if (raw.startsWith('0x')) return Number(BigInt(raw));
+        const parsed = Number(raw);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      }
+      if (typeof raw === 'object' && raw._isBigNumber && raw._hex) {
+        return Number(BigInt(raw._hex));
+      }
+      return undefined;
+    };
+
+    const wrappedNativeByChain = {
+      1: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+      10: '0x4200000000000000000000000000000000000006',
+      42161: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
+      8453: '0x4200000000000000000000000000000000000006'
+    };
+
+    if (params.preferWrappedNativeFromCalldata === true) {
+      const destChainId = normalizeChainId(
+        params.chainIdPath ? resolveFieldPath(params.chainIdPath, allParams) : undefined
+      );
+      const calldata = params.calldataPath ? resolveFieldPath(params.calldataPath, allParams) : undefined;
+      const wrapped = destChainId ? wrappedNativeByChain[destChainId] : undefined;
+      if (wrapped && typeof calldata === 'string') {
+        const haystack = calldata.toLowerCase();
+        const needle = wrapped.slice(2).toLowerCase();
+        if (haystack.includes(needle)) {
+          try {
+            const tokenInfo = await window.metadataService.getTokenMetadata(wrapped, destChainId);
+            return tokenInfo.symbol || 'WETH';
+          } catch {
+            return 'WETH';
+          }
+        }
+      }
+    }
+
+    const tokenAddress = String(value || '').toLowerCase();
+    if (!tokenAddress) return '';
+    if (tokenAddress === '0x0000000000000000000000000000000000000000' ||
+        tokenAddress === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+      return 'ETH';
+    }
+    try {
+      const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
+      return tokenInfo.symbol || `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
+    } catch {
+      return `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
+    }
   }
 
   // addressName format

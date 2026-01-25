@@ -17,6 +17,7 @@ export class LocalMetadataService {
     this.fixturesPath = fixturesPath || path.resolve(__dirname, '../fixtures');
     this.metadataCache = new Map(); // address -> metadata
     this.addressToFilePath = new Map(); // address -> file path
+    this.selectorToFilePath = new Map(); // selector-chainId -> file path
     this.tokenCache = new Map(); // address -> token info
     this.initialized = false;
   }
@@ -77,6 +78,24 @@ export class LocalMetadataService {
               this.addressToFilePath.set(checksummed.toLowerCase(), fullPath);
             }
           }
+
+          // Index by function selector (for proxy/call-only addresses)
+          const chainId =
+            metadata.context?.contract?.chainId ??
+            metadata.context?.eip712?.chainId ??
+            metadata.chainId ??
+            'any';
+          const abi = metadata.context?.contract?.abi;
+          if (Array.isArray(abi)) {
+            for (const item of abi) {
+              if (item?.selector) {
+                const selectorKey = `${item.selector.toLowerCase()}-${chainId}`;
+                if (!this.selectorToFilePath.has(selectorKey)) {
+                  this.selectorToFilePath.set(selectorKey, fullPath);
+                }
+              }
+            }
+          }
         } catch (e) {
           console.warn(`[LocalMetadataService] Failed to parse ${fullPath}:`, e.message);
         }
@@ -105,7 +124,17 @@ export class LocalMetadataService {
     }
 
     // Look up file path
-    const filePath = this.addressToFilePath.get(normalizedAddress);
+    let filePath = this.addressToFilePath.get(normalizedAddress);
+
+    // Fallback: resolve by selector when address isn't indexed (e.g. Safe proxy call-only)
+    if (!filePath && selector) {
+      const selectorKey = selector.toLowerCase();
+      const chainKey = chainId ?? 'any';
+      filePath =
+        this.selectorToFilePath.get(`${selectorKey}-${chainKey}`) ||
+        this.selectorToFilePath.get(`${selectorKey}-1`) ||
+        this.selectorToFilePath.get(`${selectorKey}-any`);
+    }
 
     if (!filePath) {
       console.log(`[LocalMetadataService] No metadata found for ${normalizedAddress}`);
