@@ -496,21 +496,8 @@ class RecursiveCalldataDecoder {
               // No nested intents, use the base intent only - enhance with amounts if available
               let leafIntent = nestedDecode.intent;
 
-              if (leafIntent === 'Contract interaction' || leafIntent === 'Unknown function') {
-                if (nestedDecode.functionName) {
-                  leafIntent = humanizeFunctionName(nestedDecode.functionName);
-                }
-              }
-
               // Enhance intent with formatted amounts from decoded params
               leafIntent = this.enhanceIntentWithAmount(leafIntent, nestedDecode.formatted, nestedDecode.params);
-
-              if (leafIntent === 'Contract interaction' || leafIntent === 'Unknown function') {
-                const selector = op.data?.slice(0, 10) || '0x';
-                const shortAddr = op.to ? `${op.to.slice(0, 8)}...${op.to.slice(-6)}` : 'Unknown';
-                const opType = op.operation || 'Call';
-                leafIntent = `${opType} ${selector} to ${shortAddr}`;
-              }
 
               console.log(`[handleMulticallDecoder] Op ${i} intent:`, leafIntent);
               if (leafIntent && !seenIntentKeys.has(leafIntent)) {
@@ -832,16 +819,6 @@ class RecursiveCalldataDecoder {
     }
     return null;
   }
-}
-
-function humanizeFunctionName(name) {
-  if (!name || typeof name !== 'string') return 'Contract interaction';
-  const withSpaces = name
-    .replace(/_/g, ' ')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .trim();
-  return withSpaces ? withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1) : 'Contract interaction';
 }
 
 // Create and export global instance
