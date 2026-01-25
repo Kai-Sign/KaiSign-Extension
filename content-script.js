@@ -584,6 +584,36 @@ function getFunctionNameFromSelector(selector) {
 
 // Wallet detection and hooking
 const hookedWallets = new Set();
+const eip6963ProviderNames = new WeakMap();
+let lastEip6963RequestAt = 0;
+
+function requestEip6963Providers() {
+  const now = Date.now();
+  if (now - lastEip6963RequestAt < 3000) return;
+  lastEip6963RequestAt = now;
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+}
+
+function setupEip6963ProviderListener() {
+  if (window.__kaisignEip6963Listener) return;
+  window.__kaisignEip6963Listener = true;
+  window.addEventListener('eip6963:announceProvider', (event) => {
+    const detail = event?.detail;
+    const provider = detail?.provider;
+    if (!provider || !provider.request) return;
+
+    const nameFromInfo = detail?.info?.name || detail?.info?.rdns;
+    if (nameFromInfo) eip6963ProviderNames.set(provider, nameFromInfo);
+
+    const walletName = nameFromInfo || getWalletName(provider);
+    const walletKey = `eip6963-${detail?.info?.uuid || walletName}`;
+
+    if (!hookedWallets.has(walletKey)) {
+      hookWalletProvider(provider, walletKey, walletName);
+      hookedWallets.add(walletKey);
+    }
+  });
+}
 
 // =============================================================================
 // GENERIC PROTOCOL DETECTION (METADATA-DRIVEN - NO PROTOCOL-SPECIFIC CODE)
@@ -594,6 +624,9 @@ const hookedWallets = new Set();
 
 // Wait for any wallet
 function waitForWallets() {
+  setupEip6963ProviderListener();
+  requestEip6963Providers();
+
   // Check for different wallet providers
   detectAndHookWallets();
 
@@ -641,7 +674,13 @@ function detectAndHookWallets() {
     hookedWallets.add('ambire');
   }
 
-  // 7. Check for multiple providers (some wallets inject arrays)
+  // 7. Rainbow Wallet (window.rainbow)
+  if (window.rainbow && window.rainbow.request && !hookedWallets.has('rainbow')) {
+    hookWalletProvider(window.rainbow, 'rainbow', 'Rainbow');
+    hookedWallets.add('rainbow');
+  }
+
+  // 8. Check for multiple providers (some wallets inject arrays)
   if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
     window.ethereum.providers.forEach((provider, index) => {
       const walletKey = `provider-${index}`;
@@ -660,6 +699,8 @@ function detectAndHookWallets() {
 // Get wallet name from provider
 // NOTE: Check specific wallets BEFORE MetaMask since many wallets set isMetaMask=true for compatibility
 function getWalletName(provider) {
+  const eip6963Name = eip6963ProviderNames.get(provider);
+  if (eip6963Name) return eip6963Name;
   if (provider.isAmbire) return 'Ambire';  // Check Ambire FIRST (sets isMetaMask=true for compat)
   if (provider.isRabby) return 'Rabby';
   if (provider.isCoinbaseWallet) return 'Coinbase';
@@ -668,6 +709,19 @@ function getWalletName(provider) {
   if (provider.isBraveWallet) return 'Brave';
   if (provider.isExodus) return 'Exodus';
   if (provider.isSafe) return 'Safe Wallet';
+  // Additional wallets - check before MetaMask (many set isMetaMask=true for compat)
+  if (provider.isRainbow) return 'Rainbow';
+  if (provider.isFrame) return 'Frame';
+  if (provider.isZerion) return 'Zerion';
+  if (provider.isImToken || provider.isImtoken) return 'imToken';
+  if (provider.isElytro) return 'Elytro';
+  if (provider.isNuFi) return 'NuFi';
+  if (provider.isPillarX) return 'PillarX';
+  if (provider.isBridgeWallet) return 'Bridge Wallet';
+  if (provider.isDaimo) return 'Daimo';
+  if (provider.isGemWallet) return 'Gem Wallet';
+  if (provider.isZeus) return 'Zeus';
+  if (provider.isFamily) return 'Family';
   if (provider.isMetaMask) return 'MetaMask';  // Check MetaMask LAST
   return 'Unknown Wallet';
 }
@@ -2140,8 +2194,22 @@ async function handleEIP5792Batch(calls, from, chainId, walletName) {
   );
 }
 
+// Track last transaction to prevent rapid duplicate popups
+let lastTxSignature = null;
+let lastTxTime = 0;
+
 // Get intent and show transaction
 async function getIntentAndShow(tx, method, walletName = 'Wallet', context = null) {
+  // Simple deduplication: skip if exact same transaction within 500ms
+  const txSignature = `${tx.to || ''}-${(tx.data || '').slice(0, 66)}`;
+  const now = Date.now();
+  if (txSignature === lastTxSignature && (now - lastTxTime) < 500) {
+    console.log('[KaiSign] Skipping duplicate transaction (same tx within 500ms)');
+    return;
+  }
+  lastTxSignature = txSignature;
+  lastTxTime = now;
+
   let intent = 'Analyzing transaction...';
   let decodedResult = null;
   let extractedBytecodes = [];
