@@ -140,7 +140,7 @@ class SimpleInterface {
       try {
         const value = BigInt('0x' + hexValue);
         return {
-          value: { _isBigNumber: true, _hex: '0x' + hexValue, toString: () => value.toString() },
+          value: { _isBigNumber: true, _hex: '0x' + hexValue, _value: value.toString() },
           size: 64
         };
       } catch {
@@ -154,7 +154,7 @@ class SimpleInterface {
       try {
         const value = BigInt('0x' + hexValue);
         return {
-          value: { _isBigNumber: true, _hex: '0x' + hexValue, toString: () => value.toString() },
+          value: { _isBigNumber: true, _hex: '0x' + hexValue, _value: value.toString() },
           size: 64
         };
       } catch {
@@ -843,7 +843,7 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
 
             // Handle BigNumber-like objects
             if (value && typeof value === 'object' && '_isBigNumber' in value) {
-              value = value.toString();
+              value = value._value || (value._hex ? BigInt(value._hex).toString() : String(value));
             }
 
             // Apply format if specified
@@ -1104,7 +1104,7 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
     if (rawObjValue !== undefined && rawObjValue !== null) {
       // Format as string for display
       if (typeof rawObjValue === 'object' && '_isBigNumber' in rawObjValue) {
-        return rawObjValue.toString();
+        return rawObjValue._value || (rawObjValue._hex ? BigInt(rawObjValue._hex).toString() : String(rawObjValue));
       }
       return String(rawObjValue);
     }

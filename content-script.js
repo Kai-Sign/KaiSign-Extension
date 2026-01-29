@@ -211,9 +211,25 @@ function bindPopupClose(popup) {
 
 function sanitizeForStorage(data) {
   try {
-    return JSON.parse(JSON.stringify(data, (_, value) => (typeof value === 'bigint' ? value.toString() : value)));
+    return JSON.parse(JSON.stringify(data, (_, value) => {
+      if (typeof value === 'bigint') return value.toString();
+      if (typeof value === 'function') return undefined;
+      return value;
+    }));
   } catch {
-    return data;
+    // Fallback: recursively clone without functions
+    const deepClone = (obj) => {
+      if (obj === null || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(deepClone);
+      const result = {};
+      for (const key in obj) {
+        if (typeof obj[key] !== 'function') {
+          result[key] = deepClone(obj[key]);
+        }
+      }
+      return result;
+    };
+    return deepClone(data);
   }
 }
 

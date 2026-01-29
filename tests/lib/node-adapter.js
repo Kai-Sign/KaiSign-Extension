@@ -172,7 +172,7 @@ export class SimpleInterface {
       try {
         const value = BigInt('0x' + hexValue);
         return {
-          value: { _isBigNumber: true, _hex: '0x' + hexValue, toString: () => value.toString() },
+          value: { _isBigNumber: true, _hex: '0x' + hexValue, _value: value.toString() },
           size: 64
         };
       } catch {
