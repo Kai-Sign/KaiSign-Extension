@@ -1567,7 +1567,7 @@
           ],
           "outputs": [],
           "stateMutability": "payable",
-          "selector": "0x092e8fa4"
+          "selector": "0xa8f66666"
         },
         {
           "type": "function",
@@ -2179,7 +2179,7 @@
           ],
           "outputs": [],
           "stateMutability": "payable",
-          "selector": "0xa8f66666"
+          "selector": "0x092e8fa4"
         },
         {
           "type": "function",
@@ -2838,11 +2838,34 @@
         "intent": "Swap tokens via LiFi",
         "interpolatedIntent": "Swap {_swapData.fromAmount} via LiFi",
         "fields": [
-          { "path": "_swapData.sendingAssetId", "label": "Input Token", "format": "addressName" },
-          { "path": "_swapData.receivingAssetId", "label": "Output Token", "format": "addressName" },
-          { "path": "_swapData.fromAmount", "label": "Swap Amount", "format": "tokenAmount", "params": { "tokenPath": "_swapData.sendingAssetId" } },
-          { "path": "_receiver", "label": "Receiver", "format": "addressName" },
-          { "path": "_minAmountOut", "label": "Minimum Output", "format": "raw" }
+          {
+            "path": "_swapData.sendingAssetId",
+            "label": "Input Token",
+            "format": "addressName"
+          },
+          {
+            "path": "_swapData.receivingAssetId",
+            "label": "Output Token",
+            "format": "addressName"
+          },
+          {
+            "path": "_swapData.fromAmount",
+            "label": "Swap Amount",
+            "format": "tokenAmount",
+            "params": {
+              "tokenPath": "_swapData.sendingAssetId"
+            }
+          },
+          {
+            "path": "_receiver",
+            "label": "Receiver",
+            "format": "addressName"
+          },
+          {
+            "path": "_minAmountOut",
+            "label": "Minimum Output",
+            "format": "raw"
+          }
         ]
       },
       "swapTokensSingleV3ERC20ToNative(bytes32,string,string,address,uint256,(address,address,address,address,uint256,bytes,bool))": {
@@ -3013,10 +3036,29 @@
         "intent": "Swap tokens to ETH via LiFi",
         "interpolatedIntent": "Swap {_swapData.[0].fromAmount} to ETH via LiFi",
         "fields": [
-          { "path": "_swapData.[0].sendingAssetId", "label": "Input Token", "format": "addressName" },
-          { "path": "_swapData.[0].fromAmount", "label": "Swap Amount", "format": "tokenAmount", "params": { "tokenPath": "_swapData.[0].sendingAssetId" } },
-          { "path": "_receiver", "label": "Receiver", "format": "addressName" },
-          { "path": "_minAmountOut", "label": "Min ETH Output", "format": "raw" }
+          {
+            "path": "_swapData.[0].sendingAssetId",
+            "label": "Input Token",
+            "format": "addressName"
+          },
+          {
+            "path": "_swapData.[0].fromAmount",
+            "label": "Swap Amount",
+            "format": "tokenAmount",
+            "params": {
+              "tokenPath": "_swapData.[0].sendingAssetId"
+            }
+          },
+          {
+            "path": "_receiver",
+            "label": "Receiver",
+            "format": "addressName"
+          },
+          {
+            "path": "_minAmountOut",
+            "label": "Min ETH Output",
+            "format": "raw"
+          }
         ]
       },
       "swapTokensMultipleV3NativeToERC20(bytes32,string,string,address,uint256,(address,address,address,address,uint256,bytes,bool)[])": {
