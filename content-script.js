@@ -1901,24 +1901,75 @@ function shouldShowRpcNotification(method, category) {
  * Show RPC activity notification
  */
 function showRpcActivityNotification(method, params, category, walletName) {
+  // Add animation keyframes (inject once)
+  if (!document.getElementById('kaisign-rpc-animations')) {
+    const style = document.createElement('style');
+    style.id = 'kaisign-rpc-animations';
+    style.textContent = `
+      @keyframes slideInLeft {
+        from {
+          transform: translateX(-100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // Detect current theme from body or use light as default
+  const isDarkTheme = document.body.classList.contains('theme-dark') ||
+                      document.body.getAttribute('data-theme') === 'dark' ||
+                      window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+  // Atelier theme colors
+  const colors = isDarkTheme ? {
+    bg: '#161b22',
+    surface: '#21262d',
+    border: '#30363d',
+    text: '#e6edf3',
+    textMuted: '#8b949e',
+    accent: '#58a6ff',
+    accentStrong: '#4393e6',
+    success: '#3fb950',
+    shadow: '0 10px 30px rgba(0, 0, 0, 0.35)',
+    shadowTight: '0 6px 18px rgba(0, 0, 0, 0.3)'
+  } : {
+    bg: '#f7f3ee',
+    surface: '#ffffff',
+    border: '#e6dccf',
+    text: '#2b2722',
+    textMuted: '#7a6f63',
+    accent: '#0f9f9a',
+    accentStrong: '#0b7f7b',
+    success: '#16a34a',
+    shadow: '0 10px 30px rgba(43, 39, 34, 0.08)',
+    shadowTight: '0 6px 18px rgba(43, 39, 34, 0.08)'
+  };
+
   // Create notification popup
   const notification = document.createElement('div');
   notification.style.cssText = `
     position: fixed;
     top: 20px;
     left: 20px;
-    width: 300px;
-    background: #1a202c;
-    color: white;
-    padding: 12px;
-    border-radius: 8px;
+    width: 320px;
+    background: ${colors.surface};
+    border: 1px solid ${colors.border};
+    color: ${colors.text};
+    padding: 14px 16px;
+    border-radius: 14px;
     z-index: 999998;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    border-left: 4px solid #3182ce;
+    font-family: "Sora", "Avenir Next", "Segoe UI", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: ${colors.shadowTight};
+    animation: slideInLeft 0.3s ease;
   `;
-  
+
   // Format method description
   const getMethodDescription = (method) => {
     // Format method name to readable text
@@ -1927,35 +1978,43 @@ function showRpcActivityNotification(method, params, category, walletName) {
   };
 
   const description = getMethodDescription(method);
-  
+
+  const hoverBg = isDarkTheme ? '#30363d' : '#f3ebe0';
+
   notification.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-      <strong style="color: #63b3ed;">KaiSign RPC Monitor</strong>
-      <button onclick="this.parentElement.parentElement.remove()" style="
-        background: #e53e3e;
-        color: white;
-        border: none;
-        padding: 2px 6px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 9px;
-      ">✕</button>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="width: 6px; height: 6px; background: ${colors.accent}; border-radius: 50%;"></div>
+        <strong style="color: ${colors.text}; font-size: 14px; font-weight: 700;">RPC Activity</strong>
+      </div>
+      <button onclick="this.parentElement.parentElement.remove()"
+              style="background: transparent; border: none; color: ${colors.textMuted}; cursor: pointer; padding: 4px; border-radius: 6px; font-size: 16px; line-height: 1; transition: all 0.2s;"
+              onmouseover="this.style.background='${hoverBg}'; this.style.color='${colors.text}';"
+              onmouseout="this.style.background='transparent'; this.style.color='${colors.textMuted}';">✕</button>
     </div>
-    <div style="color: #68d391; margin-bottom: 4px;">
+    <div style="color: ${colors.text}; font-weight: 600; font-size: 14px; margin-bottom: 8px;">
       ${description}
     </div>
-    <div style="font-size: 10px; color: #a0aec0;">
-      Wallet: ${walletName} | Category: ${category}
+    <div style="display: flex; gap: 12px; font-size: 12px; color: ${colors.textMuted};">
+      <span style="display: flex; align-items: center; gap: 6px;">
+        <span style="opacity: 0.6;">Wallet:</span>
+        <span style="color: ${colors.text};">${walletName}</span>
+      </span>
+      <span style="opacity: 0.4;">•</span>
+      <span style="display: flex; align-items: center; gap: 6px;">
+        <span style="opacity: 0.6;">Category:</span>
+        <span style="color: ${colors.text}; text-transform: capitalize;">${category}</span>
+      </span>
     </div>
     ${params && params.length > 0 ? `
-      <div style="margin-top: 6px; padding: 6px; background: #000; border-radius: 3px; font-size: 9px; max-height: 60px; overflow-y: auto;">
-        ${JSON.stringify(params, null, 1).slice(0, 200)}${JSON.stringify(params).length > 200 ? '...' : ''}
+      <div style="margin-top: 10px; padding: 10px 12px; background: ${isDarkTheme ? '#0d1117' : '#f3ebe0'}; border: 1px solid ${colors.border}; border-radius: 10px; font-size: 11px; color: ${colors.textMuted}; font-family: 'SF Mono', Consolas, monospace; line-height: 1.4; max-height: 100px; overflow: auto;">
+        ${JSON.stringify(params, null, 2).slice(0, 300)}${JSON.stringify(params).length > 300 ? '...' : ''}
       </div>
     ` : ''}
   `;
-  
+
   document.body.appendChild(notification);
-  
+
   // Auto-remove after 8 seconds
   setTimeout(() => {
     if (notification.parentNode) notification.remove();

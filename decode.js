@@ -510,7 +510,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
 
         let rawValue;
         if (value && typeof value === 'object' && '_isBigNumber' in value) {
-          rawValue = value.toString();
+          rawValue = value._value || (value._hex ? BigInt(value._hex).toString() : String(value));
         } else if (typeof value === 'object' && value !== null) {
           rawValue = JSON.stringify(value);
         } else {
@@ -554,12 +554,17 @@ async function decodeCalldata(data, contractAddress, chainId) {
               const fullFraction = fractionalPart.toString().padStart(dec, '0');
               let fractionalStr = fullFraction.replace(/0+$/, '');
               const maxDisplay = 6;
+              const minDisplay = 2; // Minimum 2 decimal places for standard amounts
               if (integerPart === 0n && fractionalPart > 0n) {
                 const firstNonZero = fullFraction.search(/[1-9]/);
                 if (firstNonZero !== -1) {
                   const end = Math.min(firstNonZero + maxDisplay, fullFraction.length);
                   fractionalStr = fullFraction.slice(0, end).replace(/0+$/, '');
                 }
+              }
+              // Ensure minimum 2 decimal places for readability (unless very small amount)
+              if (fractionalStr.length < minDisplay && integerPart < 1000n) {
+                fractionalStr = fullFraction.slice(0, minDisplay);
               }
               if (fractionalStr === '') fractionalStr = '0';
               if (fractionalStr.length > maxDisplay) fractionalStr = fractionalStr.slice(0, maxDisplay);
@@ -733,6 +738,11 @@ function formatTokenAmount(rawValue, decimals, symbol) {
       return rawValue;
     }
 
+    // Handle empty or invalid hex values
+    if (!rawValue || rawValue === '0x' || rawValue === '0x0') {
+      return symbol ? `0 ${symbol}` : '0';
+    }
+
     const value = BigInt(rawValue);
     console.log('[formatTokenAmount] value as BigInt:', value.toString());
     const divisor = BigInt(10) ** BigInt(dec);
@@ -749,6 +759,7 @@ function formatTokenAmount(rawValue, decimals, symbol) {
     console.log('[formatTokenAmount] fractionalStr after padStart:', fullFraction);
 
     const maxDisplay = 6;
+    const minDisplay = 2; // Minimum 2 decimal places for standard amounts
     let fractionalStr = fullFraction.replace(/0+$/, '');
 
     // Ensure small non-zero values show at least one significant digit
@@ -758,6 +769,11 @@ function formatTokenAmount(rawValue, decimals, symbol) {
         const end = Math.min(firstNonZero + maxDisplay, fullFraction.length);
         fractionalStr = fullFraction.slice(0, end).replace(/0+$/, '');
       }
+    }
+
+    // Ensure minimum 2 decimal places for readability (unless very small amount)
+    if (fractionalStr.length < minDisplay && integerPart < 1000n) {
+      fractionalStr = fullFraction.slice(0, minDisplay);
     }
 
     if (fractionalStr === '') fractionalStr = '0';
@@ -1334,7 +1350,10 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
     return String(value);
   }
 
-  // Raw fallback
+  // Raw fallback - handle BigNumber objects
+  if (value && typeof value === 'object' && '_isBigNumber' in value) {
+    return value._value || (value._hex ? BigInt(value._hex).toString() : String(value));
+  }
   return String(value);
 }
 

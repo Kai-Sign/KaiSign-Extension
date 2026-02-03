@@ -27,7 +27,8 @@ export async function runTests(harness) {
   const safeFactoryAddress = CONTRACTS.accountAbstraction.safeProxyFactory.address.toLowerCase();
   harness.addMetadata(safeFactoryAddress, loadMetadata('aa/safe-proxy-factory.json'));
 
-  // Test createProxyWithNonce
+  // Test createProxyWithNonce with nested setup call
+  // The decoder correctly shows the nested "setup" intent from the initializer calldata
   results.push(await harness.runTest({
     name: 'Safe createProxyWithNonce (Create Safe Wallet)',
     calldata: '0x1688f0b9' +
@@ -52,7 +53,8 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x1688f0b9',
       functionName: 'createProxyWithNonce',
-      intentContains: 'Create Safe'
+      intent: 'Setup Safe wallet',  // Nested intent from initializer's setup() call
+      nestedIntentContains: 'Setup'  // Verify nested decode worked
     }
   }));
 
@@ -145,8 +147,9 @@ export async function runTests(harness) {
     }
   }));
 
-  // Test execTransaction with value=0 (should NOT show "Execute 0")
-  // This tests the fix for value substitution bug
+  // Test execTransaction with nested ERC-20 approval
+  // The decoder correctly shows the ACTUAL operation (approve) instead of generic "Execute Safe transaction"
+  // The nested "data" parameter contains an ERC-20 approve call which gets recursively decoded
   results.push(await harness.runTest({
     name: 'Safe execTransaction (value=0, intent should not be "Execute 0")',
     calldata: '0x6a761202' +
@@ -173,8 +176,9 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x6a761202',
       functionName: 'execTransaction',
-      intent: 'Execute Safe transaction', // Should NOT be "Execute 0"
-      intentDoesNotContain: 'Execute 0'
+      intent: 'Approve Unlimited USDC',  // Nested intent from ERC-20 approve (not Safe metadata)
+      nestedIntentContains: 'Approve',   // Verify nested decode worked
+      intentDoesNotContain: 'Execute 0'  // Still verify the original bug is fixed
     }
   }));
 

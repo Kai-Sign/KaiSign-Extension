@@ -1390,7 +1390,34 @@ class AdvancedTransactionDecoder {
       const integerPart = value / divisor;
       const fractionalPart = value % divisor;
 
-      const fractionalStr = fractionalPart.toString().padStart(decimals, '0').slice(0, 2);
+      // Format fractional part with smart truncation
+      const fullFraction = fractionalPart.toString().padStart(decimals, '0');
+      let fractionalStr = fullFraction.replace(/0+$/, ''); // Remove trailing zeros
+
+      // For small values (< 1), show up to 6 significant digits
+      const maxDisplay = 6;
+      const minDisplay = 2; // Minimum 2 decimal places for standard amounts
+      if (integerPart === 0n && fractionalPart > 0n) {
+        const firstNonZero = fullFraction.search(/[1-9]/);
+        if (firstNonZero !== -1) {
+          const end = Math.min(firstNonZero + maxDisplay, fullFraction.length);
+          fractionalStr = fullFraction.slice(0, end).replace(/0+$/, '');
+        }
+      } else if (fractionalStr.length > maxDisplay) {
+        // For larger values, limit to maxDisplay digits
+        fractionalStr = fractionalStr.slice(0, maxDisplay);
+      }
+
+      // Ensure minimum 2 decimal places for readability (unless very small amount)
+      if (fractionalStr.length < minDisplay && integerPart < 1000n) {
+        fractionalStr = fullFraction.slice(0, minDisplay);
+      }
+
+      // Handle zero case
+      if (!fractionalStr) {
+        fractionalStr = '0';
+      }
+
       return `${integerPart}.${fractionalStr}`;
     } catch (e) {
       console.warn('[AdvDecoder] formatTokenAmountWithParams error:', e);

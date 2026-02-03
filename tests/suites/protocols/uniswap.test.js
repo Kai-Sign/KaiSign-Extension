@@ -79,7 +79,7 @@ export async function runTests(harness) {
       selector: '0x3593564c',
       functionName: 'execute',
       // Exact composite intent validation
-      intent: 'Wrap 0.000100 ETH to WETH + Swap 0x for min 0x',
+      intent: 'Wrap 0.0001 ETH to WETH + Swap 0 for min 0',
       intentContains: 'Wrap',  // Also check substring for backwards compat
       // Validate command array structure
       decodedCommands: [
