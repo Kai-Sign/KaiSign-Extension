@@ -87,6 +87,39 @@
       </div>
     </section>
 
+    <!-- Name Resolution -->
+    <section class="settings-section">
+      <div class="section-header">
+        <div class="section-icon">
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10zm0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>
+          </svg>
+        </div>
+        <h2 class="section-title">Name Resolution</h2>
+      </div>
+      <div class="section-content">
+        <p class="section-description">Resolve addresses to human-readable names (ENS on Ethereum, Basenames on Base)</p>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="enableNameResolution" checked>
+            Enable name resolution
+          </label>
+          <small>Show ENS/Basenames instead of truncated addresses when available</small>
+        </div>
+
+        <div class="form-group">
+          <label for="alchemyApiKey">Alchemy API Key (optional)</label>
+          <input
+            type="text"
+            id="alchemyApiKey"
+            placeholder="Leave empty to use free public RPC"
+          >
+          <small>ENS resolution works without an API key using free public RPC endpoints. Providing an Alchemy API key enables faster resolution. <a href="https://www.alchemy.com/" target="_blank">Get free API key</a></small>
+        </div>
+      </div>
+    </section>
+
     <!-- Data Management -->
     <section class="settings-section">
       <div class="section-header">

@@ -214,16 +214,41 @@ function getTransactionStatus(tx) {
   return { label: '', tone: '', useAsTitle: false, detail: '' };
 }
 
-function formatAddressShort(address) {
+/**
+ * Format address with truncation and hover tooltip
+ * Shows truncated immediately, resolves ENS/Basename in background
+ */
+function formatAddressShort(address, chainId = null) {
   if (!address || address.length < 10) return address || '';
-  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+
+  const truncated = `${address.slice(0, 8)}...${address.slice(-6)}`;
+  const html = `<span class="kaisign-address" title="${address}">${truncated}</span>`;
+
+  // Async name resolution - updates DOM when complete
+  if (chainId && window.nameResolutionService) {
+    window.nameResolutionService.resolveName(address, chainId).then(name => {
+      if (name) {
+        // Find and update all instances of this address in the DOM
+        const elements = document.querySelectorAll(`.kaisign-address[title="${address}"]`);
+        elements.forEach(el => {
+          if (el.textContent === truncated) {
+            el.textContent = name;
+          }
+        });
+      }
+    }).catch(err => {
+      console.debug('[Popup] Name resolution failed:', err);
+    });
+  }
+
+  return html;
 }
 
 function getContextLine(tx, status) {
   if (status?.detail) return status.detail;
   if (tx.to) {
     const chain = tx.chainId ? ` • Chain ${tx.chainId}` : '';
-    return `To ${formatAddressShort(tx.to)}${chain}`;
+    return `To ${formatAddressShort(tx.to, tx.chainId)}${chain}`;
   }
   return '';
 }

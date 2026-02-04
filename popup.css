@@ -856,3 +856,46 @@ body.theme-dark .tx-item.error {
 .tx-list-container::-webkit-scrollbar-thumb:hover {
   background: rgba(43, 39, 34, 0.35);
 }
+
+/* Address hover tooltip styles for ENS/Basename resolution */
+.kaisign-address {
+  position: relative;
+  cursor: help;
+  font-family: 'SF Mono', Consolas, 'Liberation Mono', monospace;
+}
+
+.kaisign-address:hover {
+  color: var(--accent);
+}
+
+.kaisign-address[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  z-index: 10000;
+  margin-bottom: 5px;
+  pointer-events: none;
+}
+
+/* Arrow for tooltip */
+.kaisign-address[title]:hover::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--accent);
+  z-index: 10001;
+  margin-bottom: -4px;
+}

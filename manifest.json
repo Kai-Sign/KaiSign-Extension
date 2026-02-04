@@ -23,12 +23,18 @@
     "https://api.sepolia.blobscan.com/*",
     "https://api.gateway.ethswarm.org/*",
     "https://storage.googleapis.com/*",
-    "https://kai-sign-production.up.railway.app/*"
+    "https://kai-sign-production.up.railway.app/*",
+    "https://eth.llamarpc.com/*",
+    "https://rpc.ankr.com/*",
+    "https://ethereum.publicnode.com/*",
+    "https://eth-mainnet.g.alchemy.com/*",
+    "https://mainnet.base.org/*",
+    "https://base.llamarpc.com/*"
   ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["subgraph-metadata.js", "runtime-registry.js", "metadata.js", "eip712-decoder.js", "decode.js", "recursive-decoder.js", "advanced-decoder.js", "content-script.js"],
+      "js": ["name-resolution-service.js", "subgraph-metadata.js", "runtime-registry.js", "metadata.js", "eip712-decoder.js", "decode.js", "recursive-decoder.js", "advanced-decoder.js", "content-script.js"],
       "run_at": "document_end",
       "world": "MAIN"
     },

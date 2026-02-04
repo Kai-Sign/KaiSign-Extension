@@ -11,6 +11,10 @@ const elements = {
   rpcTracking: document.getElementById('rpcTracking'),
   securityAlerts: document.getElementById('securityAlerts'),
 
+  // Name Resolution
+  enableNameResolution: document.getElementById('enableNameResolution'),
+  alchemyApiKey: document.getElementById('alchemyApiKey'),
+
   // Storage info
   storageBar: document.getElementById('storageBar'),
   storageText: document.getElementById('storageText'),
@@ -50,6 +54,14 @@ function loadSettings() {
     elements.notifications.checked = settings.notifications !== false;
     elements.rpcTracking.checked = settings.rpcTracking !== false;
     elements.securityAlerts.checked = settings.securityAlerts !== false;
+
+    // Name Resolution settings
+    if (elements.enableNameResolution) {
+      elements.enableNameResolution.checked = settings.enableNameResolution !== false;
+    }
+    if (elements.alchemyApiKey) {
+      elements.alchemyApiKey.value = settings.alchemyApiKey || '';
+    }
 
     console.log('[KaiSign] Settings loaded:', settings);
   });
@@ -117,7 +129,9 @@ function saveSettings() {
     theme: elements.theme ? elements.theme.value : 'dark',
     notifications: elements.notifications.checked,
     rpcTracking: elements.rpcTracking.checked,
-    securityAlerts: elements.securityAlerts.checked
+    securityAlerts: elements.securityAlerts.checked,
+    enableNameResolution: elements.enableNameResolution ? elements.enableNameResolution.checked : true,
+    alchemyApiKey: elements.alchemyApiKey ? elements.alchemyApiKey.value.trim() : ''
   };
 
   // Validate max transactions
@@ -129,6 +143,14 @@ function saveSettings() {
     if (response?.success) {
       showToast('Settings saved', 'success');
       loadStorageInfo();
+
+      // Update name resolution service with new config
+      if (window.nameResolutionService) {
+        window.nameResolutionService.updateConfig({
+          alchemyApiKey: settings.alchemyApiKey,
+          enabled: settings.enableNameResolution
+        });
+      }
     } else {
       showToast('Failed to save settings', 'error');
     }
