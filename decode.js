@@ -612,6 +612,17 @@ async function decodeCalldata(data, contractAddress, chainId) {
       const commandsValue = rawParams[sourceParam];
       const inputsValue = rawParams['inputs']; // Universal Router uses 'inputs' array
 
+      console.log('[Decode] Composite intent - rawParams:', {
+        keys: Object.keys(rawParams),
+        sourceParam: sourceParam,
+        commandsValue: commandsValue,
+        commandsType: typeof commandsValue,
+        inputsValue: inputsValue,
+        inputsType: typeof inputsValue,
+        inputsIsArray: Array.isArray(inputsValue),
+        inputsLength: Array.isArray(inputsValue) ? inputsValue.length : 'N/A'
+      });
+
       if (commandsValue && registry) {
         // Decode commands using the registry
         decodedCommands = await decodeCommandArray(commandsValue, inputsValue, registry, chainId);
@@ -799,6 +810,16 @@ function formatTokenAmount(rawValue, decimals, symbol) {
  * @returns {Array} - Array of decoded command objects with intents
  */
 async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
+  console.log('[decodeCommandArray] Called with:', {
+    commands: commands,
+    commandsType: typeof commands,
+    inputs: inputs,
+    inputsType: typeof inputs,
+    inputsIsArray: Array.isArray(inputs),
+    inputsLength: Array.isArray(inputs) ? inputs.length : 'N/A',
+    registryKeys: Object.keys(registry || {})
+  });
+
   if (!commands || !registry) return [];
 
   // Remove 0x prefix if present
@@ -833,6 +854,13 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
     const cmdByte = '0x' + commandBytes.slice(i, i + 2).toLowerCase();
     const cmdDef = registry[cmdByte];
     const inputData = inputs?.[i / 2];
+
+    console.log(`[decodeCommandArray] Command ${i/2}: ${cmdByte}`, {
+      cmdName: cmdDef?.name,
+      inputData: inputData,
+      inputDataType: typeof inputData,
+      inputDataLength: inputData ? inputData.length : 'N/A'
+    });
 
     if (cmdDef) {
       let decodedParams = {};
@@ -873,6 +901,18 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
 
             decodedParams[paramDef.name] = value;
           }
+
+          // Debug: Log decoded parameters
+          console.log(`[DecodeCommand] ${cmdDef.name} (${cmdByte}) decoded params:`, {
+            paramNames: Object.keys(decodedParams),
+            path: decodedParams.path,
+            pathType: typeof decodedParams.path,
+            pathIsArray: Array.isArray(decodedParams.path),
+            pathLength: Array.isArray(decodedParams.path) ? decodedParams.path.length : (typeof decodedParams.path === 'string' ? decodedParams.path.length : 'N/A'),
+            amountIn: decodedParams.amountIn,
+            amountOutMin: decodedParams.amountOutMin,
+            amountMin: decodedParams.amountMin
+          });
 
           // Enhance swap intents with token symbols/decimals when path is present
           if (cmdDef.name && cmdDef.name.toUpperCase().includes('SWAP')) {
@@ -941,6 +981,13 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
           for (const paramDef of cmdDef.inputs) {
             if (paramDef.format === 'tokenAmount' && paramDef.params?.tokenPath) {
               const rawVal = decodedParams[paramDef.name];
+
+              // Skip if value is already formatted (contains letters or token symbols)
+              if (typeof rawVal === 'string' && /[a-zA-Z]/.test(rawVal)) {
+                console.log('[DecodeCommand] Skipping already-formatted param:', paramDef.name, '=', rawVal);
+                continue;
+              }
+
               if (rawVal !== undefined && rawVal !== null) {
                 try {
                   const formattedVal = await applyFieldFormat(rawVal, paramDef, decodedParams, chainId);
@@ -952,7 +999,13 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
 
           // Substitute template variables in intent (fallback)
           if (!intent || intent === cmdDef.intent || intent === cmdDef.name) {
+            console.log('[DecodeCommand] Substituting intent template:', {
+              template: cmdDef.intent,
+              decodedParams: decodedParams,
+              paramKeys: Object.keys(decodedParams)
+            });
             intent = substituteCommandIntent(cmdDef.intent || cmdDef.name, decodedParams);
+            console.log('[DecodeCommand] Substituted intent:', intent);
           }
         } catch (e) {
           console.log('[decodeCommandArray] Failed to decode input for command', cmdByte, e.message);
@@ -1225,8 +1278,8 @@ function resolveFieldPath(pathStr, params) {
 
     // Handle slice selector: path.[0:19] or path.[-20:-1]
     const sliceMatch = part.match(/^(.+?)?\[(-?\d+):(-?\d+)\]$/);
-    // Handle array index: _swapData[0] or [0]
-    const arrayMatch = part.match(/^(.+?)?\[(\d+)\]$/);
+    // Handle array index: path.[0] or path.[-1] - FIXED: support negative indices
+    const arrayMatch = part.match(/^(.+?)?\[(-?\d+)\]$/);
 
     if (sliceMatch) {
       const fieldName = sliceMatch[1];
@@ -1265,8 +1318,18 @@ function resolveFieldPath(pathStr, params) {
       }
 
       if (Array.isArray(value)) {
-        value = value[index];
+        // FIXED: Handle negative indices for arrays (path.[-1] → last element)
+        const idx = index < 0 ? value.length + index : index;
+        value = value[idx];
       } else {
+        // Not an array - log warning and return undefined
+        console.warn('[resolveFieldPath] Array syntax used on non-array:', {
+          path: pathStr,
+          part: part,
+          valueType: typeof value,
+          isString: typeof value === 'string',
+          value: typeof value === 'string' ? value.substring(0, 50) : value
+        });
         return undefined;
       }
     } else {
@@ -1296,12 +1359,28 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
 
     // Resolve token address from params
     const tokenAddress = resolveFieldPath(tokenPath, allParams);
-    console.log('[applyFieldFormat] Token address:', tokenAddress);
+    console.log('[applyFieldFormat] Token resolution:', {
+      tokenPath: tokenPath,
+      resolvedAddress: tokenAddress,
+      allParamsKeys: Object.keys(allParams),
+      pathParam: allParams.path,
+      pathType: typeof allParams.path,
+      pathIsArray: Array.isArray(allParams.path)
+    });
 
     let decimals = 18; // Default
     let symbol = '';
 
-    if (tokenAddress) {
+    // Validate token address
+    if (!tokenAddress || typeof tokenAddress !== 'string' || tokenAddress.length < 10) {
+      console.warn('[applyFieldFormat] Invalid or missing token address:', {
+        tokenAddress,
+        tokenPath,
+        pathValue: allParams.path
+      });
+      // Use TOKEN placeholder - metadata fetch will fail
+      symbol = 'TOKEN';
+    } else if (tokenAddress) {
       // Handle native ETH addresses
       const normalizedAddr = tokenAddress.toLowerCase();
       if (normalizedAddr === '0x0000000000000000000000000000000000000000' ||
