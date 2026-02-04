@@ -140,6 +140,14 @@
     .kaisign-loading-dots span:nth-child(2) { animation-delay: 0.2s; }
     .kaisign-loading-dots span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes kaisign-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+    /* Address hover tooltip for ENS/Basename resolution */
+    .kaisign-address { position: relative; cursor: help; font-family: 'SF Mono', Consolas, 'Liberation Mono', monospace; }
+    .kaisign-address:hover { color: #0f9f9a; }
+    .kaisign-popup.theme-dark .kaisign-address:hover { color: #3fb950; }
+    .kaisign-address[title]:hover::after { content: attr(title); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #fff9f1; color: #2b2722; border: 1px solid #0f9f9a; border-radius: 4px; padding: 6px 10px; font-size: 11px; white-space: nowrap; box-shadow: 0 4px 12px rgba(15, 159, 154, 0.2); z-index: 10000; margin-bottom: 5px; pointer-events: none; }
+    .kaisign-popup.theme-dark .kaisign-address[title]:hover::after { background: #161b22; color: #e6edf3; border-color: #3fb950; }
+    .kaisign-address[title]:hover::before { content: ''; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #0f9f9a; z-index: 10001; margin-bottom: -4px; }
+    .kaisign-popup.theme-dark .kaisign-address[title]:hover::before { border-top-color: #3fb950; }
   `;
   document.head.appendChild(style);
   console.log('[KaiSign] Embedded styles injected');
@@ -621,7 +629,14 @@ function setupEip6963ProviderListener() {
     const nameFromInfo = detail?.info?.name || detail?.info?.rdns;
     if (nameFromInfo) eip6963ProviderNames.set(provider, nameFromInfo);
 
-    const walletName = nameFromInfo || getWalletName(provider);
+    let walletName = nameFromInfo || getWalletName(provider);
+
+    // If this is WalletConnect, try to get the actual mobile wallet name
+    if (provider.isWalletConnect || (nameFromInfo && nameFromInfo.includes('walletconnect'))) {
+      const wcName = getWalletConnectSessionName(provider);
+      walletName = wcName || walletName;
+    }
+
     const walletKey = `eip6963-${detail?.info?.uuid || walletName}`;
 
     if (!hookedWallets.has(walletKey)) {
@@ -696,7 +711,23 @@ function detectAndHookWallets() {
     hookedWallets.add('rainbow');
   }
 
-  // 8. Check for multiple providers (some wallets inject arrays)
+  // 8. WalletConnect on window.ethereum
+  if (window.ethereum?.isWalletConnect && !hookedWallets.has('walletconnect')) {
+    console.log('[KaiSign] Detected WalletConnect provider on window.ethereum');
+    const walletName = getWalletConnectSessionName(window.ethereum) || 'WalletConnect';
+    hookWalletProvider(window.ethereum, 'walletconnect', walletName);
+    hookedWallets.add('walletconnect');
+  }
+
+  // 9. Dedicated WalletConnect provider
+  if (window.walletConnectProvider && window.walletConnectProvider.request && !hookedWallets.has('walletconnect-dedicated')) {
+    console.log('[KaiSign] Detected WalletConnect provider on window.walletConnectProvider');
+    const walletName = getWalletConnectSessionName(window.walletConnectProvider) || 'WalletConnect';
+    hookWalletProvider(window.walletConnectProvider, 'walletconnect-dedicated', walletName);
+    hookedWallets.add('walletconnect-dedicated');
+  }
+
+  // 10. Check for multiple providers (some wallets inject arrays)
   if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
     window.ethereum.providers.forEach((provider, index) => {
       const walletKey = `provider-${index}`;
@@ -710,6 +741,42 @@ function detectAndHookWallets() {
 
   // NOTE: All wallet providers are hooked generically above
   // Protocol-specific detection functions have been removed
+}
+
+// Poll for late-initializing WalletConnect providers
+let wcCheckInterval = null;
+let wcCheckCount = 0;
+const MAX_WC_CHECKS = 15; // 15 checks * 2 seconds = 30 seconds
+
+function startWalletConnectPolling() {
+  // Only start polling once
+  if (wcCheckInterval) return;
+
+  wcCheckInterval = setInterval(() => {
+    wcCheckCount++;
+
+    // Check if WalletConnect appeared on window.ethereum
+    if (window.ethereum?.isWalletConnect && !hookedWallets.has('walletconnect')) {
+      console.log('[KaiSign] Late-detected WalletConnect on window.ethereum');
+      const walletName = getWalletConnectSessionName(window.ethereum) || 'WalletConnect';
+      hookWalletProvider(window.ethereum, 'walletconnect', walletName);
+      hookedWallets.add('walletconnect');
+    }
+
+    // Check for dedicated provider
+    if (window.walletConnectProvider && window.walletConnectProvider.request && !hookedWallets.has('walletconnect-dedicated')) {
+      console.log('[KaiSign] Late-detected WalletConnect provider');
+      const walletName = getWalletConnectSessionName(window.walletConnectProvider) || 'WalletConnect';
+      hookWalletProvider(window.walletConnectProvider, 'walletconnect-dedicated', walletName);
+      hookedWallets.add('walletconnect-dedicated');
+    }
+
+    // Stop polling after max checks
+    if (wcCheckCount >= MAX_WC_CHECKS) {
+      clearInterval(wcCheckInterval);
+      wcCheckInterval = null;
+    }
+  }, 2000); // Check every 2 seconds
 }
 
 // Get wallet name from provider
@@ -738,8 +805,39 @@ function getWalletName(provider) {
   if (provider.isGemWallet) return 'Gem Wallet';
   if (provider.isZeus) return 'Zeus';
   if (provider.isFamily) return 'Family';
+  // Check WalletConnect before MetaMask (might set isMetaMask for compatibility)
+  if (provider.isWalletConnect) return getWalletConnectSessionName(provider);
   if (provider.isMetaMask) return 'MetaMask';  // Check MetaMask LAST
   return 'Unknown Wallet';
+}
+
+/**
+ * Extract wallet name from WalletConnect session metadata
+ * @param {Object} provider - WalletConnect provider
+ * @returns {string} - Wallet name (e.g., "MetaMask Mobile", "Trust Wallet")
+ */
+function getWalletConnectSessionName(provider) {
+  try {
+    // WalletConnect v2
+    if (provider.session?.peer?.metadata?.name) {
+      return provider.session.peer.metadata.name + ' (WalletConnect)';
+    }
+
+    // WalletConnect v1
+    if (provider.wc?.peerMeta?.name) {
+      return provider.wc.peerMeta.name + ' (WalletConnect)';
+    }
+
+    // Fallback to connector metadata
+    if (provider.connector?.peerMeta?.name) {
+      return provider.connector.peerMeta.name + ' (WalletConnect)';
+    }
+
+    return 'WalletConnect';
+  } catch (e) {
+    console.warn('[KaiSign] Error extracting WalletConnect session name:', e);
+    return 'WalletConnect';
+  }
 }
 
 // Cache for Permit2 data - stores intent details by EIP-712 struct hash
@@ -951,9 +1049,28 @@ function getTokenSymbol(address) {
 }
 
 // Helper formatters for Permit2
-function formatAddressShort(addr) {
+function formatAddressShort(addr, chainId = 1) {
   if (!addr) return 'Unknown';
-  return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+  const truncated = `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+
+  // Async name resolution
+  if (window.nameResolutionService && chainId) {
+    window.nameResolutionService.resolveName(addr, chainId).then(name => {
+      if (name) {
+        // Update all instances of this address
+        const elements = document.querySelectorAll(`[data-address="${addr}"]`);
+        elements.forEach(el => {
+          if (el.textContent === truncated) {
+            el.textContent = name;
+          }
+        });
+      }
+    }).catch(err => {
+      console.debug('[ContentScript] Name resolution failed:', err);
+    });
+  }
+
+  return `<span class="kaisign-address" data-address="${addr}" title="${addr}">${truncated}</span>`;
 }
 
 function formatPermit2Amount(amount) {
@@ -1272,9 +1389,30 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   };
 
   // Helper to truncate address
+  // Helper to truncate address with name resolution and hover tooltip
   const truncateAddress = (addr) => {
     if (!addr || addr.length < 12) return addr || 'N/A';
-    return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+    const truncated = `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+
+    // Async name resolution (try to get chainId from domain or default to mainnet)
+    const chainId = typedData?.domain?.chainId || 1;
+    if (window.nameResolutionService && chainId) {
+      window.nameResolutionService.resolveName(addr, chainId).then(name => {
+        if (name) {
+          // Update all instances of this address in the popup
+          const elements = document.querySelectorAll(`[data-address="${addr}"]`);
+          elements.forEach(el => {
+            if (el.textContent === truncated) {
+              el.textContent = name;
+            }
+          });
+        }
+      }).catch(err => {
+        console.debug('[ContentScript] Name resolution failed:', err);
+      });
+    }
+
+    return `<span class="kaisign-address" data-address="${addr}" title="${addr}">${truncated}</span>`;
   };
 
   // Build nested intents section if present
@@ -2103,6 +2241,25 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
     return await originalRequest(args);
   };
 
+  // Add WalletConnect-specific event listeners
+  if (provider.on && provider.isWalletConnect) {
+    provider.on('disconnect', () => {
+      console.log('[KaiSign] WalletConnect session disconnected');
+    });
+
+    provider.on('session_delete', () => {
+      console.log('[KaiSign] WalletConnect session deleted');
+    });
+
+    provider.on('chainChanged', (chainId) => {
+      console.log('[KaiSign] WalletConnect chain changed to:', chainId);
+    });
+
+    provider.on('accountsChanged', (accounts) => {
+      console.log('[KaiSign] WalletConnect accounts changed:', accounts);
+    });
+  }
+
 }
 
 // Handle personal_sign - use same popup UI as other methods
@@ -2487,10 +2644,55 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   };
 
-  // Helper to truncate address
+  // Helper to truncate address with name resolution and hover tooltip
   const truncateAddress = (addr) => {
     if (!addr || addr.length < 12) return addr || 'N/A';
-    return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+    const truncated = `${addr.slice(0, 8)}...${addr.slice(-6)}`;
+    const id = `addr-${addr.slice(2, 12)}`; // Unique ID for this address element
+
+    // Async name resolution
+    if (window.nameResolutionService && chainId) {
+      window.nameResolutionService.resolveName(addr, chainId).then(name => {
+        if (name) {
+          // Update all instances of this address in the popup
+          const elements = document.querySelectorAll(`[data-address="${addr}"]`);
+          elements.forEach(el => {
+            if (el.textContent === truncated) {
+              el.textContent = name;
+            }
+          });
+        }
+      }).catch(err => {
+        console.debug('[ContentScript] Name resolution failed:', err);
+      });
+    }
+
+    return `<span class="kaisign-address" data-address="${addr}" title="${addr}">${truncated}</span>`;
+  };
+
+  // Helper to resolve addresses in intent strings
+  const resolveIntentAddresses = async (intentStr) => {
+    if (!intentStr || !window.nameResolutionService || !chainId) return intentStr;
+
+    // Match full addresses (0x followed by 40 hex chars) or truncated (0x...xxx)
+    const addressPattern = /(0x[a-fA-F0-9]{40})/g;
+
+    let resolvedIntent = intentStr;
+
+    // Find all full addresses
+    const fullAddresses = intentStr.match(addressPattern) || [];
+    for (const addr of fullAddresses) {
+      try {
+        const name = await window.nameResolutionService.resolveName(addr, chainId);
+        if (name) {
+          resolvedIntent = resolvedIntent.replace(addr, name);
+        }
+      } catch (err) {
+        console.debug('[ContentScript] Failed to resolve address in intent:', addr);
+      }
+    }
+
+    return resolvedIntent;
   };
 
   const bytecodeSection = tx.data ? `
@@ -2584,6 +2786,9 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   const isSelfCall = tx.from && tx.to && tx.from.toLowerCase() === tx.to.toLowerCase();
   const isEIP7702 = tx.type === '0x04' || tx.type === 4 || (tx.authorizationList && tx.authorizationList.length > 0);
 
+  // Resolve addresses in intent before displaying
+  const resolvedIntent = await resolveIntentAddresses(intent);
+
   popup.innerHTML = `
     <div class="kaisign-warning">
       DEMONSTRATION VERSION - USE AT YOUR OWN RISK
@@ -2607,7 +2812,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       ${isEIP7702 ? `
         <div class="kaisign-wrapper-context" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">EIP-7702 Delegated Transaction${isSelfCall ? ' (Self-call)' : ''}</div>
       ` : ''}
-      <div class="kaisign-intent">${escapeHtml(intent || 'Analyzing transaction...')}</div>
+      <div class="kaisign-intent">${escapeHtml(resolvedIntent || 'Analyzing transaction...')}</div>
       <div class="kaisign-details-grid">
         <div class="kaisign-detail-item">
           <span class="kaisign-detail-label">${isSelfCall && isEIP7702 ? 'Self: ' : 'To: '}</span>
@@ -2758,7 +2963,7 @@ window.generateBytecodeTree = function(bytecodes) {
             <div style="font-family: monospace; font-size: 10px;">
               <span style="color: #666;">${indent}${connector}</span>
               <span style="color: ${color}; font-weight: bold;">${bc.functionName || bc.selector || 'call'}</span>
-              ${bc.target ? `<span style="color: #666;"> → ${bc.target.slice(0, 6)}...${bc.target.slice(-4)}</span>` : ''}
+              ${bc.target ? `<span style="color: #666;"> → ${truncateAddress(bc.target)}</span>` : ''}
             </div>
             ${bc.intent ? `<div style="margin-left: ${depth * 12}px; font-size: 9px; color: #ffd700;">📋 ${bc.intent}</div>` : ''}
             ${bc.formattedParams ? `<div style="margin-left: ${depth * 12}px; font-size: 9px; color: #68d391;">💰 ${bc.formattedParams}</div>` : ''}
@@ -2813,10 +3018,29 @@ window.showTransactionHistory = function() {
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     };
 
-    // Helper to truncate address
-    const truncateAddress = (addr) => {
+    // Helper to truncate address with name resolution and hover tooltip
+    const truncateAddress = (addr, chainId = 1) => {
       if (!addr || addr.length < 20) return addr || 'N/A';
-      return `${addr.slice(0, 10)}...${addr.slice(-8)}`;
+      const truncated = `${addr.slice(0, 10)}...${addr.slice(-8)}`;
+
+      // Async name resolution
+      if (window.nameResolutionService && chainId) {
+        window.nameResolutionService.resolveName(addr, chainId).then(name => {
+          if (name) {
+            // Update all instances of this address in the history popup
+            const elements = document.querySelectorAll(`[data-address="${addr}"]`);
+            elements.forEach(el => {
+              if (el.textContent === truncated) {
+                el.textContent = name;
+              }
+            });
+          }
+        }).catch(err => {
+          console.debug('[ContentScript] Name resolution failed:', err);
+        });
+      }
+
+      return `<span class="kaisign-address" data-address="${addr}" title="${addr}">${truncated}</span>`;
     };
 
     historyPopup.innerHTML = `
@@ -2838,7 +3062,7 @@ window.showTransactionHistory = function() {
               </div>
               <div class="kaisign-history-details">
                 <div class="kaisign-history-detail"><strong>Method:</strong> ${escapeHtml(tx.method || 'N/A')}</div>
-                <div class="kaisign-history-detail"><strong>To:</strong> ${truncateAddress(tx.to)}</div>
+                <div class="kaisign-history-detail"><strong>To:</strong> ${truncateAddress(tx.to, tx.chainId)}</div>
               </div>
               ${tx.data ? `
                 <div class="kaisign-history-data">
@@ -2981,7 +3205,7 @@ window.showRpcDashboard = function() {
           ${Object.entries(batchCoordination).map(([contractAddress, coordination]) => `
             <div style="margin-bottom: 15px; padding: 10px; background: #1a202c; border-radius: 6px;">
               <div style="color: #f093fb; font-weight: bold; margin-bottom: 6px;">
-                Contract: ${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}
+                Contract: ${formatAddressShort(contractAddress)}
               </div>
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 10px;">
                 <div><strong>Signers:</strong> ${coordination.signers.size}</div>
@@ -3234,3 +3458,6 @@ Features:
 
 // Start wallet detection
 waitForWallets();
+
+// Start polling for late-initializing WalletConnect providers
+startWalletConnectPolling();
