@@ -1,4 +1,89 @@
 /**
+ * Proper keccak256 implementation (from decode.js)
+ * Used for computing ENS reverse nodes
+ */
+function keccak256Simple(message) {
+  // Try to use ethers if available
+  if (typeof window !== 'undefined') {
+    if (window.ethers?.keccak256 && window.ethers?.toUtf8Bytes) {
+      try { return window.ethers.keccak256(window.ethers.toUtf8Bytes(message)); } catch {}
+    }
+    if (window.ethers?.utils?.keccak256 && window.ethers?.utils?.toUtf8Bytes) {
+      try { return window.ethers.utils.keccak256(window.ethers.utils.toUtf8Bytes(message)); } catch {}
+    }
+  }
+
+  // Minimal keccak256 implementation
+  const KECCAK_ROUNDS = 24;
+  const KECCAK_RC = [
+    0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an, 0x8000000080008000n,
+    0x000000000000808bn, 0x0000000080000001n, 0x8000000080008081n, 0x8000000000008009n,
+    0x000000000000008an, 0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
+    0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n, 0x8000000000008003n,
+    0x8000000000008002n, 0x8000000000000080n, 0x000000000000800an, 0x800000008000000an,
+    0x8000000080008081n, 0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n
+  ];
+  const KECCAK_ROTC = [1,3,6,10,15,21,28,36,45,55,2,14,27,41,56,8,25,43,62,18,39,61,20,44];
+  const KECCAK_PILN = [10,7,11,17,18,3,5,16,8,21,24,4,15,23,19,13,12,2,20,14,22,9,6,1];
+
+  function rotl64(x, y) { return ((x << BigInt(y)) | (x >> BigInt(64 - y))) & 0xffffffffffffffffn; }
+
+  function keccakF(state) {
+    for (let round = 0; round < KECCAK_ROUNDS; round++) {
+      const c = new Array(5).fill(0n);
+      for (let x = 0; x < 5; x++) c[x] = state[x] ^ state[x+5] ^ state[x+10] ^ state[x+15] ^ state[x+20];
+      for (let x = 0; x < 5; x++) {
+        const t = c[(x+4)%5] ^ rotl64(c[(x+1)%5], 1);
+        for (let y = 0; y < 25; y += 5) state[x+y] ^= t;
+      }
+      let t = state[1];
+      for (let i = 0; i < 24; i++) {
+        const j = KECCAK_PILN[i];
+        const tmp = state[j];
+        state[j] = rotl64(t, KECCAK_ROTC[i]);
+        t = tmp;
+      }
+      for (let y = 0; y < 25; y += 5) {
+        const t0 = state[y], t1 = state[y+1], t2 = state[y+2], t3 = state[y+3], t4 = state[y+4];
+        state[y] = t0 ^ (~t1 & t2); state[y+1] = t1 ^ (~t2 & t3);
+        state[y+2] = t2 ^ (~t3 & t4); state[y+3] = t3 ^ (~t4 & t0); state[y+4] = t4 ^ (~t0 & t1);
+      }
+      state[0] ^= KECCAK_RC[round];
+    }
+  }
+
+  const encoder = new TextEncoder();
+  const input = encoder.encode(message);
+  const rate = 136, capacity = 64;
+  const blockSize = rate;
+  const state = new Array(25).fill(0n);
+
+  const padded = new Uint8Array(Math.ceil((input.length + 1) / blockSize) * blockSize);
+  padded.set(input);
+  padded[input.length] = 0x01;
+  padded[padded.length - 1] |= 0x80;
+
+  for (let i = 0; i < padded.length; i += blockSize) {
+    for (let j = 0; j < blockSize && j < 200; j += 8) {
+      if (i + j + 8 <= padded.length) {
+        let val = 0n;
+        for (let k = 0; k < 8; k++) val |= BigInt(padded[i + j + k]) << BigInt(k * 8);
+        state[Math.floor(j / 8)] ^= val;
+      }
+    }
+    keccakF(state);
+  }
+
+  let hash = '0x';
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 8; j++) {
+      hash += ((state[i] >> BigInt(j * 8)) & 0xffn).toString(16).padStart(2, '0');
+    }
+  }
+  return hash;
+}
+
+/**
  * Name Resolution Service
  * Resolves addresses to human-readable names (ENS, Basenames, etc.)
  *
@@ -58,6 +143,11 @@ class NameResolutionService {
 
     try {
       const name = await promise;
+
+      // Log successful resolution
+      if (name) {
+        console.log(`[NameResolution] Resolved ${address} -> ${name} on chain ${chainId}`);
+      }
 
       // Cache result (even null to avoid repeated failed lookups)
       this.cache.set(cacheKey, {
@@ -128,7 +218,7 @@ class NameResolutionService {
             }
           }
         } catch (providerError) {
-          console.debug(`[NameResolution] Provider ${provider} failed:`, providerError.message);
+          console.warn(`[NameResolution] Provider ${provider} failed:`, providerError.message);
           // Try next provider
           continue;
         }
@@ -155,7 +245,7 @@ class NameResolutionService {
             return alchemyData.result.name;
           }
         } catch (alchemyError) {
-          console.debug('[NameResolution] Alchemy API failed:', alchemyError.message);
+          console.warn('[NameResolution] Alchemy API failed:', alchemyError.message);
         }
       }
 
@@ -251,36 +341,18 @@ class NameResolutionService {
 
   /**
    * Keccak256 hash function
-   * Uses ethers.js if available, otherwise falls back to simple implementation
+   * Uses proper keccak256 implementation
    */
   _keccak256(data) {
-    // Try ethers.js first
-    if (typeof ethers !== 'undefined' && ethers.utils && ethers.utils.keccak256) {
-      if (typeof data === 'string' && !data.startsWith('0x')) {
-        // Convert string to bytes
-        return ethers.utils.keccak256(ethers.utils.toUtf8Bytes(data));
-      }
-      return ethers.utils.keccak256(data);
+    try {
+      // Use the proper keccak256 implementation
+      // It will try ethers.js first if available, then fall back to built-in keccak
+      return keccak256Simple(data);
+    } catch (error) {
+      console.error('[NameResolution] keccak256 failed:', error);
+      // Return zero hash as last resort
+      return '0x' + '0'.repeat(64);
     }
-
-    // Fallback: Simple keccak256 (NOT RECOMMENDED FOR PRODUCTION)
-    console.warn('[NameResolution] ethers.js not available, using fallback hash');
-    // This is a placeholder - proper implementation needs js-sha3 or similar
-    return '0x' + this._simpleHash(data);
-  }
-
-  /**
-   * Simple hash fallback (NOT CRYPTOGRAPHICALLY SECURE)
-   * Only used if ethers.js is unavailable
-   */
-  _simpleHash(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return Math.abs(hash).toString(16).padStart(64, '0');
   }
 
   /**

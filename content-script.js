@@ -2638,6 +2638,9 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   const theme = await getStoredTheme();
   popup.className = 'kaisign-popup theme-dark';
 
+  // Extract chainId for name resolution
+  const chainId = tx.chainId || context?.chainId || 1;
+
   // Helper to escape HTML
   const escapeHtml = (str) => {
     if (!str) return '';
