@@ -149,7 +149,7 @@
     .kaisign-address[title]:hover::before { content: ''; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #0f9f9a; z-index: 10001; margin-bottom: -4px; }
     .kaisign-popup.theme-dark .kaisign-address[title]:hover::before { border-top-color: #3fb950; }
   `;
-  document.head.appendChild(style);
+  (document.head || document.documentElement).appendChild(style);
   console.log('[KaiSign] Embedded styles injected');
 })();
 
@@ -2448,7 +2448,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   const selector = tx.data?.slice(0, 10);
 
   // SHOW LOADING POPUP IMMEDIATELY (only once)
-  showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false, isLoading: true }, []);
+  await showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false, isLoading: true }, []);
 
   // TYPED DATA SIGNATURE CONTEXT - CHECK FIRST
   if (context && context.isTypedDataSignature) {
@@ -2503,6 +2503,22 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         }
 
         console.log(`[KaiSign] Decoded transaction: ${intent}`);
+      } else if (decoded && !decoded.success && decoded.intent) {
+        // Metadata was found but function selector wasn't matched — use the informative intent
+        intent = decoded.intent;
+        decodedResult = {
+          success: false,
+          selector: selector,
+          contractName: decoded.contractName || '',
+          metadata: decoded.metadata,
+          intent: intent,
+          error: decoded.error || 'Function not found in metadata',
+          statusTitle: 'Function not recognized',
+          statusDetail: decoded.contractName
+            ? `Selector ${selector} not found in ${decoded.contractName} metadata`
+            : decoded.error || 'Function not found in metadata'
+        };
+        console.log(`[KaiSign] Partial decode - known contract, unknown function: ${intent}`);
       }
     } catch (decodeError) {
       console.error('[KaiSign] Transaction decoding error:', decodeError);
@@ -2551,7 +2567,8 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   }
 
   // SHOW FINAL RESULT (only once, after all decoding is complete)
-  showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes);
+  showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes)
+    .catch(err => console.error('[KaiSign] showEnhancedTransactionInfo error:', err));
 }
 
 // Show enhanced transaction info with complete bytecode data
@@ -2598,6 +2615,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     return; // Don't continue to full popup
   }
 
+  try {
   const transactionData = {
     id: Date.now().toString(),
     method: method,
@@ -2645,6 +2663,19 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   const escapeHtml = (str) => {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  // Helper to safely stringify objects with BigInt/BigNumber values
+  const safeStringify = (obj) => {
+    try {
+      return JSON.stringify(obj, (key, value) => {
+        if (typeof value === 'bigint') return value.toString();
+        if (value?._isBigNumber) return value._value || value._hex;
+        return value;
+      });
+    } catch {
+      return '{}';
+    }
   };
 
   // Helper to truncate address with name resolution and hover tooltip
@@ -2801,7 +2832,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       <div class="kaisign-popup-logo">
         <span class="kaisign-popup-logo-icon">KS</span>
         <div>
-          <div class="kaisign-popup-title">KaiSign Analysis</div>
+          <div class="kaisign-popup-title">KaiSign Analysis <span id="kaisign-verification-badge" class="kaisign-verification-badge" title="Checking on-chain verification..." style="display:inline-block;font-size:12px;padding:1px 6px;border-radius:8px;margin-left:6px;background:rgba(156,163,175,0.2);color:#9ca3af;">...</span></div>
           <div class="kaisign-popup-subtitle">${escapeHtml(walletName)} | ${escapeHtml(method)}</div>
         </div>
       </div>
@@ -2823,7 +2854,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         </div>
         <div class="kaisign-detail-item">
           <span class="kaisign-detail-label">Value: </span>
-          <span class="kaisign-detail-value">${escapeHtml(tx.value || '0x0')}</span>
+          <span class="kaisign-detail-value">${escapeHtml(formatEther(tx.value || '0x0'))} ETH</span>
         </div>
       </div>
     </div>
@@ -2838,7 +2869,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
 
     <div class="kaisign-action-bar">
       <button class="kaisign-btn kaisign-btn-primary" onclick="showTransactionHistory()">History</button>
-      <button class="kaisign-btn kaisign-btn-secondary" onclick="exportTransactionData('${escapeHtml(tx.data)}', ${JSON.stringify(JSON.stringify({decodedResult, extractedBytecodes}))})">Export</button>
+      <button class="kaisign-btn kaisign-btn-secondary" onclick="exportTransactionData('${escapeHtml(tx.data)}', ${JSON.stringify(safeStringify({decodedResult, extractedBytecodes}))})">Export</button>
     </div>
   `;
 
@@ -2847,10 +2878,97 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   attachPopupDrag(popup);
   saveTransactionViaAllChannels(transactionData);
 
+  // Update verification badge asynchronously
+  if (decodedResult?._verification || (typeof window !== 'undefined' && window.onChainVerifier)) {
+    const updateVerificationBadge = (verification) => {
+      const badge = document.getElementById('kaisign-verification-badge');
+      if (!badge) return;
+
+      if (!verification) {
+        badge.textContent = 'Unverified';
+        badge.title = 'No on-chain verification available';
+        badge.style.background = 'rgba(156,163,175,0.2)';
+        badge.style.color = '#9ca3af';
+        return;
+      }
+
+      if (verification.verified) {
+        badge.textContent = 'Verified';
+        badge.title = 'Metadata verified against on-chain registry';
+        badge.style.background = 'rgba(34,197,94,0.2)';
+        badge.style.color = '#22c55e';
+      } else if (verification.source === 'mismatch') {
+        badge.textContent = 'Mismatch';
+        badge.title = verification.details || 'Metadata hash does not match on-chain record';
+        badge.style.background = 'rgba(239,68,68,0.2)';
+        badge.style.color = '#ef4444';
+      } else {
+        badge.textContent = 'Unverified';
+        badge.title = verification.details || 'No on-chain attestation found';
+        badge.style.background = 'rgba(156,163,175,0.2)';
+        badge.style.color = '#9ca3af';
+      }
+    };
+
+    // Check if verification is already available on metadata
+    const metadata = decodedResult?.metadata;
+    if (metadata?._verification) {
+      updateVerificationBadge(metadata._verification);
+    } else {
+      // Poll for verification result (it runs async)
+      let pollCount = 0;
+      const pollInterval = setInterval(() => {
+        pollCount++;
+        if (metadata?._verification) {
+          updateVerificationBadge(metadata._verification);
+          clearInterval(pollInterval);
+        } else if (pollCount > 40) {
+          // After 20 seconds, show as unverified
+          updateVerificationBadge(null);
+          clearInterval(pollInterval);
+        }
+      }, 500);
+    }
+  }
+
   // Auto-remove after 30 seconds
   setTimeout(() => {
     if (popup.parentNode) popup.remove();
   }, 30000);
+
+  } catch (err) {
+    console.error('[KaiSign] Popup render error:', err);
+    // Fallback: show minimal popup with intent and basic tx info
+    popup.innerHTML = `
+      <div class="kaisign-popup-header">
+        <div class="kaisign-popup-logo">
+          <span class="kaisign-popup-logo-icon">KS</span>
+          <div>
+            <div class="kaisign-popup-title">KaiSign Analysis</div>
+            <div class="kaisign-popup-subtitle">${escapeHtml(walletName)} | ${escapeHtml(method)}</div>
+          </div>
+        </div>
+        <button class="kaisign-close-btn" onclick="this.closest('.kaisign-popup').remove()">&#x2715;</button>
+      </div>
+      <div class="kaisign-intent-section">
+        <div class="kaisign-intent">${escapeHtml(intent || 'Unknown transaction')}</div>
+        <div class="kaisign-details-grid">
+          <div class="kaisign-detail-item">
+            <span class="kaisign-detail-label">To: </span>
+            <span class="kaisign-detail-value">${tx.to ? tx.to.slice(0, 8) + '...' + tx.to.slice(-6) : 'N/A'}</span>
+          </div>
+          <div class="kaisign-detail-item">
+            <span class="kaisign-detail-label">Value: </span>
+            <span class="kaisign-detail-value">${escapeHtml(formatEther(tx.value || '0x0'))} ETH</span>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(popup);
+    bindPopupClose(popup);
+    attachPopupDrag(popup);
+    setTimeout(() => { if (popup.parentNode) popup.remove(); }, 30000);
+  }
 }
 
 // Generic bytecode parser - scans for any potential nested bytecodes
@@ -2966,7 +3084,7 @@ window.generateBytecodeTree = function(bytecodes) {
             <div style="font-family: monospace; font-size: 10px;">
               <span style="color: #666;">${indent}${connector}</span>
               <span style="color: ${color}; font-weight: bold;">${bc.functionName || bc.selector || 'call'}</span>
-              ${bc.target ? `<span style="color: #666;"> → ${truncateAddress(bc.target)}</span>` : ''}
+              ${bc.target ? `<span style="color: #666;"> → ${bc.target.slice(0, 8)}...${bc.target.slice(-6)}</span>` : ''}
             </div>
             ${bc.intent ? `<div style="margin-left: ${depth * 12}px; font-size: 9px; color: #ffd700;">📋 ${bc.intent}</div>` : ''}
             ${bc.formattedParams ? `<div style="margin-left: ${depth * 12}px; font-size: 9px; color: #68d391;">💰 ${bc.formattedParams}</div>` : ''}

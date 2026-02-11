@@ -1,6 +1,25 @@
 // ISOLATED world content script - bridge between MAIN world and background
 console.log('[KaiSign] Bridge script loaded (ISOLATED world)');
 
+// Inject MAIN world scripts reliably from ISOLATED world
+(function injectMainWorldScripts() {
+  const scripts = [
+    'name-resolution-service.js', 'subgraph-metadata.js', 'onchain-verifier.js',
+    'runtime-registry.js', 'metadata.js', 'eip712-decoder.js', 'decode.js',
+    'recursive-decoder.js', 'advanced-decoder.js', 'content-script.js'
+  ];
+
+  const container = document.documentElement || document.head || document.body;
+
+  for (const file of scripts) {
+    const el = document.createElement('script');
+    el.src = chrome.runtime.getURL(file);
+    el.async = false;
+    container.appendChild(el);
+    el.onload = () => el.remove();
+  }
+})();
+
 // Check chrome.runtime availability
 if (typeof chrome === 'undefined' || !chrome.runtime) {
   console.error('[KaiSign Bridge] CRITICAL: chrome.runtime not available!');
@@ -76,6 +95,22 @@ window.addEventListener('message', (event) => {
           type: 'KAISIGN_BLOB_RESPONSE',
           messageId: message.messageId,
           data: response?.data,
+          error: response?.error
+        }, '*');
+      });
+      break;
+
+    case 'KAISIGN_RPC_CALL':
+      chrome.runtime.sendMessage({
+        type: 'RPC_CALL',
+        rpcUrl: message.rpcUrl,
+        method: message.method,
+        params: message.params
+      }, (response) => {
+        window.postMessage({
+          type: 'KAISIGN_RPC_RESPONSE',
+          messageId: message.messageId,
+          result: response?.result,
           error: response?.error
         }, '*');
       });

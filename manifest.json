@@ -29,20 +29,33 @@
     "https://ethereum.publicnode.com/*",
     "https://eth-mainnet.g.alchemy.com/*",
     "https://mainnet.base.org/*",
-    "https://base.llamarpc.com/*"
+    "https://base.llamarpc.com/*",
+    "https://rpc.sepolia.org/*",
+    "https://ethereum-sepolia-rpc.publicnode.com/*"
   ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["name-resolution-service.js", "subgraph-metadata.js", "runtime-registry.js", "metadata.js", "eip712-decoder.js", "decode.js", "recursive-decoder.js", "advanced-decoder.js", "content-script.js"],
-      "run_at": "document_end",
-      "world": "MAIN"
-    },
-    {
-      "matches": ["<all_urls>"],
       "js": ["bridge-script.js"],
-      "run_at": "document_end",
+      "run_at": "document_start",
       "world": "ISOLATED"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "name-resolution-service.js",
+        "subgraph-metadata.js",
+        "onchain-verifier.js",
+        "runtime-registry.js",
+        "metadata.js",
+        "eip712-decoder.js",
+        "decode.js",
+        "recursive-decoder.js",
+        "advanced-decoder.js",
+        "content-script.js"
+      ],
+      "matches": ["<all_urls>"]
     }
   ],
   "background": {
