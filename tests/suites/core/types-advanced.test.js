@@ -219,5 +219,157 @@ export async function runTests(harness) {
     }
   }));
 
+  // ===== Signed Integer Tests =====
+
+  const signedAddress = '0xtest9999999999999999999999999999999999';
+  const signedIface = new ethers.Interface([
+    'function setInt8(int8 value)',
+    'function setInt256(int256 value)'
+  ]);
+
+  harness.addMetadata(signedAddress, {
+    context: {
+      contract: {
+        address: signedAddress,
+        chainId: 1,
+        name: 'Signed Int Test',
+        abi: [
+          { type: 'function', name: 'setInt8', inputs: [{ name: 'value', type: 'int8' }] },
+          { type: 'function', name: 'setInt256', inputs: [{ name: 'value', type: 'int256' }] }
+        ]
+      }
+    },
+    display: {
+      formats: {
+        'setInt8(int8)': { intent: 'Set int8', fields: [{ path: 'value', label: 'Value', format: 'number' }] },
+        'setInt256(int256)': { intent: 'Set int256', fields: [{ path: 'value', label: 'Value', format: 'number' }] }
+      }
+    }
+  });
+
+  results.push(await harness.runTest({
+    name: 'int8(-1) two\'s complement decoding',
+    calldata: signedIface.encodeFunctionData('setInt8', [-1]),
+    contractAddress: signedAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'setInt8',
+      params: { value: '-1' }
+    }
+  }));
+
+  results.push(await harness.runTest({
+    name: 'int8(-128) two\'s complement decoding',
+    calldata: signedIface.encodeFunctionData('setInt8', [-128]),
+    contractAddress: signedAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'setInt8',
+      params: { value: '-128' }
+    }
+  }));
+
+  results.push(await harness.runTest({
+    name: 'int256 large negative decoding',
+    calldata: signedIface.encodeFunctionData('setInt256', [-1000000n]),
+    contractAddress: signedAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'setInt256',
+      params: { value: '-1000000' }
+    }
+  }));
+
+  // ===== Fixed-Size Array Tests =====
+
+  const fixedArrayAddress = '0xtestaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const fixedArrayIface = new ethers.Interface([
+    'function setThreeValues(uint256[3] values)',
+    'function setTwoAddresses(address[2] addrs)',
+    'function setFourFlags(bool[4] flags)'
+  ]);
+
+  const setThreeSelector = fixedArrayIface.getFunction('setThreeValues').selector;
+  const setTwoSelector = fixedArrayIface.getFunction('setTwoAddresses').selector;
+  const setFourSelector = fixedArrayIface.getFunction('setFourFlags').selector;
+
+  harness.addMetadata(fixedArrayAddress, {
+    context: {
+      contract: {
+        address: fixedArrayAddress,
+        chainId: 1,
+        name: 'Fixed Array Test',
+        abi: [
+          { type: 'function', name: 'setThreeValues', selector: setThreeSelector, inputs: [{ name: 'values', type: 'uint256[3]' }] },
+          { type: 'function', name: 'setTwoAddresses', selector: setTwoSelector, inputs: [{ name: 'addrs', type: 'address[2]' }] },
+          { type: 'function', name: 'setFourFlags', selector: setFourSelector, inputs: [{ name: 'flags', type: 'bool[4]' }] }
+        ]
+      }
+    },
+    display: {
+      formats: {
+        'setThreeValues(uint256[3])': { intent: 'Set three values', fields: [{ path: 'values', label: 'Values', format: 'raw' }] },
+        'setTwoAddresses(address[2])': { intent: 'Set two addresses', fields: [{ path: 'addrs', label: 'Addresses', format: 'raw' }] },
+        'setFourFlags(bool[4])': { intent: 'Set four flags', fields: [{ path: 'flags', label: 'Flags', format: 'raw' }] }
+      }
+    }
+  });
+
+  results.push(await harness.runTest({
+    name: 'uint256[3] fixed array decoding',
+    calldata: fixedArrayIface.encodeFunctionData('setThreeValues', [[100, 200, 300]]),
+    contractAddress: fixedArrayAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'setThreeValues'
+    }
+  }));
+
+  results.push(await harness.runTest({
+    name: 'address[2] fixed array decoding',
+    calldata: fixedArrayIface.encodeFunctionData('setTwoAddresses', [['0xd8da6bf26964af9d7eed9e03e53415d37aa96045', '0x71C7656EC7ab88b098defB751B7401B5f6d8976F']]),
+    contractAddress: fixedArrayAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'setTwoAddresses'
+    }
+  }));
+
+  results.push(await harness.runTest({
+    name: 'bool[4] fixed array decoding',
+    calldata: fixedArrayIface.encodeFunctionData('setFourFlags', [[true, false, true, false]]),
+    contractAddress: fixedArrayAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'setFourFlags'
+    }
+  }));
+
+  // ===== UTF-8 String Tests =====
+
+  const utf8Calldata = typeIface.encodeFunctionData('setMessage', ['caf\u00e9']);
+  results.push(await harness.runTest({
+    name: 'UTF-8 string with accented character (caf\u00e9)',
+    calldata: utf8Calldata,
+    contractAddress: typeTestAddress,
+    expected: {
+      shouldSucceed: true,
+      functionName: 'setMessage',
+      params: { message: 'caf\u00e9' }
+    }
+  }));
+
+  // ===== Truncated Calldata / Bounds Checking Tests =====
+
+  // Calldata with selector but missing parameter data
+  results.push(await harness.runTest({
+    name: 'Truncated calldata graceful error',
+    calldata: '0xa9059cbb000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa96045',  // missing second param
+    contractAddress: typeTestAddress,  // won't match selector, so it should fail gracefully
+    expected: {
+      shouldSucceed: false
+    }
+  }));
+
   return results;
 }

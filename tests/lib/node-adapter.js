@@ -154,23 +154,67 @@ export class SimpleInterface {
     this.abi = Array.isArray(abi) ? abi : [abi];
   }
 
-  isDynamicType(type) {
+  safeSlice(data, start, end) {
+    const needed = end - start;
+    if (start > data.length * 2) {
+      throw new Error(`ABI decode: offset ${start / 2} beyond data length ${data.length / 2}`);
+    }
+    if (start >= data.length) {
+      return '0'.repeat(needed);
+    }
+    const slice = data.slice(start, end);
+    if (slice.length < needed) {
+      return slice + '0'.repeat(needed - slice.length);
+    }
+    return slice;
+  }
+
+  parseArrayType(type) {
+    const match = type.match(/^(.+)\[(\d*)\]$/);
+    if (!match) return null;
+    return { baseType: match[1], size: match[2] === '' ? null : parseInt(match[2]) };
+  }
+
+  isDynamicType(type, input = null) {
     if (!type) return false;
     if (type === 'bytes' || type === 'string') return true;
-    if (type.endsWith('[]')) return true;
+    const arr = this.parseArrayType(type);
+    if (arr) {
+      if (arr.size === null) return true;
+      return this.isDynamicType(arr.baseType, input);
+    }
+    if (type === 'tuple' && input?.components) {
+      return input.components.some(c => this.isDynamicType(c.type, c));
+    }
     return false;
   }
 
   decodeStaticType(type, paramData, offset, input = null) {
     if (type === 'address') {
-      const rawAddr = paramData.slice(offset + 24, offset + 64);
+      const rawAddr = this.safeSlice(paramData, offset + 24, offset + 64);
       return { value: '0x' + rawAddr.toLowerCase(), size: 64 };
     }
 
-    if (type.startsWith('uint') || type.startsWith('int')) {
-      const hexValue = paramData.slice(offset, offset + 64);
+    if (type.startsWith('uint')) {
+      const hexValue = this.safeSlice(paramData, offset, offset + 64);
       try {
         const value = BigInt('0x' + hexValue);
+        return {
+          value: { _isBigNumber: true, _hex: '0x' + hexValue, _value: value.toString() },
+          size: 64
+        };
+      } catch {
+        return { value: '0x' + hexValue, size: 64 };
+      }
+    }
+
+    if (type.startsWith('int')) {
+      const hexValue = this.safeSlice(paramData, offset, offset + 64);
+      try {
+        const raw = BigInt('0x' + hexValue);
+        const bits = parseInt(type.slice(3)) || 256;
+        const halfRange = 1n << BigInt(bits - 1);
+        const value = raw >= halfRange ? raw - (1n << BigInt(bits)) : raw;
         return {
           value: { _isBigNumber: true, _hex: '0x' + hexValue, _value: value.toString() },
           size: 64
@@ -183,13 +227,26 @@ export class SimpleInterface {
     if (type.startsWith('bytes') && !type.endsWith('[]') && type !== 'bytes') {
       const byteSize = parseInt(type.replace('bytes', '')) || 32;
       const hexSize = byteSize * 2;
-      const value = '0x' + paramData.slice(offset, offset + hexSize);
+      const value = '0x' + this.safeSlice(paramData, offset, offset + hexSize);
       return { value, size: 64 };
     }
 
     if (type === 'bool') {
-      const lastByte = paramData.slice(offset + 62, offset + 64);
+      const lastByte = this.safeSlice(paramData, offset + 62, offset + 64);
       return { value: lastByte !== '00', size: 64 };
+    }
+
+    // Fixed-size arrays of static types: T[N] where T is static
+    const fixedArr = this.parseArrayType(type);
+    if (fixedArr && fixedArr.size !== null && !this.isDynamicType(fixedArr.baseType, input)) {
+      const results = [];
+      let arrOffset = 0;
+      for (let i = 0; i < fixedArr.size; i++) {
+        const { value, size } = this.decodeStaticType(fixedArr.baseType, paramData, offset + arrOffset, input);
+        results.push(value);
+        arrOffset += size;
+      }
+      return { value: results, size: arrOffset };
     }
 
     if (type === 'tuple' && input?.components) {
@@ -197,7 +254,7 @@ export class SimpleInterface {
       let tupleOffset = 0;
 
       for (const component of input.components) {
-        if (this.isDynamicType(component.type)) {
+        if (this.isDynamicType(component.type, component)) {
           const dynOffset = parseInt(paramData.slice(offset + tupleOffset, offset + tupleOffset + 64), 16) * 2;
           const dynResult = this.decodeDynamicType(component.type, paramData, offset + dynOffset, component);
           tupleData[component.name] = dynResult;
@@ -212,32 +269,46 @@ export class SimpleInterface {
       return { value: tupleData, size: tupleOffset };
     }
 
-    return { value: '0x' + paramData.slice(offset, offset + 64), size: 64 };
+    return { value: '0x' + this.safeSlice(paramData, offset, offset + 64), size: 64 };
   }
 
   decodeDynamicType(type, paramData, offset, input = null) {
     if (type === 'bytes') {
-      const length = parseInt(paramData.slice(offset, offset + 64), 16);
+      const length = parseInt(this.safeSlice(paramData, offset, offset + 64), 16);
       const hexLength = length * 2;
       const data = paramData.slice(offset + 64, offset + 64 + hexLength);
       return '0x' + data;
     }
 
     if (type === 'string') {
-      const length = parseInt(paramData.slice(offset, offset + 64), 16);
+      const length = parseInt(this.safeSlice(paramData, offset, offset + 64), 16);
       const hexLength = length * 2;
       const hexData = paramData.slice(offset + 64, offset + 64 + hexLength);
       return this.hexToString(hexData);
     }
 
-    if (type.endsWith('[]')) {
-      const baseType = type.slice(0, -2);
-      const arrayLength = parseInt(paramData.slice(offset, offset + 64), 16);
+    // Fixed-size arrays of dynamic types: T[N] where T is dynamic (no length prefix)
+    const dynArr = this.parseArrayType(type);
+    if (dynArr && dynArr.size !== null) {
+      const results = [];
+      for (let i = 0; i < dynArr.size; i++) {
+        const elementOffsetHex = this.safeSlice(paramData, offset + i * 64, offset + (i + 1) * 64);
+        const elementOffset = parseInt(elementOffsetHex, 16) * 2;
+        const value = this.decodeDynamicType(dynArr.baseType, paramData, offset + elementOffset, input);
+        results.push(value);
+      }
+      return results;
+    }
+
+    // Dynamic-size array types: T[]
+    if (dynArr && dynArr.size === null) {
+      const baseType = dynArr.baseType;
+      const arrayLength = parseInt(this.safeSlice(paramData, offset, offset + 64), 16);
       const results = [];
 
-      if (this.isDynamicType(baseType)) {
+      if (this.isDynamicType(baseType, input)) {
         for (let i = 0; i < arrayLength; i++) {
-          const elementOffsetHex = paramData.slice(offset + 64 + i * 64, offset + 64 + (i + 1) * 64);
+          const elementOffsetHex = this.safeSlice(paramData, offset + 64 + i * 64, offset + 64 + (i + 1) * 64);
           const elementOffset = parseInt(elementOffsetHex, 16) * 2;
           const value = this.decodeDynamicType(baseType, paramData, offset + 64 + elementOffset, input);
           results.push(value);
@@ -254,17 +325,40 @@ export class SimpleInterface {
       return results;
     }
 
-    return '0x' + paramData.slice(offset, offset + 64);
+    // Dynamic tuple
+    if (type === 'tuple' && input?.components) {
+      const tupleData = {};
+      let tupleOffset = 0;
+
+      for (const component of input.components) {
+        if (this.isDynamicType(component.type, component)) {
+          const relOffsetHex = this.safeSlice(paramData, offset + tupleOffset, offset + tupleOffset + 64);
+          const relOffset = parseInt(relOffsetHex, 16) * 2;
+          const dynResult = this.decodeDynamicType(component.type, paramData, offset + relOffset, component);
+          tupleData[component.name] = dynResult;
+          tupleOffset += 64;
+        } else {
+          const result = this.decodeStaticType(component.type, paramData, offset + tupleOffset, component);
+          tupleData[component.name] = result.value;
+          tupleOffset += result.size;
+        }
+      }
+
+      return tupleData;
+    }
+
+    return '0x' + this.safeSlice(paramData, offset, offset + 64);
   }
 
   hexToString(hex) {
-    let str = '';
+    if (!hex || hex.length === 0) return '';
+    const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < hex.length; i += 2) {
-      const charCode = parseInt(hex.slice(i, i + 2), 16);
-      if (charCode === 0) break;
-      str += String.fromCharCode(charCode);
+      bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
     }
-    return str;
+    let end = bytes.length;
+    while (end > 0 && bytes[end - 1] === 0) end--;
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, end));
   }
 
   decodeFunctionData(functionName, data) {
@@ -281,8 +375,8 @@ export class SimpleInterface {
     for (let i = 0; i < inputs.length; i++) {
       const input = inputs[i];
 
-      if (this.isDynamicType(input.type)) {
-        const offsetHex = paramData.slice(headOffset, headOffset + 64);
+      if (this.isDynamicType(input.type, input)) {
+        const offsetHex = this.safeSlice(paramData, headOffset, headOffset + 64);
         const tailOffset = parseInt(offsetHex, 16) * 2;
         dynamicParams.push({ index: i, input, tailOffset });
         headOffset += 64;

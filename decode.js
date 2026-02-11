@@ -99,6 +99,42 @@ class SimpleInterface {
   }
 
   /**
+   * Safe slice with bounds checking
+   * Throws if start is beyond data length; zero-pads if end exceeds data length
+   * @param {string} data - Hex string without 0x prefix
+   * @param {number} start - Start offset in hex chars
+   * @param {number} end - End offset in hex chars
+   * @returns {string} - Sliced hex string, zero-padded if needed
+   */
+  safeSlice(data, start, end) {
+    const needed = end - start;
+    if (start > data.length * 2) {
+      // Corrupt offset — pointer is absurdly large (> 2x data), indicates bad data
+      throw new Error(`ABI decode: offset ${start / 2} beyond data length ${data.length / 2}`);
+    }
+    if (start >= data.length) {
+      // Past end of data — zero-pad entire result (truncated calldata)
+      return '0'.repeat(needed);
+    }
+    const slice = data.slice(start, end);
+    if (slice.length < needed) {
+      return slice + '0'.repeat(needed - slice.length);
+    }
+    return slice;
+  }
+
+  /**
+   * Parse array type into base type and optional fixed size
+   * @param {string} type - Solidity type (e.g., 'uint256[3]', 'address[]', 'bytes32[2][]')
+   * @returns {{baseType: string, size: number|null}|null} - null if not an array type
+   */
+  parseArrayType(type) {
+    const match = type.match(/^(.+)\[(\d*)\]$/);
+    if (!match) return null;
+    return { baseType: match[1], size: match[2] === '' ? null : parseInt(match[2]) };
+  }
+
+  /**
    * Check if a type is dynamic (requires offset resolution)
    * @param {string} type - Solidity type
    * @param {object} input - ABI input definition (for checking tuple components)
@@ -106,9 +142,14 @@ class SimpleInterface {
    */
   isDynamicType(type, input = null) {
     if (!type) return false;
-    // bytes, string, and any array type are dynamic
+    // bytes, string are always dynamic
     if (type === 'bytes' || type === 'string') return true;
-    if (type.endsWith('[]')) return true;
+    // Array types: T[] is always dynamic, T[N] is dynamic only if T is dynamic
+    const arr = this.parseArrayType(type);
+    if (arr) {
+      if (arr.size === null) return true; // T[] — dynamic (has length prefix)
+      return this.isDynamicType(arr.baseType, input); // T[N] — static if T is static
+    }
     // Tuples with any dynamic components are dynamic (requires offset resolution)
     if (type === 'tuple' && input?.components) {
       return input.components.some(c => this.isDynamicType(c.type, c));
@@ -127,7 +168,7 @@ class SimpleInterface {
   decodeStaticType(type, paramData, offset, input = null) {
     // Address: 20 bytes right-padded in 32 bytes
     if (type === 'address') {
-      const rawAddr = paramData.slice(offset + 24, offset + 64);
+      const rawAddr = this.safeSlice(paramData, offset + 24, offset + 64);
       return {
         value: '0x' + rawAddr.toLowerCase(),
         size: 64
@@ -136,7 +177,7 @@ class SimpleInterface {
 
     // Unsigned integers: uint8, uint16, ..., uint256
     if (type.startsWith('uint')) {
-      const hexValue = paramData.slice(offset, offset + 64);
+      const hexValue = this.safeSlice(paramData, offset, offset + 64);
       try {
         const value = BigInt('0x' + hexValue);
         return {
@@ -148,11 +189,14 @@ class SimpleInterface {
       }
     }
 
-    // Signed integers: int8, int16, ..., int256
+    // Signed integers: int8, int16, ..., int256 (two's complement)
     if (type.startsWith('int')) {
-      const hexValue = paramData.slice(offset, offset + 64);
+      const hexValue = this.safeSlice(paramData, offset, offset + 64);
       try {
-        const value = BigInt('0x' + hexValue);
+        const raw = BigInt('0x' + hexValue);
+        const bits = parseInt(type.slice(3)) || 256;
+        const halfRange = 1n << BigInt(bits - 1);
+        const value = raw >= halfRange ? raw - (1n << BigInt(bits)) : raw;
         return {
           value: { _isBigNumber: true, _hex: '0x' + hexValue, _value: value.toString() },
           size: 64
@@ -166,17 +210,30 @@ class SimpleInterface {
     if (type.startsWith('bytes') && !type.endsWith('[]') && type !== 'bytes') {
       const byteSize = parseInt(type.replace('bytes', '')) || 32;
       const hexSize = byteSize * 2;
-      const value = '0x' + paramData.slice(offset, offset + hexSize);
+      const value = '0x' + this.safeSlice(paramData, offset, offset + hexSize);
       return { value, size: 64 }; // Always takes 32 bytes in ABI encoding
     }
 
     // Boolean
     if (type === 'bool') {
-      const lastByte = paramData.slice(offset + 62, offset + 64);
+      const lastByte = this.safeSlice(paramData, offset + 62, offset + 64);
       return {
         value: lastByte !== '00',
         size: 64
       };
+    }
+
+    // Fixed-size arrays of static types: T[N] where T is static
+    const fixedArr = this.parseArrayType(type);
+    if (fixedArr && fixedArr.size !== null && !this.isDynamicType(fixedArr.baseType, input)) {
+      const results = [];
+      let arrOffset = 0;
+      for (let i = 0; i < fixedArr.size; i++) {
+        const { value, size } = this.decodeStaticType(fixedArr.baseType, paramData, offset + arrOffset, input);
+        results.push(value);
+        arrOffset += size;
+      }
+      return { value: results, size: arrOffset };
     }
 
     // Tuple (struct) - static tuples only
@@ -219,7 +276,7 @@ class SimpleInterface {
   decodeDynamicType(type, paramData, offset, input = null) {
     // Dynamic bytes
     if (type === 'bytes') {
-      const length = parseInt(paramData.slice(offset, offset + 64), 16);
+      const length = parseInt(this.safeSlice(paramData, offset, offset + 64), 16);
       const hexLength = length * 2;
       const data = paramData.slice(offset + 64, offset + 64 + hexLength);
       return '0x' + data;
@@ -227,23 +284,37 @@ class SimpleInterface {
 
     // Dynamic string
     if (type === 'string') {
-      const length = parseInt(paramData.slice(offset, offset + 64), 16);
+      const length = parseInt(this.safeSlice(paramData, offset, offset + 64), 16);
       const hexLength = length * 2;
       const hexData = paramData.slice(offset + 64, offset + 64 + hexLength);
       return this.hexToString(hexData);
     }
 
-    // Array types (address[], uint256[], bytes[], etc.)
-    if (type.endsWith('[]')) {
-      const baseType = type.slice(0, -2);
-      const arrayLength = parseInt(paramData.slice(offset, offset + 64), 16);
+    // Fixed-size arrays of dynamic types: T[N] where T is dynamic (no length prefix)
+    const dynArr = this.parseArrayType(type);
+    if (dynArr && dynArr.size !== null) {
+      const results = [];
+      // T[N] with dynamic T: each element has an offset pointer (no length prefix)
+      for (let i = 0; i < dynArr.size; i++) {
+        const elementOffsetHex = this.safeSlice(paramData, offset + i * 64, offset + (i + 1) * 64);
+        const elementOffset = parseInt(elementOffsetHex, 16) * 2;
+        const value = this.decodeDynamicType(dynArr.baseType, paramData, offset + elementOffset, input);
+        results.push(value);
+      }
+      return results;
+    }
+
+    // Dynamic-size array types: T[] (address[], uint256[], bytes[], etc.)
+    if (dynArr && dynArr.size === null) {
+      const baseType = dynArr.baseType;
+      const arrayLength = parseInt(this.safeSlice(paramData, offset, offset + 64), 16);
       const results = [];
 
       if (this.isDynamicType(baseType, input)) {
         // Array of dynamic elements (e.g., bytes[], string[], tuple[] with dynamic components)
         // Each element has an offset pointer
         for (let i = 0; i < arrayLength; i++) {
-          const elementOffsetHex = paramData.slice(offset + 64 + i * 64, offset + 64 + (i + 1) * 64);
+          const elementOffsetHex = this.safeSlice(paramData, offset + 64 + i * 64, offset + 64 + (i + 1) * 64);
           const elementOffset = parseInt(elementOffsetHex, 16) * 2;
           const value = this.decodeDynamicType(baseType, paramData, offset + 64 + elementOffset, input);
           results.push(value);
@@ -270,7 +341,7 @@ class SimpleInterface {
       for (const component of input.components) {
         if (this.isDynamicType(component.type, component)) {
           // Dynamic component - read relative offset from tuple head, decode from tuple tail
-          const relOffsetHex = paramData.slice(offset + tupleOffset, offset + tupleOffset + 64);
+          const relOffsetHex = this.safeSlice(paramData, offset + tupleOffset, offset + tupleOffset + 64);
           const relOffset = parseInt(relOffsetHex, 16) * 2;
           const dynResult = this.decodeDynamicType(component.type, paramData, offset + relOffset, component);
           tupleData[component.name] = dynResult;
@@ -287,7 +358,7 @@ class SimpleInterface {
     }
 
     // Fallback
-    return '0x' + paramData.slice(offset, offset + 64);
+    return '0x' + this.safeSlice(paramData, offset, offset + 64);
   }
 
   /**
@@ -296,13 +367,15 @@ class SimpleInterface {
    * @returns {string}
    */
   hexToString(hex) {
-    let str = '';
+    if (!hex || hex.length === 0) return '';
+    const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < hex.length; i += 2) {
-      const charCode = parseInt(hex.slice(i, i + 2), 16);
-      if (charCode === 0) break; // Null terminator
-      str += String.fromCharCode(charCode);
+      bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
     }
-    return str;
+    // Strip trailing null bytes
+    let end = bytes.length;
+    while (end > 0 && bytes[end - 1] === 0) end--;
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, end));
   }
 
   /**
@@ -329,7 +402,7 @@ class SimpleInterface {
 
       if (this.isDynamicType(input.type, input)) {
         // Dynamic type: read offset from head, decode from tail later
-        const offsetHex = paramData.slice(headOffset, headOffset + 64);
+        const offsetHex = this.safeSlice(paramData, headOffset, headOffset + 64);
         const tailOffset = parseInt(offsetHex, 16) * 2;
         dynamicParams.push({ index: i, input, tailOffset });
         headOffset += 64;
@@ -399,10 +472,15 @@ async function decodeCalldata(data, contractAddress, chainId) {
     }
     
     if (!functionSignature && !functionName) {
+      const contractName = metadata.context?.contract?.name || '';
       return {
         success: false,
         selector,
-        intent: 'Unknown function',
+        contractName,
+        metadata,
+        intent: contractName
+          ? `Unknown function on ${contractName}`
+          : `Unknown contract interaction (${selector})`,
         error: 'Function not found in metadata ABI'
       };
     }
@@ -575,6 +653,26 @@ async function decodeCalldata(data, contractAddress, chainId) {
               displayValue = rawValue;
             }
           }
+        } else if (fieldDef?.format === 'tokenAmount' && fieldDef.params?.tokenPath) {
+          // Dynamic token lookup - resolve decimals/symbol from token address in another param
+          const tokenAddress = rawParams[fieldDef.params.tokenPath];
+          if (tokenAddress && typeof tokenAddress === 'string' && tokenAddress.length >= 10) {
+            try {
+              let decimals = 18, symbol = '';
+              const normalizedAddr = tokenAddress.toLowerCase();
+              if (normalizedAddr === '0x0000000000000000000000000000000000000000' ||
+                  normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+                decimals = 18; symbol = 'ETH';
+              } else if (window.metadataService) {
+                const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
+                decimals = tokenInfo.decimals || 18;
+                symbol = tokenInfo.symbol || '';
+              }
+              displayValue = formatTokenAmount(rawValue, decimals, symbol);
+            } catch (e) {
+              console.warn('[Decode] tokenAmount format error:', e.message);
+            }
+          }
         }
 
         params[paramName] = rawValue;
@@ -713,6 +811,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
       rawParams,
       intent: finalIntent,
       formatted,
+      metadata,
       decodedCommands, // Include decoded commands for display
       nestedIntents,
       aggregatedIntent
@@ -1543,5 +1642,6 @@ async function getContractMetadata(contractAddress, chainId, selector = null) {
 // Export globally - formatTokenAmount is defined earlier with (rawValue, decimals, symbol) signature
 window.decodeCalldata = decodeCalldata;
 window.formatTokenAmount = formatTokenAmount;
+window.SimpleInterface = SimpleInterface;
 
 // Decoder ready

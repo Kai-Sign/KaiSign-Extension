@@ -892,84 +892,29 @@ class AdvancedTransactionDecoder {
   }
 
   /**
-   * Simple ABI parameter decoder (basic implementation)
+   * ABI parameter decoder — delegates to SimpleInterface for correct head/tail decoding
    */
   decodeABIParameters(inputs, paramData) {
-    const decoded = {};
-    let offset = 0;
-
     try {
-      for (let i = 0; i < inputs.length; i++) {
-        const input = inputs[i];
-        const paramName = input.name || `param${i}`;
-
-        if (input.type === 'bytes' || input.type === 'bytes[]') {
-          // Dynamic bytes - get offset and length
-          const dataOffset = parseInt(paramData.slice(offset, offset + 64), 16) * 2;
-          const dataLength = parseInt(paramData.slice(dataOffset, dataOffset + 64), 16) * 2;
-          const data = '0x' + paramData.slice(dataOffset + 64, dataOffset + 64 + dataLength);
-          decoded[paramName] = data;
-        } else if (input.type === 'tuple[]' && input.components) {
-          // Tuple array like (address,uint256,bytes)[] - common for executeMultiple/executeBatch
-          const arrayOffset = parseInt(paramData.slice(offset, offset + 64), 16) * 2;
-          const arrayLength = parseInt(paramData.slice(arrayOffset, arrayOffset + 64), 16);
-          const tuples = [];
-
-          // Each tuple element has an offset pointer
-          for (let j = 0; j < arrayLength; j++) {
-            const tupleOffsetPointer = arrayOffset + 64 + (j * 64);
-            const tupleRelOffset = parseInt(paramData.slice(tupleOffsetPointer, tupleOffsetPointer + 64), 16) * 2;
-            const tupleStart = arrayOffset + 64 + tupleRelOffset;
-
-            // Decode the tuple components (address, uint256, bytes) structure
-            const tuple = {};
-            let tupleInnerOffset = 0;
-
-            for (const comp of input.components) {
-              if (comp.type === 'address') {
-                tuple[comp.name] = '0x' + paramData.slice(tupleStart + tupleInnerOffset + 24, tupleStart + tupleInnerOffset + 64);
-                tupleInnerOffset += 64;
-              } else if (comp.type === 'uint256') {
-                tuple[comp.name] = '0x' + paramData.slice(tupleStart + tupleInnerOffset, tupleStart + tupleInnerOffset + 64);
-                tupleInnerOffset += 64;
-              } else if (comp.type === 'bytes') {
-                // Dynamic bytes within tuple
-                const bytesRelOffset = parseInt(paramData.slice(tupleStart + tupleInnerOffset, tupleStart + tupleInnerOffset + 64), 16) * 2;
-                const bytesStart = tupleStart + bytesRelOffset;
-                const bytesLen = parseInt(paramData.slice(bytesStart, bytesStart + 64), 16) * 2;
-                tuple[comp.name] = '0x' + paramData.slice(bytesStart + 64, bytesStart + 64 + bytesLen);
-                tupleInnerOffset += 64;
-              } else {
-                // Generic 32-byte value
-                tuple[comp.name] = '0x' + paramData.slice(tupleStart + tupleInnerOffset, tupleStart + tupleInnerOffset + 64);
-                tupleInnerOffset += 64;
-              }
-            }
-
-            tuples.push(tuple);
-          }
-
-          decoded[paramName] = tuples;
-          console.log(`[AdvDecoder] Decoded tuple[] with ${tuples.length} elements`);
-        } else if (input.type === 'address') {
-          const addressHex = paramData.slice(offset + 24, offset + 64);
-          decoded[paramName] = '0x' + addressHex;
-        } else if (input.type.startsWith('uint')) {
-          const valueHex = paramData.slice(offset, offset + 64);
-          decoded[paramName] = parseInt(valueHex, 16);
-        } else {
-          // Generic 32-byte parameter
-          const valueHex = paramData.slice(offset, offset + 64);
-          decoded[paramName] = '0x' + valueHex;
+      const SI = window.SimpleInterface;
+      if (!SI) throw new Error('SimpleInterface not available');
+      const mockAbi = { type: 'function', name: '_decode', inputs };
+      const iface = new SI([mockAbi]);
+      const decoded = iface.decodeFunctionData('_decode', '0x00000000' + paramData);
+      const result = {};
+      for (let i = 0; i < inputs.length && i < decoded.length; i++) {
+        const name = inputs[i].name || `param${i}`;
+        let val = decoded[i];
+        if (val && typeof val === 'object' && val._isBigNumber) {
+          val = val._value || BigInt(val._hex).toString();
         }
-
-        offset += 64;
+        result[name] = val;
       }
-    } catch (error) {
-      console.warn(`[AdvDecoder] ABI parameter decoding error:`, error.message);
+      return result;
+    } catch (e) {
+      console.warn('[AdvDecoder] decodeABIParameters failed:', e.message);
+      return {};
     }
-
-    return decoded;
   }
 
   /**
