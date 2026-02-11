@@ -52,6 +52,27 @@
             { "name": "minReturn", "type": "uint256" },
             { "name": "pools", "type": "uint256[]" }
           ]
+        },
+        {
+          "type": "function",
+          "name": "fillOrder",
+          "selector": "0x9fda64bd",
+          "inputs": [
+            { "name": "order", "type": "tuple", "components": [
+              { "name": "salt", "type": "uint256" },
+              { "name": "maker", "type": "uint256" },
+              { "name": "receiver", "type": "uint256" },
+              { "name": "makerAsset", "type": "uint256" },
+              { "name": "takerAsset", "type": "uint256" },
+              { "name": "makingAmount", "type": "uint256" },
+              { "name": "takingAmount", "type": "uint256" },
+              { "name": "makerTraits", "type": "uint256" }
+            ]},
+            { "name": "r", "type": "bytes32" },
+            { "name": "vs", "type": "bytes32" },
+            { "name": "amount", "type": "uint256" },
+            { "name": "takerTraits", "type": "uint256" }
+          ]
         }
       ]
     }
@@ -95,6 +116,14 @@
           { "path": "srcToken", "label": "From Token", "format": "addressName" },
           { "path": "amount", "label": "Amount In", "format": "tokenAmount", "params": { "tokenPath": "srcToken" } },
           { "path": "minReturn", "label": "Min Amount Out", "format": "raw" }
+        ]
+      },
+      "fillOrder((uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),bytes32,bytes32,uint256,uint256)": {
+        "intent": "Fill limit order via 1inch",
+        "fields": [
+          { "path": "order.makingAmount", "label": "Maker Amount", "format": "raw" },
+          { "path": "order.takingAmount", "label": "Taker Amount", "format": "raw" },
+          { "path": "amount", "label": "Fill Amount", "format": "raw" }
         ]
       }
     }
