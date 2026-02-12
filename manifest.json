@@ -31,7 +31,8 @@
     "https://mainnet.base.org/*",
     "https://base.llamarpc.com/*",
     "https://rpc.sepolia.org/*",
-    "https://ethereum-sepolia-rpc.publicnode.com/*"
+    "https://ethereum-sepolia-rpc.publicnode.com/*",
+    "http://localhost:3000/*"
   ],
   "content_scripts": [
     {
