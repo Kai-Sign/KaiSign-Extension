@@ -114,6 +114,13 @@ export const CONTRACTS = {
       chainId: 1,
       functions: ['settle', 'setPreSignature', 'invalidateOrder'],
       metadataFile: 'dex/cow-protocol-settlement.json'
+    },
+    cowEthFlow: {
+      name: 'CoW Swap ETH Flow',
+      address: '0xba3cb449bd2b4adddbc894d8697f5170800eadec',
+      chainId: 1,
+      functions: ['createOrder', 'invalidateOrder'],
+      metadataFile: 'protocols/cow-ethflow.json'
     }
   },
 
