@@ -11,6 +11,9 @@ class SubgraphMetadataService {
     this.blobscanBaseUrl = config.blobscanBaseUrl || 'https://api.blobscan.com';
     this.cacheTTL = config.cacheTTL || 300000; // 5 minutes default
 
+    // Check for local API override (set via: localStorage.setItem('kaisign_local_api', 'http://localhost:3000'))
+    try { this._localApiBase = localStorage.getItem('kaisign_local_api') || null; } catch { this._localApiBase = null; }
+
     // Chain-specific Blobscan URLs
     this.blobscanUrls = {
       1: 'https://api.blobscan.com', // Mainnet
@@ -180,7 +183,8 @@ class SubgraphMetadataService {
       console.log('[KaiSign API] Fetching metadata for:', normalizedAddress, 'chain:', normalizedChainId);
 
       // Fetch via KaiSign API /contract endpoint
-      const apiUrl = `https://kai-sign-production.up.railway.app/api/py/contract/${normalizedAddress}?chain_id=${normalizedChainId}`;
+      const apiBase = this._localApiBase || 'https://kai-sign-production.up.railway.app';
+      const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${normalizedChainId}`;
 
       const rawData = await this.fetchViaBackground(apiUrl);
       const response = JSON.parse(rawData);
@@ -266,6 +270,22 @@ class SubgraphMetadataService {
         }
       }
 
+      // Run on-chain verification in parallel (non-blocking)
+      // For Diamond proxies with a facet address, verify against the facet's extcodehash
+      if (typeof window !== 'undefined' && window.onChainVerifier) {
+        const verifyAddress = normalizedAddress;
+        const verifyChainId = normalizedChainId;
+        window.onChainVerifier.verifyMetadata(metadata, verifyAddress, verifyChainId)
+          .then(verification => {
+            metadata._verification = verification;
+            console.log('[KaiSign API] Verification result:', verification.source, verification.verified);
+          })
+          .catch(err => {
+            metadata._verification = { verified: false, source: 'error', details: err.message };
+            console.warn('[KaiSign API] Verification failed:', err.message);
+          });
+      }
+
       // Cache result
       this.metadataCache.set(cacheKey, {
         data: metadata,
@@ -295,6 +315,57 @@ class SubgraphMetadataService {
   }
 
   /**
+   * Extract per-selector metadata from a potentially large metadata object.
+   * Returns a minimal metadata object containing only the ABI entry and display
+   * format matching the given selector, suitable for hardware wallets.
+   * @param {Object} metadata - Full ERC-7730 metadata
+   * @param {string} selector - 4-byte function selector (e.g., "0xa9059cbb")
+   * @returns {Object} Minimal metadata for this selector
+   */
+  extractSelectorMetadata(metadata, selector) {
+    if (!metadata || !selector) return metadata;
+
+    const normalizedSelector = selector.toLowerCase();
+    const abi = metadata.context?.contract?.abi || [];
+    const formats = metadata.display?.formats || {};
+
+    // Find matching ABI entry
+    const matchingAbi = abi.filter(entry =>
+      entry.selector && entry.selector.toLowerCase() === normalizedSelector
+    );
+
+    if (matchingAbi.length === 0) return metadata; // No match, return original
+
+    // Find matching display formats
+    const matchingFormats = {};
+    const matchedName = matchingAbi[0].name;
+
+    for (const [key, value] of Object.entries(formats)) {
+      if (key.startsWith(matchedName + '(') || key.includes(normalizedSelector.slice(2))) {
+        matchingFormats[key] = value;
+      }
+    }
+
+    // Build minimal metadata
+    return {
+      $schema: metadata.$schema,
+      context: {
+        contract: {
+          abi: matchingAbi,
+          deployments: metadata.context?.contract?.deployments,
+          ...(metadata.context?.contract?.facetOf && { facetOf: metadata.context.contract.facetOf })
+        }
+      },
+      metadata: metadata.metadata,
+      display: {
+        formats: matchingFormats
+      },
+      _verification: metadata._verification,
+      _extracted: true
+    };
+  }
+
+  /**
    * Direct metadata lookup without proxy detection (to avoid recursion)
    * @param {string} address - Contract address
    * @param {number} chainId - Chain ID
@@ -302,7 +373,8 @@ class SubgraphMetadataService {
    */
   async getContractMetadataDirectly(address, chainId) {
     const normalizedAddress = address.toLowerCase();
-    const apiUrl = `https://kai-sign-production.up.railway.app/api/py/contract/${normalizedAddress}?chain_id=${chainId}`;
+    const apiBase = this._localApiBase || 'https://kai-sign-production.up.railway.app';
+    const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${chainId}`;
 
     const rawData = await this.fetchViaBackground(apiUrl);
     const response = JSON.parse(rawData);
@@ -546,6 +618,10 @@ window.getContractMetadata = (address, chainId, selector) =>
 
 window.getEIP712Metadata = (verifyingContract, primaryType) =>
   metadataService.getEIP712Metadata(verifyingContract, primaryType);
+
+// Expose per-selector extraction for hardware wallet compatibility
+window.extractSelectorMetadata = (metadata, selector) =>
+  metadataService.extractSelectorMetadata(metadata, selector);
 
 // Expose cache control for debugging
 window.clearMetadataCache = () => {

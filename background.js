@@ -261,6 +261,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ error: fetchError.message });
           }
           break;
+        case 'RPC_CALL':
+          try {
+            // Whitelist validation: only allow known RPC endpoints
+            const ALLOWED_RPC_HOSTS = [
+              'rpc.sepolia.org',
+              'ethereum-sepolia-rpc.publicnode.com',
+              'eth.llamarpc.com',
+              'rpc.ankr.com',
+              'ethereum.publicnode.com',
+              'mainnet.base.org',
+              'base.llamarpc.com',
+              'localhost',
+              '127.0.0.1'
+            ];
+            const ALLOWED_LOCAL_PORTS = ['3000', '3001', '8545'];
+            let isAllowedRpc = false;
+            try {
+              const parsed = new URL(message.rpcUrl);
+              const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+              isAllowedRpc = ALLOWED_RPC_HOSTS.includes(parsed.hostname) &&
+                (parsed.protocol === 'https:' || (isLocalhost && parsed.protocol === 'http:' && ALLOWED_LOCAL_PORTS.includes(parsed.port)));
+            } catch { /* invalid URL */ }
+
+            if (!isAllowedRpc) {
+              sendResponse({ error: 'RPC URL not in whitelist' });
+              return;
+            }
+
+            const rpcResponse = await fetch(message.rpcUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                method: message.method,
+                params: message.params,
+                id: 1
+              })
+            });
+            if (!rpcResponse.ok) {
+              sendResponse({ error: 'RPC request failed' });
+              return;
+            }
+            const rpcResult = await rpcResponse.json();
+            if (rpcResult.error) {
+              sendResponse({ error: rpcResult.error.message || 'RPC error' });
+            } else {
+              sendResponse({ success: true, result: rpcResult.result });
+            }
+          } catch (rpcError) {
+            sendResponse({ error: rpcError.message });
+          }
+          break;
         default:
           sendResponse({ error: 'Unknown message type' });
       }
