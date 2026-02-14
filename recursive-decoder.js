@@ -2,6 +2,13 @@
 // NO HARDCODED SELECTORS OR PROTOCOL-SPECIFIC LOGIC
 // All parsing structures come from metadata
 
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.recursiveCalldataDecoder) {
+  console.log('[KaiSign] Recursive decoder already loaded, skipping');
+} else {
+
+const KAISIGN_DEBUG = false;
+
 /**
  * RecursiveCalldataDecoder - Decodes nested calldata using ERC-7730 metadata
  *
@@ -55,7 +62,7 @@ class RecursiveCalldataDecoder {
     // Do NOT include depth in key - depth changes naturally in recursion
     const stackKey = `${targetAddress?.toLowerCase()}:${selector}`;
     if (this.decodingStack.includes(stackKey)) {
-      console.warn(`[RecursiveDecoder] Cycle detected: ${stackKey}`);
+      KAISIGN_DEBUG && console.warn(`[RecursiveDecoder] Cycle detected: ${stackKey}`);
       return {
         success: false,
         error: 'Recursive cycle detected',
@@ -154,7 +161,7 @@ class RecursiveCalldataDecoder {
     // Debug logging (can be removed for production)
     if (!format) {
       const displayFormatKeys = metadata?.display?.formats ? Object.keys(metadata.display.formats) : [];
-      console.log('[RecursiveDecoder] No format found for:', functionName.split('(')[0], 'available:', displayFormatKeys.join(', '));
+      KAISIGN_DEBUG && console.log('[RecursiveDecoder] No format found for:', functionName.split('(')[0], 'available:', displayFormatKeys.join(', '));
     }
 
     if (!format) {
@@ -195,7 +202,7 @@ class RecursiveCalldataDecoder {
 
       // Handle array paths like "calls.[].data" with parallel calleePath "calls.[].to"
       if (pathStr.includes('[]')) {
-        console.log('[RecursiveDecoder] Processing array path:', pathStr);
+        KAISIGN_DEBUG && console.log('[RecursiveDecoder] Processing array path:', pathStr);
 
         // Parse array path: "calls.[].data" -> arrayFieldName="calls", dataFieldName="data"
         const parts = pathStr.split('.');
@@ -208,14 +215,14 @@ class RecursiveCalldataDecoder {
 
         const arrayData = params[arrayFieldName];
         if (Array.isArray(arrayData)) {
-          console.log(`[RecursiveDecoder] Found ${arrayData.length} items in ${arrayFieldName}`);
+          KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Found ${arrayData.length} items in ${arrayFieldName}`);
 
           for (let i = 0; i < arrayData.length; i++) {
             const item = arrayData[i];
             const calldata = item[dataFieldName];
             const target = item[calleeFieldName];
 
-            console.log(`[RecursiveDecoder] Decoding ${arrayFieldName}[${i}].${dataFieldName} → target: ${target?.slice(0, 12)}...`);
+            KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Decoding ${arrayFieldName}[${i}].${dataFieldName} → target: ${target?.slice(0, 12)}...`);
 
             if (calldata && calldata.length >= 10 && target) {
               const nestedResult = await this.decode(calldata, target, chainId, context, depth + 1);
@@ -444,14 +451,14 @@ class RecursiveCalldataDecoder {
     // Use passed structure - no fallback, must come from metadata
     const structure = multicallStructure;
     if (!structure) {
-      console.warn('[RecursiveDecoder] No multicall structure in metadata');
+      KAISIGN_DEBUG && console.warn('[RecursiveDecoder] No multicall structure in metadata');
       return { error: 'No multicall structure in metadata', operations: [] };
     }
-    console.log('[RecursiveDecoder] Using multicall structure:', Object.keys(structure));
+    KAISIGN_DEBUG && console.log('[RecursiveDecoder] Using multicall structure:', Object.keys(structure));
 
     // Parse the packed transactions using structure from metadata
     const operations = this.parsePackedTransactions(rawValue, structure);
-    console.log(`[handleMulticallDecoder] Parsed ${operations.length} operations at depth ${depth}`);
+    KAISIGN_DEBUG && console.log(`[handleMulticallDecoder] Parsed ${operations.length} operations at depth ${depth}`);
 
     const decodedOperations = [];
     const intents = [];
@@ -484,7 +491,7 @@ class RecursiveCalldataDecoder {
             // If nestedDecode has nestedIntents, use those (already flattened)
             // Otherwise use the basic intent (not aggregatedIntent which contains duplicates)
             if (nestedDecode.nestedIntents?.length > 0) {
-              console.log(`[handleMulticallDecoder] Op ${i} has nestedIntents:`, nestedDecode.nestedIntents);
+              KAISIGN_DEBUG && console.log(`[handleMulticallDecoder] Op ${i} has nestedIntents:`, nestedDecode.nestedIntents);
               // Use the individual nested intents, not the aggregated string
               for (const leafIntent of nestedDecode.nestedIntents) {
                 if (leafIntent && !seenIntentKeys.has(leafIntent)) {
@@ -499,7 +506,7 @@ class RecursiveCalldataDecoder {
               // Enhance intent with formatted amounts from decoded params
               leafIntent = this.enhanceIntentWithAmount(leafIntent, nestedDecode.formatted, nestedDecode.params);
 
-              console.log(`[handleMulticallDecoder] Op ${i} intent:`, leafIntent);
+              KAISIGN_DEBUG && console.log(`[handleMulticallDecoder] Op ${i} intent:`, leafIntent);
               if (leafIntent && !seenIntentKeys.has(leafIntent)) {
                 seenIntentKeys.add(leafIntent);
                 intents.push(leafIntent);
@@ -511,7 +518,7 @@ class RecursiveCalldataDecoder {
             const shortAddr = op.to ? `${op.to.slice(0, 8)}...${op.to.slice(-6)}` : 'Unknown';
             const opType = op.operation || 'Call';
             const fallbackIntent = `${opType} ${selector} to ${shortAddr}`;
-            console.log(`[handleMulticallDecoder] Op ${i} fallback (no metadata):`, fallbackIntent);
+            KAISIGN_DEBUG && console.log(`[handleMulticallDecoder] Op ${i} fallback (no metadata):`, fallbackIntent);
             if (!seenIntentKeys.has(fallbackIntent)) {
               seenIntentKeys.add(fallbackIntent);
               intents.push(fallbackIntent);
@@ -523,7 +530,7 @@ class RecursiveCalldataDecoder {
           const shortAddr = op.to ? `${op.to.slice(0, 8)}...${op.to.slice(-6)}` : 'Unknown';
           const opType = op.operation || 'Call';
           const fallbackIntent = `${opType} ${selector} to ${shortAddr}`;
-          console.log(`[handleMulticallDecoder] Op ${i} error fallback:`, fallbackIntent, e.message);
+          KAISIGN_DEBUG && console.log(`[handleMulticallDecoder] Op ${i} error fallback:`, fallbackIntent, e.message);
           if (!seenIntentKeys.has(fallbackIntent)) {
             seenIntentKeys.add(fallbackIntent);
             intents.push(fallbackIntent);
@@ -534,7 +541,7 @@ class RecursiveCalldataDecoder {
       decodedOperations.push(decodedOp);
     }
 
-    console.log(`[handleMulticallDecoder] Final intents (${intents.length}):`, intents);
+    KAISIGN_DEBUG && console.log(`[handleMulticallDecoder] Final intents (${intents.length}):`, intents);
     return {
       operations: decodedOperations,
       totalCount: operations.length,
@@ -573,7 +580,7 @@ class RecursiveCalldataDecoder {
       }));
     }
 
-    console.log('[parsePackedTransactions] Fields:', fields.map(f => f.name));
+    KAISIGN_DEBUG && console.log('[parsePackedTransactions] Fields:', fields.map(f => f.name));
 
     while (pos < cleanData.length && txCount < maxTransactions) {
       const tx = {};
@@ -624,7 +631,7 @@ class RecursiveCalldataDecoder {
       txCount++;
     }
 
-    console.log(`[parsePackedTransactions] Parsed ${transactions.length} transactions`);
+    KAISIGN_DEBUG && console.log(`[parsePackedTransactions] Parsed ${transactions.length} transactions`);
     return transactions;
   }
 
@@ -768,14 +775,14 @@ class RecursiveCalldataDecoder {
     const intents = [];
     const seenIntents = new Set(); // Prevent duplicates
 
-    console.log(`[aggregateIntents] Processing ${processedResult.nestedDecodes?.length || 0} nested decodes`);
+    KAISIGN_DEBUG && console.log(`[aggregateIntents] Processing ${processedResult.nestedDecodes?.length || 0} nested decodes`);
 
     for (const nested of processedResult.nestedDecodes || []) {
-      console.log(`[aggregateIntents] Entry - type: ${nested.type}, fieldPath: ${nested.fieldPath}`);
+      KAISIGN_DEBUG && console.log(`[aggregateIntents] Entry - type: ${nested.type}, fieldPath: ${nested.fieldPath}`);
 
       if (nested.type === 'multicall') {
         // multicall has intents array - these are already leaf intents
-        console.log(`[aggregateIntents] multicall intents:`, nested.result.intents);
+        KAISIGN_DEBUG && console.log(`[aggregateIntents] multicall intents:`, nested.result.intents);
         for (const intent of nested.result.intents || []) {
           if (intent && !seenIntents.has(intent)) {
             seenIntents.add(intent);
@@ -784,7 +791,7 @@ class RecursiveCalldataDecoder {
         }
       } else if (nested.result?.nestedIntents?.length > 0) {
         // Calldata decode with nested intents - use the flattened array
-        console.log(`[aggregateIntents] Calldata nestedIntents:`, nested.result.nestedIntents);
+        KAISIGN_DEBUG && console.log(`[aggregateIntents] Calldata nestedIntents:`, nested.result.nestedIntents);
         for (const intent of nested.result.nestedIntents) {
           if (intent && !seenIntents.has(intent)) {
             seenIntents.add(intent);
@@ -794,7 +801,7 @@ class RecursiveCalldataDecoder {
       } else if (nested.result?.intent) {
         // Leaf decode with single intent
         const intent = nested.result.intent;
-        console.log(`[aggregateIntents] Leaf intent:`, intent);
+        KAISIGN_DEBUG && console.log(`[aggregateIntents] Leaf intent:`, intent);
         if (intent && !seenIntents.has(intent)) {
           seenIntents.add(intent);
           intents.push(intent);
@@ -802,7 +809,7 @@ class RecursiveCalldataDecoder {
       }
     }
 
-    console.log(`[aggregateIntents] Final aggregated intents (${intents.length}):`, intents);
+    KAISIGN_DEBUG && console.log(`[aggregateIntents] Final aggregated intents (${intents.length}):`, intents);
     return intents;
   }
 
@@ -838,3 +845,5 @@ window.decodeCalldataRecursive = async function(data, contractAddress, chainId) 
 };
 
 // Recursive calldata decoder ready
+
+} // End of duplicate-load guard

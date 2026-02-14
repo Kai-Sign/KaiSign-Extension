@@ -182,6 +182,123 @@ export async function runTests(harness) {
     }
   }));
 
+  // =====================================================================
+  // Test: execTransaction → multiSend → USDC approve + LiFi Diamond bridge
+  // Mirrors real-world Safe tx where multiSend batches an ERC-20 approve
+  // with a LiFi Diamond cross-chain bridge call. The LiFi call requires
+  // Diamond facet metadata lookup (via diamondFacetIndex).
+  // =====================================================================
+
+  // Load metadata for contracts targeted by multiSend operations
+  const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+  harness.addMetadata(usdcAddress, loadMetadata('tokens/usdc.json'));
+
+  // LiFi Diamond squid facet (for swapAndStartBridgeTokensViaSquid 0xa8f66666)
+  const lifiAddress = '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae';
+  harness.addMetadata(lifiAddress, loadMetadata('protocols/lifi-diamond/squid-facet.json'));
+
+  // Build USDC approve calldata: approve(LiFi Diamond, 100000 = 0.10 USDC)
+  const usdcApproveData = '0x095ea7b3' +
+    '0000000000000000000000001231deb6f5749ef6ce6943a275a1d3e7486f4eae' + // spender: LiFi Diamond
+    '00000000000000000000000000000000000000000000000000000000000186a0';  // amount: 100000 (0.10 USDC)
+
+  // Build minimal LiFi swapAndStartBridgeTokensViaSquid calldata (0xa8f66666)
+  // The function signature is: swapAndStartBridgeTokensViaSquid(
+  //   (bytes32,string,string,address,address,address,uint256,uint256,bool,bool) _bridgeData,
+  //   (address,address,address,address,uint256,bytes,bool)[] _swapData,
+  //   (uint8,string,string,string,address,(uint8,address,uint256,bytes,bytes)[],bytes,uint256) _squidData
+  // )
+  // We provide minimal ABI-encoded struct data — safeSlice will zero-pad truncated fields
+  const lifiCallData = '0xa8f66666' +
+    // _bridgeData tuple offset
+    '0000000000000000000000000000000000000000000000000000000000000060' +
+    // _swapData array offset
+    '0000000000000000000000000000000000000000000000000000000000000280' +
+    // _squidData tuple offset
+    '0000000000000000000000000000000000000000000000000000000000000340' +
+    // --- _bridgeData tuple ---
+    'aabbccdd00000000000000000000000000000000000000000000000000000000' + // transactionId (bytes32)
+    '0000000000000000000000000000000000000000000000000000000000000140' + // bridge string offset
+    '0000000000000000000000000000000000000000000000000000000000000180' + // integrator string offset
+    '0000000000000000000000000000000000000000000000000000000000000000' + // referrer (address zero)
+    '000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' + // sendingAssetId (USDC)
+    '000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa96045' + // receiver
+    '00000000000000000000000000000000000000000000000000000000000186a0' + // minAmount (100000 = 0.10 USDC)
+    '0000000000000000000000000000000000000000000000000000000000002105' + // destinationChainId (8453 = Base)
+    '0000000000000000000000000000000000000000000000000000000000000001' + // hasSourceSwaps = true
+    '0000000000000000000000000000000000000000000000000000000000000000' + // hasDestinationCall = false
+    // bridge string ("squid")
+    '0000000000000000000000000000000000000000000000000000000000000005' + // length 5
+    '7371756964000000000000000000000000000000000000000000000000000000' + // "squid"
+    // integrator string ("kaisign")
+    '0000000000000000000000000000000000000000000000000000000000000007' + // length 7
+    '6b61697369676e00000000000000000000000000000000000000000000000000'; // "kaisign"
+    // _swapData and _squidData are truncated — safeSlice handles gracefully
+
+  // Build multiSend packed data with both operations
+  const multiSendBatchData = buildMultiSendData([
+    {
+      operation: 0, // CALL
+      to: usdcAddress,
+      value: BigInt(0),
+      data: usdcApproveData
+    },
+    {
+      operation: 0, // CALL
+      to: '0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE',
+      value: BigInt('0x27b2b0594793'), // small ETH for bridge fees
+      data: lifiCallData
+    }
+  ]);
+
+  // Wrap in execTransaction targeting multiSend (operation=1 DELEGATECALL)
+  // execTransaction(to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken, refundReceiver, signatures)
+  const multiSendCalldata = '0x8d80ff0a' +
+    '0000000000000000000000000000000000000000000000000000000000000020' +
+    multiSendBatchData;
+
+  // ABI-encode the inner data field for execTransaction
+  // data is a dynamic bytes param at offset 0x140 (10 * 32)
+  const innerDataHex = multiSendCalldata.startsWith('0x') ? multiSendCalldata.slice(2) : multiSendCalldata;
+  const innerDataLength = innerDataHex.length / 2;
+  const innerDataLenHex = innerDataLength.toString(16).padStart(64, '0');
+  // Pad inner data to 32-byte boundary
+  const innerDataPadded = innerDataHex + '0'.repeat((64 - (innerDataHex.length % 64)) % 64);
+
+  const execTxCalldata = '0x6a761202' +
+    '000000000000000000000000a238cbeb142c10ef7ad8442c6d1f9e89e07e7761' + // to: multiSend address
+    '0000000000000000000000000000000000000000000000000000000000000000' + // value: 0
+    '0000000000000000000000000000000000000000000000000000000000000140' + // data offset (10 * 32 = 320 = 0x140)
+    '0000000000000000000000000000000000000000000000000000000000000001' + // operation: 1 (DELEGATECALL)
+    '0000000000000000000000000000000000000000000000000000000000000000' + // safeTxGas
+    '0000000000000000000000000000000000000000000000000000000000000000' + // baseGas
+    '0000000000000000000000000000000000000000000000000000000000000000' + // gasPrice
+    '0000000000000000000000000000000000000000000000000000000000000000' + // gasToken
+    '0000000000000000000000000000000000000000000000000000000000000000' + // refundReceiver
+    // signatures offset: after data offset (0x140) + data length word (0x20) + data padded
+    (0x140 + 0x20 + innerDataPadded.length / 2).toString(16).padStart(64, '0') +
+    // data (dynamic bytes)
+    innerDataLenHex +
+    innerDataPadded +
+    // signatures (minimal: 65 bytes)
+    '0000000000000000000000000000000000000000000000000000000000000041' + // length: 65
+    '0000000000000000000000000000000000000000000000000000000000000000' +
+    '0000000000000000000000000000000000000000000000000000000000000000' +
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
+  results.push(await harness.runRecursiveTest({
+    name: 'Safe execTransaction → multiSend → USDC approve + LiFi Diamond bridge',
+    calldata: execTxCalldata,
+    contractAddress: safeSingletonAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x6a761202',
+      functionName: 'execTransaction',
+      nestedIntentContains: ['Approve', 'Squid'],
+      intentDoesNotContain: 'Contract interaction'
+    }
+  }));
+
   // Load real Safe transactions from fixtures
   const safeOpsFile = path.resolve(__dirname, '../../fixtures/transactions/accountAbstraction-operations.json');
   if (fs.existsSync(safeOpsFile)) {

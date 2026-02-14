@@ -5,6 +5,12 @@
  * This file provides backward compatibility wrappers around subgraph-metadata.js
  */
 
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.__KAISIGN_METADATA_COMPAT_LOADED) {
+  // Already loaded, skip
+} else {
+window.__KAISIGN_METADATA_COMPAT_LOADED = true;
+
 console.log('[KaiSign] Metadata service (subgraph-only) loading...');
 
 // Backward compatibility - expose the metadataService methods globally
@@ -22,3 +28,5 @@ function waitForMetadataService() {
 waitForMetadataService();
 
 console.log('[KaiSign] Metadata service loaded');
+
+} // End of duplicate-load guard

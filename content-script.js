@@ -2,6 +2,18 @@
 // KAISIGN CONTENT SCRIPT - TRANSACTION ANALYSIS & CLEAR SIGNING
 // =============================================================================
 
+console.log('[KaiSign] Content script loading...');
+
+// Guard against double execution (manifest + dynamic injection fallback)
+if (window.__KAISIGN_LOADED) {
+  console.log('[KaiSign] Already loaded, skipping');
+  throw new Error('KaiSign already loaded');
+}
+window.__KAISIGN_LOADED = true;
+console.log('[KaiSign] Content script initialized');
+
+const KAISIGN_DEBUG = false;
+
 // Inject complete embedded styles (MAIN world cannot load external CSS files)
 (function injectStyles() {
   if (document.getElementById('kaisign-styles')) return;
@@ -150,7 +162,7 @@
     .kaisign-popup.theme-dark .kaisign-address[title]:hover::before { border-top-color: #3fb950; }
   `;
   (document.head || document.documentElement).appendChild(style);
-  console.log('[KaiSign] Embedded styles injected');
+  KAISIGN_DEBUG && console.log('[KaiSign] Embedded styles injected');
 })();
 
 // =============================================================================
@@ -485,7 +497,7 @@ async function parseProtocolTransaction(txData, contractAddress, chainId = 1, tr
     const decoded = await window.decodeCalldata?.(txData, contractAddress, chainId);
 
     if (!decoded || !decoded.success) {
-      console.log('[KaiSign] Generic decode failed, returning basic info');
+      KAISIGN_DEBUG && console.log('[KaiSign] Generic decode failed, returning basic info');
       return {
         success: false,
         selector: txData?.slice(0, 10),
@@ -551,7 +563,7 @@ async function getOperationIntent(operation, chainId = 1) {
         return decoded.intent;
       }
     } catch (decodeError) {
-      console.warn(`[KaiSign] Decode failed:`, decodeError.message);
+      KAISIGN_DEBUG && console.warn(`[KaiSign] Decode failed:`, decodeError.message);
     }
   }
 
@@ -611,6 +623,100 @@ const hookedWallets = new Set();
 const eip6963ProviderNames = new WeakMap();
 let lastEip6963RequestAt = 0;
 
+// =============================================================================
+// EAGER PROPERTY TRAPS - Instant wallet injection detection (no polling delay)
+// =============================================================================
+
+const propertyTrappedProviders = new Map();
+let propertyTrapsInstalled = false;
+
+function setupEagerPropertyTraps() {
+  if (propertyTrapsInstalled) return;
+  propertyTrapsInstalled = true;
+
+  const walletProperties = ['ethereum', 'rabby', 'coinbaseWalletExtension', 'trustWallet', 'ambire', 'rainbow', 'walletConnectProvider'];
+
+  walletProperties.forEach(propName => {
+    const existingValue = window[propName];
+
+    // Already exists - hook immediately
+    if (existingValue?.request) {
+      hookProviderFromTrap(existingValue, propName);
+    }
+    if (existingValue !== undefined) {
+      propertyTrappedProviders.set(propName, existingValue);
+    }
+
+    // Skip non-configurable properties
+    const desc = Object.getOwnPropertyDescriptor(window, propName);
+    if (desc && !desc.configurable) return;
+
+    try {
+      Object.defineProperty(window, propName, {
+        configurable: true,
+        enumerable: true,
+        get() { return propertyTrappedProviders.get(propName); },
+        set(newValue) {
+          propertyTrappedProviders.set(propName, newValue);
+          if (newValue?.request) {
+            hookProviderFromTrap(newValue, propName);
+          } else if (newValue) {
+            watchForRequestMethod(newValue, propName);
+          }
+        }
+      });
+    } catch (err) { /* skip non-configurable */ }
+  });
+
+  // Phantom nested property trap
+  setupPhantomTrap();
+}
+
+function watchForRequestMethod(provider, propName) {
+  const check = setInterval(() => {
+    if (provider.request) {
+      clearInterval(check);
+      hookProviderFromTrap(provider, propName);
+    }
+  }, 10);
+  setTimeout(() => clearInterval(check), 2000);
+}
+
+function setupPhantomTrap() {
+  let phantomValue = window.phantom;
+  if (phantomValue?.ethereum?.request) {
+    hookProviderFromTrap(phantomValue.ethereum, 'phantom.ethereum');
+    return;
+  }
+  const desc = Object.getOwnPropertyDescriptor(window, 'phantom');
+  if (desc && !desc.configurable) return;
+  try {
+    Object.defineProperty(window, 'phantom', {
+      configurable: true, enumerable: true,
+      get() { return phantomValue; },
+      set(newValue) {
+        phantomValue = newValue;
+        if (newValue?.ethereum?.request) hookProviderFromTrap(newValue.ethereum, 'phantom.ethereum');
+      }
+    });
+  } catch (err) { /* skip non-configurable */ }
+}
+
+function hookProviderFromTrap(provider, propName) {
+  const keyMap = {
+    'ethereum': 'ethereum', 'rabby': 'rabby', 'coinbaseWalletExtension': 'coinbase',
+    'trustWallet': 'trust', 'phantom.ethereum': 'phantom', 'ambire': 'ambire',
+    'rainbow': 'rainbow', 'walletConnectProvider': 'walletconnect-dedicated'
+  };
+  const walletKey = keyMap[propName] || propName;
+  if (hookedWallets.has(walletKey)) return;
+
+  const walletName = getWalletName(provider);
+  hookWalletProvider(provider, walletKey, walletName);
+  hookedWallets.add(walletKey);
+  console.log('[KaiSign] Property trap: hooked', walletKey, 'instantly');
+}
+
 function requestEip6963Providers() {
   const now = Date.now();
   if (now - lastEip6963RequestAt < 3000) return;
@@ -661,8 +767,8 @@ function waitForWallets() {
   // Check for different wallet providers
   detectAndHookWallets();
 
-  // Keep checking for new wallets (some load late)
-  setTimeout(waitForWallets, 500);
+  // Keep checking for new wallets (some load late) - polling is now fallback, traps are primary
+  setTimeout(waitForWallets, 1000);
 }
 
 // Detect and hook various wallets
@@ -1207,14 +1313,14 @@ function extractPermit2Intent(typedData, primaryType) {
  */
 async function handleTypedDataSignature(typedData, signerAddress, walletName) {
   try {
-    console.log('[KaiSign] Processing EIP-712 signature request');
+    KAISIGN_DEBUG && console.log('[KaiSign] Processing EIP-712 signature request');
     const primaryType = typedData?.primaryType || 'Unknown';
 
     // SHOW LOADING POPUP IMMEDIATELY
     showLoadingPopup(primaryType, walletName);
 
-    console.log('[KaiSign] Primary type:', typedData?.primaryType);
-    console.log('[KaiSign] Domain:', typedData?.domain?.name, typedData?.domain?.verifyingContract);
+    KAISIGN_DEBUG && console.log('[KaiSign] Primary type:', typedData?.primaryType);
+    KAISIGN_DEBUG && console.log('[KaiSign] Domain:', typedData?.domain?.name, typedData?.domain?.verifyingContract);
 
     // STEP 1: Try to use EIP-712 metadata for rich display
     const verifyingContract = typedData?.domain?.verifyingContract;
@@ -1224,7 +1330,7 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
       const eip712Metadata = await window.getEIP712Metadata(verifyingContract, primaryType);
 
       if (eip712Metadata) {
-        console.log('[KaiSign] Found EIP-712 metadata for', primaryType);
+        KAISIGN_DEBUG && console.log('[KaiSign] Found EIP-712 metadata for', primaryType);
         updateLoadingStatus(`Found metadata for ${primaryType}`);
         const displayData = window.formatEIP712Display(typedData, eip712Metadata);
 
@@ -1235,15 +1341,15 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
           const chainId = typedData?.domain?.chainId || 1;
           const targetAddress = typedData.message.to;
 
-          console.log('[KaiSign] Typed data has nested calldata, decoding intents...');
+          KAISIGN_DEBUG && console.log('[KaiSign] Typed data has nested calldata, decoding intents...');
 
           // Use recursive decoder for full intent resolution
           let nestedIntents = [];
           if (window.decodeCalldataRecursive && targetAddress) {
             try {
-              console.log('[KaiSign] Calling decodeCalldataRecursive with:', typedData.message.data?.slice(0, 20), targetAddress, chainId);
+              KAISIGN_DEBUG && console.log('[KaiSign] Calling decodeCalldataRecursive with:', typedData.message.data?.slice(0, 20), targetAddress, chainId);
               const decoded = await window.decodeCalldataRecursive(typedData.message.data, targetAddress, chainId);
-              console.log('[KaiSign] Recursive decode result:', decoded);
+              KAISIGN_DEBUG && console.log('[KaiSign] Recursive decode result:', decoded);
               if (decoded?.success) {
                 // Use aggregatedIntent or collect nested intents
                 if (decoded.nestedIntents?.length > 0) {
@@ -1265,27 +1371,27 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
                   if (protocolName) {
                     displayData.wrapperIntent = `via ${protocolName}`;
                   }
-                  console.log('[KaiSign] Typed data decoded intents:', nestedIntents);
+                  KAISIGN_DEBUG && console.log('[KaiSign] Typed data decoded intents:', nestedIntents);
                   updateLoadingStatus(`Decoded ${nestedIntents.length} operation(s)`);
                 }
               } else {
-                console.warn('[KaiSign] Recursive decode failed:', decoded?.error);
+                KAISIGN_DEBUG && console.warn('[KaiSign] Recursive decode failed:', decoded?.error);
               }
             } catch (e) {
               console.error('[KaiSign] Error decoding typed data calldata:', e);
             }
           } else {
-            console.warn('[KaiSign] decodeCalldataRecursive not available or no targetAddress');
+            KAISIGN_DEBUG && console.warn('[KaiSign] decodeCalldataRecursive not available or no targetAddress');
           }
         }
 
         // For Permit2 types AND any typed data with parseable structure, extract intents
         // BUT only if we don't already have decoded intents from recursive decoder
-        console.log('[KaiSign] Checking typed data:', primaryType);
+        KAISIGN_DEBUG && console.log('[KaiSign] Checking typed data:', primaryType);
         if (!displayData.nestedIntents || displayData.nestedIntents.length === 0) {
           const parsedIntent = parsePermit2TypedData(typedData);
           if (parsedIntent) {
-            console.log('[KaiSign] Parsed typed data intent:', parsedIntent);
+            KAISIGN_DEBUG && console.log('[KaiSign] Parsed typed data intent:', parsedIntent);
             displayData.intent = parsedIntent.intent;
             displayData.nestedIntents = parsedIntent.details;
           }
@@ -1305,12 +1411,12 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
         if (typedData?.message?.message && typeof typedData.message.message === 'string' &&
             typedData.message.message.startsWith('0x') && typedData.message.message.length === 66) {
           const messageHash = typedData.message.message;
-          console.log('[KaiSign] Wrapper message hash:', messageHash);
+          KAISIGN_DEBUG && console.log('[KaiSign] Wrapper message hash:', messageHash);
 
           // Check if we have cached the original typed data for this hash
           const cachedData = window.kaisignTypedDataCache?.get(messageHash);
           if (cachedData) {
-            console.log('[KaiSign] Found cached typed data for wrapper message:', cachedData.primaryType);
+            KAISIGN_DEBUG && console.log('[KaiSign] Found cached typed data for wrapper message:', cachedData.primaryType);
             const parsed = parsePermit2TypedData(cachedData);
             if (parsed) {
               const domainName = typedData?.domain?.name || 'Protocol';
@@ -1360,7 +1466,7 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
       getIntentAndShow(txData, 'eth_signTypedData_v4', walletName, context);
     } else {
       // No embedded transaction - show typed data structure info with generic display
-      console.log('[KaiSign] No embedded transaction in typed data');
+      KAISIGN_DEBUG && console.log('[KaiSign] No embedded transaction in typed data');
       updateLoadingStatus('Complete');
       showTypedDataInfo(typedData, signerAddress, walletName);
     }
@@ -1374,7 +1480,7 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
  * Uses same popup structure as execute transaction for consistency
  */
 async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
-  console.log('[KaiSign] Showing EIP-712 display:', displayData);
+  KAISIGN_DEBUG && console.log('[KaiSign] Showing EIP-712 display:', displayData);
 
   // Remove old popup if exists
   const old = document.getElementById('kaisign-popup');
@@ -1647,7 +1753,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
             return;
           }
 
-          console.log('[KaiSign] Decoding pasted typed data:', typedData.primaryType);
+          KAISIGN_DEBUG && console.log('[KaiSign] Decoding pasted typed data:', typedData.primaryType);
 
           // Parse the typed data
           const parsed = parsePermit2TypedData(typedData);
@@ -1685,7 +1791,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
               }
             }
 
-            console.log('[KaiSign] Successfully decoded:', parsed);
+            KAISIGN_DEBUG && console.log('[KaiSign] Successfully decoded:', parsed);
           } else {
             // Show raw message fields if we can't parse it specifically
             const msg = typedData.message;
@@ -2244,19 +2350,19 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
   // Add WalletConnect-specific event listeners
   if (provider.on && provider.isWalletConnect) {
     provider.on('disconnect', () => {
-      console.log('[KaiSign] WalletConnect session disconnected');
+      KAISIGN_DEBUG && console.log('[KaiSign] WalletConnect session disconnected');
     });
 
     provider.on('session_delete', () => {
-      console.log('[KaiSign] WalletConnect session deleted');
+      KAISIGN_DEBUG && console.log('[KaiSign] WalletConnect session deleted');
     });
 
     provider.on('chainChanged', (chainId) => {
-      console.log('[KaiSign] WalletConnect chain changed to:', chainId);
+      KAISIGN_DEBUG && console.log('[KaiSign] WalletConnect chain changed to:', chainId);
     });
 
     provider.on('accountsChanged', (accounts) => {
-      console.log('[KaiSign] WalletConnect accounts changed:', accounts);
+      KAISIGN_DEBUG && console.log('[KaiSign] WalletConnect accounts changed:', accounts);
     });
   }
 
@@ -2264,7 +2370,7 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
 
 // Handle personal_sign - use same popup UI as other methods
 function handlePersonalSign(message, address, walletName) {
-  console.log('[KaiSign] Processing personal_sign');
+  KAISIGN_DEBUG && console.log('[KaiSign] Processing personal_sign');
 
   // Decode message if hex
   let decodedMessage = message;
@@ -2321,13 +2427,13 @@ async function handleEIP5792Batch(calls, from, chainId, walletName) {
 
   // Skip if same batch within 3 seconds
   if (batchHash === lastBatchHash && now - lastBatchTime < 3000) {
-    console.log('[KaiSign] Skipping duplicate batch call');
+    KAISIGN_DEBUG && console.log('[KaiSign] Skipping duplicate batch call');
     return;
   }
   lastBatchHash = batchHash;
   lastBatchTime = now;
 
-  console.log(`[KaiSign] Processing EIP-5792 batch: ${calls.length} calls`);
+  KAISIGN_DEBUG && console.log(`[KaiSign] Processing EIP-5792 batch: ${calls.length} calls`);
 
   // SHOW LOADING POPUP IMMEDIATELY
   const method = `wallet_sendCalls (${calls.length} ops)`;
@@ -2355,7 +2461,7 @@ async function handleEIP5792Batch(calls, from, chainId, walletName) {
     try {
       if (call.data && call.data.length >= 10 && window.decodeCalldataRecursive) {
         decoded = await window.decodeCalldataRecursive(call.data, call.to, chainId);
-        console.log(`[KaiSign] Batch call ${i + 1} decoded:`, {
+        KAISIGN_DEBUG && console.log(`[KaiSign] Batch call ${i + 1} decoded:`, {
           success: decoded?.success,
           functionName: decoded?.functionName,
           intent: decoded?.intent,
@@ -2367,7 +2473,7 @@ async function handleEIP5792Batch(calls, from, chainId, walletName) {
         }
       }
     } catch (e) {
-      console.warn(`[KaiSign] Failed to decode batch call ${i + 1}:`, e);
+      KAISIGN_DEBUG && console.warn(`[KaiSign] Failed to decode batch call ${i + 1}:`, e);
     }
 
     batchIntents.push({
@@ -2436,7 +2542,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   const txSignature = `${tx.to || ''}-${(tx.data || '').slice(0, 66)}`;
   const now = Date.now();
   if (txSignature === lastTxSignature && (now - lastTxTime) < 500) {
-    console.log('[KaiSign] Skipping duplicate transaction (same tx within 500ms)');
+    KAISIGN_DEBUG && console.log('[KaiSign] Skipping duplicate transaction (same tx within 500ms)');
     return;
   }
   lastTxSignature = txSignature;
@@ -2453,9 +2559,9 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   // TYPED DATA SIGNATURE CONTEXT - CHECK FIRST
   if (context && context.isTypedDataSignature) {
     const protocolName = context.protocolName || 'Protocol';
-    console.log(`[KaiSign] ${protocolName} signature context detected - checking transaction data`);
+    KAISIGN_DEBUG && console.log(`[KaiSign] ${protocolName} signature context detected - checking transaction data`);
     updateLoadingStatus(`${protocolName} Signature - parsing...`);
-    console.log('[KaiSign] Typed data transaction selector:', tx.data ? tx.data.slice(0, 10) : 'no data');
+    KAISIGN_DEBUG && console.log('[KaiSign] Typed data transaction selector:', tx.data ? tx.data.slice(0, 10) : 'no data');
   }
 
   // =============================================================================
@@ -2463,7 +2569,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   // =============================================================================
 
   if (tx.data && tx.data.length >= 10) {
-    console.log('[KaiSign] Transaction detected - selector:', selector);
+    KAISIGN_DEBUG && console.log('[KaiSign] Transaction detected - selector:', selector);
     updateLoadingStatus('Fetching metadata...');
 
     try {
@@ -2475,7 +2581,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
       let decoded;
       updateLoadingStatus('Decoding transaction...');
       if (window.decodeCalldataRecursive) {
-        console.log('[KaiSign] Using recursive calldata decoder');
+        KAISIGN_DEBUG && console.log('[KaiSign] Using recursive calldata decoder');
         decoded = await window.decodeCalldataRecursive(tx.data, tx.to, chainId);
       } else if (window.decodeCalldata) {
         // Fallback to non-recursive decoder
@@ -2497,12 +2603,12 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
         // Convert nested decodes to extractedBytecodes format for UI display
         if (decoded.nestedDecodes && decoded.nestedDecodes.length > 0) {
-          console.log('[KaiSign] RAW nestedDecodes from recursive decoder:', JSON.stringify(decoded.nestedDecodes, null, 2));
+          KAISIGN_DEBUG && console.log('[KaiSign] RAW nestedDecodes from recursive decoder:', JSON.stringify(decoded.nestedDecodes, null, 2));
           extractedBytecodes = flattenNestedDecodesToBytecodes(decoded.nestedDecodes, 1);
-          console.log('[KaiSign] Flattened to extractedBytecodes:', extractedBytecodes.length, 'entries');
+          KAISIGN_DEBUG && console.log('[KaiSign] Flattened to extractedBytecodes:', extractedBytecodes.length, 'entries');
         }
 
-        console.log(`[KaiSign] Decoded transaction: ${intent}`);
+        KAISIGN_DEBUG && console.log(`[KaiSign] Decoded transaction: ${intent}`);
       } else if (decoded && !decoded.success && decoded.intent) {
         // Metadata was found but function selector wasn't matched — use the informative intent
         intent = decoded.intent;
@@ -2518,7 +2624,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
             ? `Selector ${selector} not found in ${decoded.contractName} metadata`
             : decoded.error || 'Function not found in metadata'
         };
-        console.log(`[KaiSign] Partial decode - known contract, unknown function: ${intent}`);
+        KAISIGN_DEBUG && console.log(`[KaiSign] Partial decode - known contract, unknown function: ${intent}`);
       }
     } catch (decodeError) {
       console.error('[KaiSign] Transaction decoding error:', decodeError);
@@ -2573,7 +2679,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
 // Show enhanced transaction info with complete bytecode data
 async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wallet', decodedResult = null, extractedBytecodes = [], context = null) {
-  console.log('[KaiSign] showEnhancedTransactionInfo called:', { method, intent, walletName, isLoading: decodedResult?.isLoading });
+  KAISIGN_DEBUG && console.log('[KaiSign] showEnhancedTransactionInfo called:', { method, intent, walletName, isLoading: decodedResult?.isLoading });
 
   // If loading state, show loading popup with bouncing dots
   if (decodedResult?.isLoading) {
@@ -3157,7 +3263,7 @@ window.showTransactionHistory = function() {
             });
           }
         }).catch(err => {
-          console.debug('[ContentScript] Name resolution failed:', err);
+          KAISIGN_DEBUG && console.debug('[ContentScript] Name resolution failed:', err);
         });
       }
 
@@ -3517,68 +3623,20 @@ window.kaisignRpc = {
   methods: ETHEREUM_RPC_METHODS,
   showDashboard: () => window.showRpcDashboard(),
   export: () => window.exportRpcActivity(),
-  clear: () => window.clearRpcActivity(),
-  
-  // Test methods for different RPC types
-  simulateMethod: (method, params, walletName = 'Test Wallet') => {
-    console.log(`[KaiSign-Test] Simulating ${method}`);
-    handleRpcMethod(method, params, walletName);
-  },
-  
-  // Security analysis helpers
-  getSuspiciousActivity: () => rpcActivity.security.suspiciousActivity,
-  getPrivacyConcerns: () => rpcActivity.security.privacyConcerns,
-  getMevIndicators: () => rpcActivity.security.mevIndicators,
-  
-  // Signature helpers (generic - works for any protocol)
-  getSignatures: () => rpcActivity.patterns.signatures || [],
-  getCoordination: () => rpcActivity.patterns.coordination || {},
-  
-  // Statistics
-  getStats: () => ({
-    totalMethods: Object.keys(rpcActivity.methods).length,
-    totalCalls: Object.values(rpcActivity.methods).reduce((sum, method) => sum + method.count, 0),
-    categorizedMethods: Object.entries(rpcActivity.methods).reduce((acc, [method, data]) => {
-      if (!acc[data.category]) acc[data.category] = [];
-      acc[data.category].push(method);
-      return acc;
-    }, {}),
-    securityAlertsCount: [
-      ...rpcActivity.security.privacyConcerns,
-      ...rpcActivity.security.mevIndicators, 
-      ...rpcActivity.security.suspiciousActivity
-    ].length
-  })
+  clear: () => window.clearRpcActivity()
 };
 
-// Console helpers
-console.log(`
-🔍 KaiSign Enhanced RPC Monitor Loaded!
+// CRITICAL: Install property traps IMMEDIATELY at document_start
+// This catches wallet injection the instant it happens - no 500ms delay
+setupEagerPropertyTraps();
 
-Now monitoring ALL Ethereum RPC methods including:
-• Transaction methods (eth_sendTransaction, eth_signTypedData_v4, etc.)
-• Query methods (eth_call, eth_getBalance, eth_getLogs, etc.)
-• Network methods (eth_chainId, eth_blockNumber, eth_gasPrice, etc.)
-• EIP-712 signature tracking
-• Security & privacy pattern detection
+function startKaiSign() {
+  waitForWallets();
+  startWalletConnectPolling();
+}
 
-Quick access commands:
-- window.kaisignRpc.showDashboard() - Full RPC dashboard
-- window.kaisignRpc.getStats() - Quick statistics
-- window.kaisignRpc.activity - Raw activity data
-- window.kaisignRpc.simulateMethod('eth_getBalance', ['0x123...']) - Test RPC method
-
-Features:
-✅ Generic protocol transaction parsing (ERC-7730 metadata-driven)
-✅ MEV/frontrunning detection
-✅ Privacy concern monitoring
-✅ Comprehensive RPC call tracking
-✅ Real-time security alerts
-✅ Transaction history integration
-`);
-
-// Start wallet detection
-waitForWallets();
-
-// Start polling for late-initializing WalletConnect providers
-startWalletConnectPolling();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startKaiSign);
+} else {
+  startKaiSign();
+}

@@ -1,6 +1,13 @@
 // Pure dynamic decoder - NO HARDCODED METADATA
 // KaiSign dynamic decoder v2.1 - FIXED formatTokenAmount
+
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.SimpleInterface) {
+  console.log('[decode.js] Already loaded, skipping');
+} else {
+
 console.log('[decode.js] VERSION 2.1 LOADED - formatTokenAmount FIXED');
+const KAISIGN_DEBUG = false;
 
 // Simple keccak256 implementation for selector calculation
 // Uses SubtleCrypto when available, falls back to simple hash
@@ -455,13 +462,13 @@ async function decodeCalldata(data, contractAddress, chainId) {
 
           // Use stored selector or calculate it
           const expectedSelector = item.selector || calculateSelector(signature);
-          console.log('[Decode] Checking function:', signature, 'selector:', expectedSelector, 'vs', selector);
+          KAISIGN_DEBUG && console.log('[Decode] Checking function:', signature, 'selector:', expectedSelector, 'vs', selector);
 
           if (expectedSelector === selector) {
             functionSignature = signature;
             functionName = item.name;
             abiFunction = item;
-            console.log('[Decode] ✅ MATCHED function:', signature);
+            KAISIGN_DEBUG && console.log('[Decode] ✅ MATCHED function:', signature);
             break;
           }
         }
@@ -490,6 +497,18 @@ async function decodeCalldata(data, contractAddress, chainId) {
     let fieldInfo = {};
 
     let format = metadata.display?.formats?.[functionSignature] || metadata.display?.formats?.[functionName];
+
+    // Fallback: when ABI uses simplified types (e.g. "tuple") but format keys use expanded
+    // tuple types (e.g. "(bytes32,string,address,...)"), match by function name prefix
+    if (!format && functionName && metadata.display?.formats) {
+      const prefix = functionName + '(';
+      for (const key of Object.keys(metadata.display.formats)) {
+        if (key.startsWith(prefix)) {
+          format = metadata.display.formats[key];
+          break;
+        }
+      }
+    }
 
     // Store command registries from metadata for later use
     const commandRegistries = metadata.commandRegistries || {};
@@ -603,12 +622,12 @@ async function decodeCalldata(data, contractAddress, chainId) {
           if (rawValue === MAX_UINT256) {
             const symbol = fieldDef.params.symbol || '';
             displayValue = symbol ? `Unlimited ${symbol}` : 'Unlimited';
-            console.log(`[Decode] Detected max uint256, displaying as: "${displayValue}"`);
+            KAISIGN_DEBUG && console.log(`[Decode] Detected max uint256, displaying as: "${displayValue}"`);
           } else {
             // Format with decimals
             const decimals = fieldDef.params.decimals;
             const symbol = fieldDef.params.symbol || '';
-            console.log(`[Decode] Formatting ${paramName}: rawValue="${rawValue}" (type: ${typeof rawValue}), decimals=${decimals} (type: ${typeof decimals}), symbol=${symbol}`);
+            KAISIGN_DEBUG && console.log(`[Decode] Formatting ${paramName}: rawValue="${rawValue}" (type: ${typeof rawValue}), decimals=${decimals} (type: ${typeof decimals}), symbol=${symbol}`);
             try {
               const dec = Number(decimals);
               const value = BigInt(rawValue);
@@ -617,7 +636,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
               const fractionalPart = value % divisor;
               if (value === 0n) {
                 displayValue = symbol ? `0 ${symbol}` : '0';
-                console.log(`[Decode] INLINE formatted: "${displayValue}"`);
+                KAISIGN_DEBUG && console.log(`[Decode] INLINE formatted: "${displayValue}"`);
                 params[paramName] = rawValue;
                 formatted[paramName] = {
                   label: fieldDef?.label || toTitleCase(paramName),
@@ -647,7 +666,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
               if (fractionalStr === '') fractionalStr = '0';
               if (fractionalStr.length > maxDisplay) fractionalStr = fractionalStr.slice(0, maxDisplay);
               displayValue = symbol ? `${integerPart}.${fractionalStr} ${symbol}` : `${integerPart}.${fractionalStr}`;
-              console.log(`[Decode] INLINE formatted: "${displayValue}"`);
+              KAISIGN_DEBUG && console.log(`[Decode] INLINE formatted: "${displayValue}"`);
             } catch (e) {
               console.error('[Decode] Inline format error:', e);
               displayValue = rawValue;
@@ -710,7 +729,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
       const commandsValue = rawParams[sourceParam];
       const inputsValue = rawParams['inputs']; // Universal Router uses 'inputs' array
 
-      console.log('[Decode] Composite intent - rawParams:', {
+      KAISIGN_DEBUG && console.log('[Decode] Composite intent - rawParams:', {
         keys: Object.keys(rawParams),
         sourceParam: sourceParam,
         commandsValue: commandsValue,
@@ -725,18 +744,18 @@ async function decodeCalldata(data, contractAddress, chainId) {
         // Decode commands using the registry
         decodedCommands = await decodeCommandArray(commandsValue, inputsValue, registry, chainId);
         finalIntent = buildCompositeIntent(intentConfig, decodedCommands);
-        console.log('[Decode] Built composite intent:', finalIntent);
+        KAISIGN_DEBUG && console.log('[Decode] Built composite intent:', finalIntent);
       } else {
         finalIntent = 'Execute commands';
-        console.log('[Decode] Missing commands or registry for composite intent');
+        KAISIGN_DEBUG && console.log('[Decode] Missing commands or registry for composite intent');
       }
     } else if (intent && typeof intent === 'object' && intent.type === 'interpolated') {
       // ERC-7730 interpolatedIntent - process template with field values
       const template = intent.template;
-      console.log('[Decode] Processing interpolatedIntent template:', template);
+      KAISIGN_DEBUG && console.log('[Decode] Processing interpolatedIntent template:', template);
       // Pass format.fields so we can apply formatters to nested paths (async for API token lookups)
       finalIntent = await substituteInterpolatedIntent(template, rawParams, format.fields || [], chainId);
-      console.log('[Decode] Interpolated result:', finalIntent);
+      KAISIGN_DEBUG && console.log('[Decode] Interpolated result:', finalIntent);
     } else {
       // Standard intent handling
       // Inject {value} into intent, but skip if value is zero (prevents "Execute 0" for Safe transactions)
@@ -838,11 +857,11 @@ async function decodeCalldata(data, contractAddress, chainId) {
  * @returns {string} - Formatted amount like "1.5 USDC"
  */
 function formatTokenAmount(rawValue, decimals, symbol) {
-  console.log('[formatTokenAmount] CALLED with:', { rawValue, decimals, symbol, rawValueType: typeof rawValue, decimalsType: typeof decimals });
+  KAISIGN_DEBUG && console.log('[formatTokenAmount] CALLED with:', { rawValue, decimals, symbol, rawValueType: typeof rawValue, decimalsType: typeof decimals });
   try {
     // Ensure decimals is a number
     const dec = Number(decimals);
-    console.log('[formatTokenAmount] dec after Number():', dec);
+    KAISIGN_DEBUG && console.log('[formatTokenAmount] dec after Number():', dec);
     if (isNaN(dec) || dec < 0) {
       console.warn('[formatTokenAmount] Invalid decimals:', decimals);
       return rawValue;
@@ -854,19 +873,19 @@ function formatTokenAmount(rawValue, decimals, symbol) {
     }
 
     const value = BigInt(rawValue);
-    console.log('[formatTokenAmount] value as BigInt:', value.toString());
+    KAISIGN_DEBUG && console.log('[formatTokenAmount] value as BigInt:', value.toString());
     const divisor = BigInt(10) ** BigInt(dec);
-    console.log('[formatTokenAmount] divisor:', divisor.toString());
+    KAISIGN_DEBUG && console.log('[formatTokenAmount] divisor:', divisor.toString());
     const integerPart = value / divisor;
     const fractionalPart = value % divisor;
     if (value === 0n) {
       return symbol ? `0 ${symbol}` : '0';
     }
-    console.log('[formatTokenAmount] integerPart:', integerPart.toString(), 'fractionalPart:', fractionalPart.toString());
+    KAISIGN_DEBUG && console.log('[formatTokenAmount] integerPart:', integerPart.toString(), 'fractionalPart:', fractionalPart.toString());
 
     // Format fractional part with leading zeros (full precision)
     const fullFraction = fractionalPart.toString().padStart(dec, '0');
-    console.log('[formatTokenAmount] fractionalStr after padStart:', fullFraction);
+    KAISIGN_DEBUG && console.log('[formatTokenAmount] fractionalStr after padStart:', fullFraction);
 
     const maxDisplay = 6;
     const minDisplay = 2; // Minimum 2 decimal places for standard amounts
@@ -889,11 +908,11 @@ function formatTokenAmount(rawValue, decimals, symbol) {
     if (fractionalStr === '') fractionalStr = '0';
     if (fractionalStr.length > maxDisplay) fractionalStr = fractionalStr.slice(0, maxDisplay);
 
-    console.log('[formatTokenAmount] fractionalStr final:', fractionalStr);
+    KAISIGN_DEBUG && console.log('[formatTokenAmount] fractionalStr final:', fractionalStr);
 
     const formatted = `${integerPart}.${fractionalStr}`;
     const result = symbol ? `${formatted} ${symbol}` : formatted;
-    console.log('[formatTokenAmount] RESULT:', result);
+    KAISIGN_DEBUG && console.log('[formatTokenAmount] RESULT:', result);
     return result;
   } catch (e) {
     console.error('[formatTokenAmount] Error:', e, 'rawValue:', rawValue, 'decimals:', decimals);
@@ -909,7 +928,7 @@ function formatTokenAmount(rawValue, decimals, symbol) {
  * @returns {Array} - Array of decoded command objects with intents
  */
 async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
-  console.log('[decodeCommandArray] Called with:', {
+  KAISIGN_DEBUG && console.log('[decodeCommandArray] Called with:', {
     commands: commands,
     commandsType: typeof commands,
     inputs: inputs,
@@ -954,7 +973,7 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
     const cmdDef = registry[cmdByte];
     const inputData = inputs?.[i / 2];
 
-    console.log(`[decodeCommandArray] Command ${i/2}: ${cmdByte}`, {
+    KAISIGN_DEBUG && console.log(`[decodeCommandArray] Command ${i/2}: ${cmdByte}`, {
       cmdName: cmdDef?.name,
       inputData: inputData,
       inputDataType: typeof inputData,
@@ -1002,7 +1021,7 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
           }
 
           // Debug: Log decoded parameters
-          console.log(`[DecodeCommand] ${cmdDef.name} (${cmdByte}) decoded params:`, {
+          KAISIGN_DEBUG && console.log(`[DecodeCommand] ${cmdDef.name} (${cmdByte}) decoded params:`, {
             paramNames: Object.keys(decodedParams),
             path: decodedParams.path,
             pathType: typeof decodedParams.path,
@@ -1083,7 +1102,7 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
 
               // Skip if value is already formatted (contains letters or token symbols)
               if (typeof rawVal === 'string' && /[a-zA-Z]/.test(rawVal)) {
-                console.log('[DecodeCommand] Skipping already-formatted param:', paramDef.name, '=', rawVal);
+                KAISIGN_DEBUG && console.log('[DecodeCommand] Skipping already-formatted param:', paramDef.name, '=', rawVal);
                 continue;
               }
 
@@ -1098,16 +1117,16 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
 
           // Substitute template variables in intent (fallback)
           if (!intent || intent === cmdDef.intent || intent === cmdDef.name) {
-            console.log('[DecodeCommand] Substituting intent template:', {
+            KAISIGN_DEBUG && console.log('[DecodeCommand] Substituting intent template:', {
               template: cmdDef.intent,
               decodedParams: decodedParams,
               paramKeys: Object.keys(decodedParams)
             });
             intent = substituteCommandIntent(cmdDef.intent || cmdDef.name, decodedParams);
-            console.log('[DecodeCommand] Substituted intent:', intent);
+            KAISIGN_DEBUG && console.log('[DecodeCommand] Substituted intent:', intent);
           }
         } catch (e) {
-          console.log('[decodeCommandArray] Failed to decode input for command', cmdByte, e.message);
+          KAISIGN_DEBUG && console.log('[decodeCommandArray] Failed to decode input for command', cmdByte, e.message);
         }
       }
 
@@ -1304,8 +1323,8 @@ async function substituteInterpolatedIntent(template, rawParams, fields, chainId
   if (!template || typeof template !== 'string') return template;
   if (!template.includes('{')) return template;
 
-  console.log('[interpolatedIntent] Template:', template);
-  console.log('[interpolatedIntent] Fields:', fields);
+  KAISIGN_DEBUG && console.log('[interpolatedIntent] Template:', template);
+  KAISIGN_DEBUG && console.log('[interpolatedIntent] Fields:', fields);
 
   const regex = /\{([#@]?[\w.\[\]]+)(?::(\w+))?\}/g;
 
@@ -1322,29 +1341,29 @@ async function substituteInterpolatedIntent(template, rawParams, fields, chainId
 
   // Process all matches async (fetch token metadata in parallel)
   const replacements = await Promise.all(matches.map(async ({ fullMatch, pathStr, formatType }) => {
-    console.log(`[interpolatedIntent] Processing ${fullMatch}, pathStr="${pathStr}"`);
+    KAISIGN_DEBUG && console.log(`[interpolatedIntent] Processing ${fullMatch}, pathStr="${pathStr}"`);
 
     // Find field spec for this path
     const fieldSpec = fields.find(f => f.path === pathStr);
     if (!fieldSpec) {
-      console.warn(`[interpolatedIntent] No field spec found for path: ${pathStr}`);
+      KAISIGN_DEBUG && console.warn(`[interpolatedIntent] No field spec found for path: ${pathStr}`);
       return { match: fullMatch, value: fullMatch };
     }
 
-    console.log('[interpolatedIntent] Found field spec:', fieldSpec);
+    KAISIGN_DEBUG && console.log('[interpolatedIntent] Found field spec:', fieldSpec);
 
     // Navigate to the value using the path
     const value = resolveFieldPath(pathStr, rawParams);
     if (value === undefined || value === null) {
-      console.warn(`[interpolatedIntent] No value found for path: ${pathStr}`);
+      KAISIGN_DEBUG && console.warn(`[interpolatedIntent] No value found for path: ${pathStr}`);
       return { match: fullMatch, value: fullMatch };
     }
 
-    console.log('[interpolatedIntent] Resolved value:', value);
+    KAISIGN_DEBUG && console.log('[interpolatedIntent] Resolved value:', value);
 
     // Apply the field's format and params (ERC-7730 requirement) - async for token lookups
     const formatted = await applyFieldFormat(value, fieldSpec, rawParams, chainId);
-    console.log('[interpolatedIntent] Formatted value:', formatted);
+    KAISIGN_DEBUG && console.log('[interpolatedIntent] Formatted value:', formatted);
 
     return { match: fullMatch, value: formatted };
   }));
@@ -1422,7 +1441,7 @@ function resolveFieldPath(pathStr, params) {
         value = value[idx];
       } else {
         // Not an array - log warning and return undefined
-        console.warn('[resolveFieldPath] Array syntax used on non-array:', {
+        KAISIGN_DEBUG && console.warn('[resolveFieldPath] Array syntax used on non-array:', {
           path: pathStr,
           part: part,
           valueType: typeof value,
@@ -1446,19 +1465,19 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
   const format = fieldSpec.format;
   const params = fieldSpec.params || {};
 
-  console.log(`[applyFieldFormat] format="${format}", value=`, value, 'params=', params);
+  KAISIGN_DEBUG && console.log(`[applyFieldFormat] format="${format}", value=`, value, 'params=', params);
 
   // tokenAmount format - fetch token metadata from Railway API
   if (format === 'tokenAmount') {
     const tokenPath = params.tokenPath;
     if (!tokenPath) {
-      console.warn('[applyFieldFormat] tokenAmount format missing tokenPath');
+      KAISIGN_DEBUG && console.warn('[applyFieldFormat] tokenAmount format missing tokenPath');
       return String(value);
     }
 
     // Resolve token address from params
     const tokenAddress = resolveFieldPath(tokenPath, allParams);
-    console.log('[applyFieldFormat] Token resolution:', {
+    KAISIGN_DEBUG && console.log('[applyFieldFormat] Token resolution:', {
       tokenPath: tokenPath,
       resolvedAddress: tokenAddress,
       allParamsKeys: Object.keys(allParams),
@@ -1472,7 +1491,7 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
 
     // Validate token address
     if (!tokenAddress || typeof tokenAddress !== 'string' || tokenAddress.length < 10) {
-      console.warn('[applyFieldFormat] Invalid or missing token address:', {
+      KAISIGN_DEBUG && console.warn('[applyFieldFormat] Invalid or missing token address:', {
         tokenAddress,
         tokenPath,
         pathValue: allParams.path
@@ -1490,17 +1509,17 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
         // Fetch token metadata from Railway API
         try {
           const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
-          console.log('[applyFieldFormat] Token info from API:', tokenInfo);
+          KAISIGN_DEBUG && console.log('[applyFieldFormat] Token info from API:', tokenInfo);
           decimals = tokenInfo.decimals || 18;
           symbol = tokenInfo.symbol || '';
         } catch (error) {
-          console.warn('[applyFieldFormat] Failed to fetch token metadata:', error.message);
+          KAISIGN_DEBUG && console.warn('[applyFieldFormat] Failed to fetch token metadata:', error.message);
           symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
         }
       }
     }
 
-    console.log(`[applyFieldFormat] Resolved token: ${symbol} (${decimals} decimals)`);
+    KAISIGN_DEBUG && console.log(`[applyFieldFormat] Resolved token: ${symbol} (${decimals} decimals)`);
 
     // Convert value to string - handle BigNumber objects from ethers.js
     let valueStr;
@@ -1516,15 +1535,49 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
     } else {
       valueStr = String(value);
     }
-    console.log(`[applyFieldFormat] Value string: ${valueStr}`);
+    KAISIGN_DEBUG && console.log(`[applyFieldFormat] Value string: ${valueStr}`);
 
     // Format the amount
     return formatTokenAmount(valueStr, decimals, symbol);
   }
 
-  // addressName format
-  if (format === 'addressName') {
-    // TODO: Resolve ENS/address book
+  // ethAmount format - format wei value as ETH
+  if (format === 'ethAmount') {
+    // Convert value to string - handle BigNumber objects
+    let valueStr;
+    if (value && typeof value === 'object') {
+      if (value._isBigNumber && value._hex) {
+        valueStr = BigInt(value._hex).toString();
+      } else if (value._value !== undefined) {
+        valueStr = value._value;
+      } else {
+        valueStr = String(value);
+      }
+    } else {
+      valueStr = String(value);
+    }
+    KAISIGN_DEBUG && console.log(`[applyFieldFormat] ethAmount value: ${valueStr}`);
+    return formatTokenAmount(valueStr, 18, 'ETH');
+  }
+
+  // addressName or addressOrName format - try to resolve to token symbol or ENS
+  if (format === 'addressName' || format === 'addressOrName') {
+    const addr = String(value).toLowerCase();
+    // Try to get token name from metadata service
+    if (window.metadataService && addr.startsWith('0x') && addr.length === 42) {
+      try {
+        const tokenInfo = await window.metadataService.getTokenMetadata(addr, chainId);
+        if (tokenInfo && tokenInfo.symbol) {
+          return tokenInfo.symbol;
+        }
+      } catch (e) {
+        KAISIGN_DEBUG && console.log('[applyFieldFormat] Token lookup failed:', e.message);
+      }
+    }
+    // Fallback: return shortened address
+    if (addr.length === 42) {
+      return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+    }
     return String(value);
   }
 
@@ -1645,3 +1698,5 @@ window.formatTokenAmount = formatTokenAmount;
 window.SimpleInterface = SimpleInterface;
 
 // Decoder ready
+
+} // End of duplicate-load guard

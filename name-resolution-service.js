@@ -1,3 +1,8 @@
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.nameResolutionService) {
+  // Already initialized, skip
+} else {
+
 /**
  * Proper keccak256 implementation (from decode.js)
  * Used for computing ENS reverse nodes
@@ -109,9 +114,8 @@ class NameResolutionService {
       const result = await chrome.storage.local.get(['alchemyApiKey', 'enableNameResolution']);
       this.alchemyApiKey = result.alchemyApiKey || '';
       this.enabled = result.enableNameResolution !== false;
-      console.log('[NameResolution] Config loaded:', { hasAlchemyKey: !!this.alchemyApiKey, enabled: this.enabled });
     } catch (error) {
-      console.warn('[NameResolution] Failed to load config:', error);
+      // Silently fail - config loading errors are not critical
     }
   }
 
@@ -410,3 +414,5 @@ if (typeof window !== 'undefined') {
   window.nameResolutionService = new NameResolutionService();
   console.log('[NameResolution] Service initialized');
 }
+
+} // End of duplicate-load guard

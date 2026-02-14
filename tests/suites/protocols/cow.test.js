@@ -109,7 +109,11 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x322bba21',
       functionName: 'createOrder',
-      intentContains: 'Sell'  // Interpolated: "Sell {sellAmount} ETH for {buyToken}"
+      intentContains: 'Sell',  // Interpolated: "Sell {sellAmount} ETH for {buyToken}"
+      // Verify ethAmount format is applied (0.003 ETH, not raw wei)
+      intentNotContains: '3000000000000000',
+      // Should show formatted ETH amount
+      intentMatches: /Sell\s+[\d.]+\s*ETH\s+for/i  // "Sell 0.003 ETH for USDC"
     }
   }));
 
@@ -134,6 +138,105 @@ export async function runTests(harness) {
       selector: '0x6dd33d2e',
       functionName: 'invalidateOrder',
       intentContains: 'Cancel CoW ETH Flow'
+    }
+  }));
+
+  // ==========================================
+  // CoW ComposableCoW Tests
+  // ==========================================
+  // ComposableCoW is used for conditional orders like TWAPs, stop-loss, etc.
+
+  const composableAddress = CONTRACTS.dex.cowComposable.address.toLowerCase();
+  harness.addMetadata(composableAddress, loadMetadata('protocols/cow-composable.json'));
+
+  // ComposableCoW create conditional order
+  // create((address,bytes32,bytes),bool)
+  // Generated with: cast calldata "create((address,bytes32,bytes),bool)" "(0x6cF1e9cA41f7611dEf408122793c358a3d11E5a5,0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890,0x1234)" true
+  const createConditionalOrderCalldata =
+    '0x6bfae1ca' +
+    '0000000000000000000000000000000000000000000000000000000000000040' + // offset to params tuple
+    '0000000000000000000000000000000000000000000000000000000000000001' + // dispatch = true
+    '0000000000000000000000006cf1e9ca41f7611def408122793c358a3d11e5a5' + // handler
+    'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' + // salt
+    '0000000000000000000000000000000000000000000000000000000000000060' + // offset to staticInput
+    '0000000000000000000000000000000000000000000000000000000000000002' + // staticInput length
+    '1234000000000000000000000000000000000000000000000000000000000000'; // staticInput data
+
+  results.push(await harness.runTest({
+    name: 'CoW ComposableCoW create',
+    calldata: createConditionalOrderCalldata,
+    contractAddress: composableAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x6bfae1ca',
+      functionName: 'create',
+      intentContains: 'Create conditional order'
+    }
+  }));
+
+  // ComposableCoW remove conditional order
+  // remove(bytes32)
+  const removeConditionalOrderCalldata = '0x95bc2673' +
+    'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890'; // orderHash
+
+  results.push(await harness.runTest({
+    name: 'CoW ComposableCoW remove',
+    calldata: removeConditionalOrderCalldata,
+    contractAddress: composableAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x95bc2673',
+      functionName: 'remove',
+      intentContains: 'Remove conditional order'
+    }
+  }));
+
+  // ComposableCoW setSwapGuard
+  // setSwapGuard(address)
+  const setSwapGuardCalldata = '0x8f7984ed' +
+    '000000000000000000000000deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'; // swapGuard address
+
+  results.push(await harness.runTest({
+    name: 'CoW ComposableCoW setSwapGuard',
+    calldata: setSwapGuardCalldata,
+    contractAddress: composableAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x8f7984ed',
+      functionName: 'setSwapGuard',
+      intentContains: 'Set swap guard'
+    }
+  }));
+
+  // ==========================================
+  // CoW HooksTrampoline Tests
+  // ==========================================
+  // HooksTrampoline executes pre/post-swap hooks
+
+  const hooksTrampolineAddress = CONTRACTS.dex.cowHooksTrampoline.address.toLowerCase();
+  harness.addMetadata(hooksTrampolineAddress, loadMetadata('protocols/cow-hooks-trampoline.json'));
+
+  // HooksTrampoline execute
+  // execute((address,bytes,uint256)[])
+  const executeHooksCalldata = '0x760f2a0b' +
+    '0000000000000000000000000000000000000000000000000000000000000020' + // offset to hooks array
+    '0000000000000000000000000000000000000000000000000000000000000001' + // 1 hook
+    '0000000000000000000000000000000000000000000000000000000000000020' + // offset to first hook
+    '000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' + // target (USDC)
+    '0000000000000000000000000000000000000000000000000000000000000060' + // offset to callData
+    '00000000000000000000000000000000000000000000000000000000000186a0' + // gasLimit (100000)
+    '0000000000000000000000000000000000000000000000000000000000000004' + // callData length
+    '70a0823100000000000000000000000000000000000000000000000000000000'; // callData (balanceOf selector)
+
+  results.push(await harness.runTest({
+    name: 'CoW HooksTrampoline execute',
+    calldata: executeHooksCalldata,
+    contractAddress: hooksTrampolineAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x760f2a0b',
+      functionName: 'execute',
+      intentContains: 'Execute'
     }
   }));
 

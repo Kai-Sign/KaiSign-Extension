@@ -21,7 +21,7 @@ async function initializeStorage() {
       await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS });
     }
   } catch (error) {
-    console.error('[KaiSign] Storage init error:', error);
+    // Silent fail
   }
 }
 

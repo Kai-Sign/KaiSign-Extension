@@ -4,6 +4,11 @@
  * All other metadata fetched from subgraph
  */
 
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.registryLoader) {
+  console.log('[KaiSign] Runtime registry already loaded, skipping');
+} else {
+
 console.log('[KaiSign] Runtime registry loading...');
 
 class RuntimeRegistry {
@@ -261,3 +266,5 @@ if (document.readyState === 'loading') {
 } else {
   initializeRegistry();
 }
+
+} // End of duplicate-load guard

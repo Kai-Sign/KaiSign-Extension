@@ -40,6 +40,23 @@
       "js": ["bridge-script.js"],
       "run_at": "document_start",
       "world": "ISOLATED"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "name-resolution-service.js",
+        "subgraph-metadata.js",
+        "onchain-verifier.js",
+        "runtime-registry.js",
+        "metadata.js",
+        "eip712-decoder.js",
+        "decode.js",
+        "recursive-decoder.js",
+        "advanced-decoder.js",
+        "content-script.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "web_accessible_resources": [

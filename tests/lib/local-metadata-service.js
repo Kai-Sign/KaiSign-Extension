@@ -18,6 +18,8 @@ export class LocalMetadataService {
     this.metadataCache = new Map(); // address -> metadata
     this.addressToFilePath = new Map(); // address -> file path
     this.tokenCache = new Map(); // address -> token info
+    // Diamond facet index: diamondAddress -> selector -> metadata file path
+    this.diamondFacetIndex = new Map();
     this.initialized = false;
   }
 
@@ -52,7 +54,7 @@ export class LocalMetadataService {
 
       if (entry.isDirectory()) {
         await this.walkDirectory(fullPath);
-      } else if (entry.name.endsWith('.json')) {
+      } else if (entry.name.endsWith('.json') && !entry.name.startsWith('_')) {
         try {
           const content = fs.readFileSync(fullPath, 'utf8');
           const metadata = JSON.parse(content);
@@ -69,13 +71,43 @@ export class LocalMetadataService {
             address = metadata.address.toLowerCase();
           }
 
+          // Handle per-facet Diamond metadata files
+          const facetOf = metadata.context?.contract?.facetOf;
+          if (facetOf) {
+            const diamondAddr = facetOf.toLowerCase();
+
+            // Index by diamond address + selector for each ABI entry
+            if (!this.diamondFacetIndex.has(diamondAddr)) {
+              this.diamondFacetIndex.set(diamondAddr, new Map());
+            }
+            const selectorMap = this.diamondFacetIndex.get(diamondAddr);
+
+            const abiEntries = metadata.context?.contract?.abi || [];
+            for (const abiEntry of abiEntries) {
+              if (abiEntry.selector) {
+                selectorMap.set(abiEntry.selector.toLowerCase(), fullPath);
+              }
+            }
+
+            // Also index by facet deployment address
+            const deployments = metadata.context?.contract?.deployments;
+            if (Array.isArray(deployments)) {
+              for (const dep of deployments) {
+                if (dep.address) {
+                  this.addressToFilePath.set(dep.address.toLowerCase(), fullPath);
+                }
+              }
+            } else if (deployments && typeof deployments === 'object') {
+              for (const dep of Object.values(deployments)) {
+                if (dep.address) {
+                  this.addressToFilePath.set(dep.address.toLowerCase(), fullPath);
+                }
+              }
+            }
+          }
+
           if (address) {
             this.addressToFilePath.set(address, fullPath);
-            // Also index by checksum address if different
-            const checksummed = address; // ethers.getAddress(address) if needed
-            if (checksummed !== address) {
-              this.addressToFilePath.set(checksummed.toLowerCase(), fullPath);
-            }
           }
         } catch (e) {
           console.warn(`[LocalMetadataService] Failed to parse ${fullPath}:`, e.message);
@@ -97,14 +129,37 @@ export class LocalMetadataService {
     }
 
     const normalizedAddress = address.toLowerCase();
-    const cacheKey = `${normalizedAddress}-${chainId}`;
+    const normalizedSelector = selector ? selector.toLowerCase() : null;
+    const cacheKey = `${normalizedAddress}-${chainId}-${normalizedSelector || ''}`;
 
     // Check cache first
     if (this.metadataCache.has(cacheKey)) {
       return this.metadataCache.get(cacheKey);
     }
 
-    // Look up file path
+    // Try Diamond facet index first (address + selector -> per-facet file or metadata object)
+    if (normalizedSelector && this.diamondFacetIndex.has(normalizedAddress)) {
+      const selectorMap = this.diamondFacetIndex.get(normalizedAddress);
+      const facetEntry = selectorMap.get(normalizedSelector);
+      if (facetEntry) {
+        // facetEntry is either a file path (string, from walkDirectory) or metadata object (from addMetadata)
+        if (typeof facetEntry === 'string') {
+          try {
+            const content = fs.readFileSync(facetEntry, 'utf8');
+            const metadata = JSON.parse(content);
+            this.metadataCache.set(cacheKey, metadata);
+            return metadata;
+          } catch (e) {
+            console.error(`[LocalMetadataService] Failed to read facet file ${facetEntry}:`, e.message);
+          }
+        } else {
+          this.metadataCache.set(cacheKey, facetEntry);
+          return facetEntry;
+        }
+      }
+    }
+
+    // Look up file path by address
     const filePath = this.addressToFilePath.get(normalizedAddress);
 
     if (!filePath) {
@@ -190,6 +245,20 @@ export class LocalMetadataService {
   addMetadata(address, metadata) {
     const normalizedAddress = address.toLowerCase();
     this.metadataCache.set(`${normalizedAddress}-1`, metadata);
+
+    // Also populate diamondFacetIndex for facet metadata
+    if (metadata.context?.contract?.facetOf) {
+      const diamondAddr = metadata.context.contract.facetOf.toLowerCase();
+      if (!this.diamondFacetIndex.has(diamondAddr)) {
+        this.diamondFacetIndex.set(diamondAddr, new Map());
+      }
+      const selectorMap = this.diamondFacetIndex.get(diamondAddr);
+      for (const abiEntry of (metadata.context?.contract?.abi || [])) {
+        if (abiEntry.selector) {
+          selectorMap.set(abiEntry.selector.toLowerCase(), metadata);
+        }
+      }
+    }
   }
 
   /**
@@ -204,10 +273,16 @@ export class LocalMetadataService {
    * Get cache statistics
    */
   getCacheStats() {
+    let diamondSelectors = 0;
+    for (const selectorMap of this.diamondFacetIndex.values()) {
+      diamondSelectors += selectorMap.size;
+    }
     return {
       metadataCacheSize: this.metadataCache.size,
       tokenCacheSize: this.tokenCache.size,
-      indexedContracts: this.addressToFilePath.size
+      indexedContracts: this.addressToFilePath.size,
+      diamondProxies: this.diamondFacetIndex.size,
+      diamondSelectors
     };
   }
 

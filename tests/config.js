@@ -121,6 +121,20 @@ export const CONTRACTS = {
       chainId: 1,
       functions: ['createOrder', 'invalidateOrder'],
       metadataFile: 'protocols/cow-ethflow.json'
+    },
+    cowComposable: {
+      name: 'CoW Protocol ComposableCoW',
+      address: '0xfdaFc9d1902f4e0b84f65F49f244b32b31013b74',
+      chainId: 1,
+      functions: ['create', 'createWithContext', 'remove', 'setRoot', 'setSwapGuard'],
+      metadataFile: 'protocols/cow-composable.json'
+    },
+    cowHooksTrampoline: {
+      name: 'CoW Protocol HooksTrampoline',
+      address: '0x60Bf78233f48eC42eE3F101b9a05eC7878728006',
+      chainId: 1,
+      functions: ['execute'],
+      metadataFile: 'protocols/cow-hooks-trampoline.json'
     }
   },
 

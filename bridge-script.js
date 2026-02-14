@@ -1,7 +1,7 @@
 // ISOLATED world content script - bridge between MAIN world and background
-console.log('[KaiSign] Bridge script loaded (ISOLATED world)');
 
-// Inject MAIN world scripts reliably from ISOLATED world
+// Fallback: inject MAIN world scripts dynamically if manifest injection failed
+// (e.g. hard refresh race condition). content-script.js has a __KAISIGN_LOADED guard.
 (function injectMainWorldScripts() {
   const scripts = [
     'name-resolution-service.js', 'subgraph-metadata.js', 'onchain-verifier.js',
@@ -10,6 +10,7 @@ console.log('[KaiSign] Bridge script loaded (ISOLATED world)');
   ];
 
   const container = document.documentElement || document.head || document.body;
+  if (!container) return;
 
   for (const file of scripts) {
     const el = document.createElement('script');
@@ -17,6 +18,7 @@ console.log('[KaiSign] Bridge script loaded (ISOLATED world)');
     el.async = false;
     container.appendChild(el);
     el.onload = () => el.remove();
+    el.onerror = () => el.remove();
   }
 })();
 

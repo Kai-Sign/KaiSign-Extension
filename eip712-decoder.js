@@ -4,6 +4,11 @@
  * NO HARDCODED CONTRACT ADDRESSES - all detection via metadata
  */
 
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.formatEIP712Display) {
+  console.log('[KaiSign] EIP-712 decoder already loaded, skipping');
+} else {
+
 console.log('[KaiSign] Loading EIP-712 decoder (subgraph-only)...');
 
 // Cache for EIP-712 metadata
@@ -24,26 +29,19 @@ async function getEIP712Metadata(verifyingContract, primaryType) {
   }
 
   try {
-    // Wait for metadataService to be ready
     if (!window.metadataService) {
-      console.warn('[EIP712] Metadata service not ready yet');
       return null;
     }
 
-    // Fetch from subgraph
     const metadata = await window.metadataService.getEIP712Metadata(verifyingContract, primaryType);
 
     if (metadata) {
-      // Cache result
       eip712MetadataCache.set(cacheKey, metadata);
-      console.log('[EIP712] Metadata fetched from subgraph for:', primaryType);
       return metadata;
     }
 
-    console.warn('[EIP712] No metadata found for:', verifyingContract, primaryType);
     return null;
   } catch (error) {
-    console.error('[EIP712] Failed to fetch metadata:', error);
     return null;
   }
 }
@@ -123,3 +121,5 @@ window.getEIP712Metadata = getEIP712Metadata;
 window.formatEIP712Display = formatEIP712Display;
 
 console.log('[KaiSign] EIP-712 decoder ready (subgraph-only)');
+
+} // End of duplicate-load guard

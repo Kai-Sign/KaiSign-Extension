@@ -244,6 +244,25 @@ export class TestHarness {
       }
     }
 
+    // intentNotContains - alias for intentDoesNotContain
+    if (expected.intentNotContains) {
+      if (result.intent?.includes(expected.intentNotContains)) {
+        console.error(`Intent should not contain "${expected.intentNotContains}" but got: ${result.intent}`);
+        return false;
+      }
+    }
+
+    // intentMatches - regex validation
+    if (expected.intentMatches) {
+      const regex = expected.intentMatches instanceof RegExp
+        ? expected.intentMatches
+        : new RegExp(expected.intentMatches);
+      if (!regex.test(result.intent || '')) {
+        console.error(`Intent should match ${regex} but got: ${result.intent}`);
+        return false;
+      }
+    }
+
     // NEW: Decoded commands validation (Uniswap command registry)
     if (expected.decodedCommands) {
       if (!Array.isArray(result.decodedCommands)) {

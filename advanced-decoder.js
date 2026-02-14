@@ -1,5 +1,12 @@
 // Enhanced Advanced EVM Transaction Decoder - True Nested Bytecode Separation
+
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.advancedTransactionDecoder) {
+  console.log('[KaiSign] Advanced decoder already loaded, skipping');
+} else {
+
 console.log('[KaiSign] Loading enhanced advanced transaction decoder...');
+const KAISIGN_DEBUG = false;
 
 // KaiSign subgraph and storage configuration
 const KAISIGN_SUBGRAPH_URL = 'https://api.studio.thegraph.com/query/117022/kaisign-subgraph/version/latest';
@@ -33,13 +40,13 @@ class AdvancedTransactionDecoder {
    */
   async decodeTransaction(rawTx, contractAddress, chainId) {
     try {
-      console.log(`[AdvDecoder] ===== ADVANCED DECODE START =====`);
-      console.log(`[AdvDecoder] Raw TX type: ${typeof rawTx}`);
-      
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] ===== ADVANCED DECODE START =====`);
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Raw TX type: ${typeof rawTx}`);
+
       // Parse transaction type and structure
       const txType = this.parseTransactionType(rawTx);
-      console.log(`[AdvDecoder] Transaction type: 0x${txType.toString(16)}`);
-      
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Transaction type: 0x${txType.toString(16)}`);
+
       let decodedTx;
       switch (txType) {
         case TX_TYPES.EIP1559:
@@ -56,8 +63,8 @@ class AdvancedTransactionDecoder {
         default:
           throw new Error(`Unsupported transaction type: 0x${txType.toString(16)}`);
       }
-      
-      console.log(`[AdvDecoder] ===== DECODE COMPLETE =====`);
+
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] ===== DECODE COMPLETE =====`);
       return decodedTx;
       
     } catch (error) {
@@ -107,7 +114,7 @@ class AdvancedTransactionDecoder {
    * Decode EIP-1559 (Type 2) transactions
    */
   async decodeType2Transaction(rawTx, contractAddress, chainId) {
-    console.log(`[AdvDecoder] Decoding Type 2 (EIP-1559) transaction`);
+    KAISIGN_DEBUG && console.log(`[AdvDecoder] Decoding Type 2 (EIP-1559) transaction`);
     
     const txData = this.extractTransactionData(rawTx);
     
@@ -156,7 +163,7 @@ class AdvancedTransactionDecoder {
    * Decode EIP-7702 (Type 4) transactions
    */
   async decodeType4Transaction(rawTx, contractAddress, chainId) {
-    console.log(`[AdvDecoder] Decoding Type 4 (EIP-7702) transaction`);
+    KAISIGN_DEBUG && console.log(`[AdvDecoder] Decoding Type 4 (EIP-7702) transaction`);
     
     const txData = this.extractTransactionData(rawTx);
     
@@ -240,10 +247,10 @@ class AdvancedTransactionDecoder {
         }
 
         delegations.push(delegation);
-        console.log(`[AdvDecoder] Parsed delegation to: ${delegation.address}`);
-        
+        KAISIGN_DEBUG && console.log(`[AdvDecoder] Parsed delegation to: ${delegation.address}`);
+
       } catch (error) {
-        console.warn(`[AdvDecoder] Failed to parse authorization:`, error.message);
+        KAISIGN_DEBUG && console.warn(`[AdvDecoder] Failed to parse authorization:`, error.message);
       }
     }
 
@@ -255,7 +262,7 @@ class AdvancedTransactionDecoder {
    */
   async analyzeNestedCalls(calldata, contractAddress, chainId, depth = 0) {
     if (depth >= this.maxDepth) {
-      console.warn(`[AdvDecoder] Max nesting depth reached: ${depth}`);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Max nesting depth reached: ${depth}`);
       return { calls: [], intents: [], bytecodes: [] };
     }
 
@@ -269,8 +276,8 @@ class AdvancedTransactionDecoder {
     const isMulticall = this.looksLikeMulticall(calldata);
 
     if (isMulticall) {
-      console.log(`[AdvDecoder] Found potential multicall pattern at depth ${depth}`);
-      
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Found potential multicall pattern at depth ${depth}`);
+
       try {
         const extractedBytecodes = await this.decodeMulticall(calldata, contractAddress, chainId);
         
@@ -328,7 +335,7 @@ class AdvancedTransactionDecoder {
           }
         }
       } catch (error) {
-        console.warn(`[AdvDecoder] Failed to analyze nested calls:`, error.message);
+        KAISIGN_DEBUG && console.warn(`[AdvDecoder] Failed to analyze nested calls:`, error.message);
       }
     } else {
       // Not a multicall, but might contain embedded calldata
@@ -397,9 +404,9 @@ class AdvancedTransactionDecoder {
       // The recursive decoder already handles nested calldata properly via metadata
       // const additionalBytecodes = this.scanForCalldataPatterns(calldata, contractAddress);
       // embeddedBytecodes.push(...additionalBytecodes);
-      
+
     } catch (error) {
-      console.warn(`[AdvDecoder] Embedded bytecode extraction error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Embedded bytecode extraction error:`, error.message);
     }
     
     return embeddedBytecodes;
@@ -508,7 +515,7 @@ class AdvancedTransactionDecoder {
         // Re-decode with delegation context
         call.delegationContext = delegation;
         call.actualExecutionTarget = delegation.address;
-        console.log(`[AdvDecoder] Call ${call.index} delegates to: ${delegation.address}`);
+        KAISIGN_DEBUG && console.log(`[AdvDecoder] Call ${call.index} delegates to: ${delegation.address}`);
       }
     }
 
@@ -526,7 +533,7 @@ class AdvancedTransactionDecoder {
       const extractedCalls = await this.extractGenericMulticallBytecodes(calldata, contractAddress, chainId);
       return extractedCalls;
     } catch (error) {
-      console.warn(`[AdvDecoder] Multicall decode error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Multicall decode error:`, error.message);
       return [];
     }
   }
@@ -569,10 +576,10 @@ class AdvancedTransactionDecoder {
         
         currentOffset += 64;
       }
-      
-      console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from standard multicall`);
+
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from standard multicall`);
     } catch (error) {
-      console.warn(`[AdvDecoder] Standard multicall bytecode extraction error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Standard multicall bytecode extraction error:`, error.message);
     }
     
     return extractedCalls;
@@ -598,11 +605,11 @@ class AdvancedTransactionDecoder {
         call.deadline = deadline;
         call.parentCall = 'multicallWithDeadline';
       });
-      
-      console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from deadline multicall (deadline: ${deadline})`);
+
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from deadline multicall (deadline: ${deadline})`);
       return extractedCalls;
     } catch (error) {
-      console.warn(`[AdvDecoder] Deadline multicall bytecode extraction error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Deadline multicall bytecode extraction error:`, error.message);
       return [];
     }
   }
@@ -626,11 +633,11 @@ class AdvancedTransactionDecoder {
         call.value = value;
         call.parentCall = 'multicallValue';
       });
-      
-      console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from value multicall (value: ${value})`);
+
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from value multicall (value: ${value})`);
       return extractedCalls;
     } catch (error) {
-      console.warn(`[AdvDecoder] Value multicall bytecode extraction error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Value multicall bytecode extraction error:`, error.message);
       return [];
     }
   }
@@ -692,10 +699,10 @@ class AdvancedTransactionDecoder {
           currentInputOffset += 64;
         }
       }
-      
-      console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from Universal Router execute`);
+
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from Universal Router execute`);
     } catch (error) {
-      console.warn(`[AdvDecoder] Universal Router bytecode extraction error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Universal Router bytecode extraction error:`, error.message);
       
       // Fallback: treat entire paramData as single complex call
       extractedCalls.push({
@@ -846,10 +853,10 @@ class AdvancedTransactionDecoder {
           }
         }
       }
-      
-      console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from generic multicall function`);
+
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Extracted ${extractedCalls.length} bytecodes from generic multicall function`);
     } catch (error) {
-      console.warn(`[AdvDecoder] Generic multicall extraction error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Generic multicall extraction error:`, error.message);
     }
     
     return extractedCalls;
@@ -912,7 +919,7 @@ class AdvancedTransactionDecoder {
       }
       return result;
     } catch (e) {
-      console.warn('[AdvDecoder] decodeABIParameters failed:', e.message);
+      KAISIGN_DEBUG && console.warn('[AdvDecoder] decodeABIParameters failed:', e.message);
       return {};
     }
   }
@@ -925,9 +932,9 @@ class AdvancedTransactionDecoder {
     const delegation = delegations.find(d => 
       d.address.toLowerCase() === contractAddress.toLowerCase() && !d.isRevocation
     );
-    
+
     if (delegation) {
-      console.log(`[AdvDecoder] Decoding with delegation to: ${delegation.address}`);
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Decoding with delegation to: ${delegation.address}`);
       // Decode using the delegate contract's metadata
       return await this.decodeCalldata(calldata, delegation.address, chainId);
     }
@@ -945,7 +952,7 @@ class AdvancedTransactionDecoder {
       // For now, return delegation designator format
       return DELEGATION_DESIGNATOR + address.slice(2).toLowerCase();
     } catch (error) {
-      console.warn(`[AdvDecoder] Failed to get delegate code:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Failed to get delegate code:`, error.message);
       return null;
     }
   }
@@ -1080,9 +1087,9 @@ class AdvancedTransactionDecoder {
         formatted: decodedResult.formatted,
         fieldPaths: decodedResult.fieldPaths
       };
-      
+
     } catch (error) {
-      console.warn(`[AdvDecoder] Enhanced calldata decode error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Enhanced calldata decode error:`, error.message);
       
       // Fallback to existing decoder
       if (window.decodeCalldata) {
@@ -1224,7 +1231,7 @@ class AdvancedTransactionDecoder {
         };
       }
     } catch (error) {
-      console.warn(`[AdvDecoder] Parameter decoding error:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Parameter decoding error:`, error.message);
       
       // Emergency fallback
       params.rawData = data.slice(10);
@@ -1365,7 +1372,7 @@ class AdvancedTransactionDecoder {
 
       return `${integerPart}.${fractionalStr}`;
     } catch (e) {
-      console.warn('[AdvDecoder] formatTokenAmountWithParams error:', e);
+      KAISIGN_DEBUG && console.warn('[AdvDecoder] formatTokenAmountWithParams error:', e);
       return String(rawValue);
     }
   }
@@ -1406,7 +1413,7 @@ class AdvancedTransactionDecoder {
         const result = iface.decodeFunctionData(abiFunction.name, data);
         return Array.from(result);
       } catch (error) {
-        console.warn(`[AdvDecoder] Ethers ABI decode failed:`, error.message);
+        KAISIGN_DEBUG && console.warn(`[AdvDecoder] Ethers ABI decode failed:`, error.message);
       }
     }
     
@@ -1460,7 +1467,7 @@ class AdvancedTransactionDecoder {
    */
   async fetchDynamicMetadata(contractAddress, chainId) {
     try {
-      console.log(`[AdvDecoder] Fetching dynamic metadata for ${contractAddress}`);
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Fetching dynamic metadata for ${contractAddress}`);
       
       // Step 1: Query KaiSign subgraph for blob hash
       const blobHash = await this.getBlobHashForContract(contractAddress, chainId);
@@ -1474,16 +1481,17 @@ class AdvancedTransactionDecoder {
       // Step 3: Fetch and decode metadata
       const metadataUrl = swarmUrl || googleUrl;
       if (!metadataUrl) {
-        console.warn(`[AdvDecoder] No storage URLs found for blob ${blobHash}`);
+        KAISIGN_DEBUG && console.warn(`[AdvDecoder] No storage URLs found for blob ${blobHash}`);
         return null;
       }
-      
+
       const metadata = await this.fetchAndDecodeMetadata(metadataUrl);
-      console.log(`[AdvDecoder] Successfully fetched metadata for ${contractAddress}`);
-      
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Successfully fetched metadata for ${contractAddress}`);
+
+
       return metadata;
     } catch (error) {
-      console.warn(`[AdvDecoder] Failed to fetch dynamic metadata:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Failed to fetch dynamic metadata:`, error.message);
       return null;
     }
   }
@@ -1525,7 +1533,7 @@ class AdvancedTransactionDecoder {
 
       return finalizedSpec?.blobHash || null;
     } catch (error) {
-      console.warn(`[AdvDecoder] Subgraph query failed:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Subgraph query failed:`, error.message);
       return null;
     }
   }
@@ -1555,7 +1563,7 @@ class AdvancedTransactionDecoder {
         googleUrl: googleRef?.url
       };
     } catch (error) {
-      console.warn(`[AdvDecoder] Blobscan query failed:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Blobscan query failed:`, error.message);
       return {};
     }
   }
@@ -1598,7 +1606,7 @@ class AdvancedTransactionDecoder {
       const cleanJsonString = jsonString.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
       return JSON.parse(cleanJsonString);
     } catch (error) {
-      console.warn(`[AdvDecoder] Metadata parsing failed:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Metadata parsing failed:`, error.message);
       throw error;
     }
   }
@@ -1623,7 +1631,7 @@ class AdvancedTransactionDecoder {
       const uint8Array = new Uint8Array(bytes);
       return decoder.decode(uint8Array).replace(/\0/g, '');
     } catch (error) {
-      console.warn(`[AdvDecoder] Hex decoding failed:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Hex decoding failed:`, error.message);
       throw error;
     }
   }
@@ -1666,7 +1674,7 @@ class AdvancedTransactionDecoder {
         }
       }
     } catch (error) {
-      console.warn(`[AdvDecoder] Function signature processing failed:`, error.message);
+      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Function signature processing failed:`, error.message);
     }
   }
 
@@ -1801,3 +1809,5 @@ window.getCallHierarchy = async function(calldata, contractAddress, chainId) {
 };
 
 console.log('[KaiSign] Advanced transaction decoder ready - Types 0x2 and 0x4 with nested support');
+
+} // End of duplicate-load guard

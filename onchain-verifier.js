@@ -13,7 +13,13 @@
  * 6. Compare localLeaf === onChainLeaf
  */
 
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.onChainVerifier) {
+  console.log('[KaiSign] On-chain verifier already loaded, skipping');
+} else {
+
 console.log('[KaiSign] On-chain verifier loading...');
+const KAISIGN_DEBUG = false;
 
 class OnChainVerifier {
   constructor(config = {}) {
@@ -53,14 +59,14 @@ class OnChainVerifier {
         this.LEAF_TYPEHASH = keccak256Simple(
           'RegistryLeaf(uint256 chainId,bytes32 extcodehash,bytes32 metadataHash,uint256 idx,bool revoked)'
         );
-        console.log('[OnChainVerifier] Selectors computed:', this.selectors);
+        KAISIGN_DEBUG && console.log('[OnChainVerifier] Selectors computed:', this.selectors);
       } else {
         // Fallback: selectors stay empty, verification will gracefully skip
-        console.warn('[OnChainVerifier] keccak256Simple not available, selectors not computed');
+        KAISIGN_DEBUG && console.warn('[OnChainVerifier] keccak256Simple not available, selectors not computed');
         this.selectors = {};
       }
     } catch (e) {
-      console.warn('[OnChainVerifier] Failed to compute selectors:', e.message);
+      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to compute selectors:', e.message);
     }
   }
 
@@ -209,7 +215,7 @@ class OnChainVerifier {
       // Compute keccak256 of the bytecode
       return this.keccak256Bytes(bytecode);
     } catch (e) {
-      console.warn('[OnChainVerifier] Failed to get extcodehash:', e.message);
+      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to get extcodehash:', e.message);
       return null;
     }
   }
@@ -371,12 +377,12 @@ class OnChainVerifier {
       const response = await this.fetchViaBackground(url);
       const data = JSON.parse(response);
       if (!data || !data.uid || !data.leaf_hash) {
-        console.warn('[OnChainVerifier] API returned incomplete leaf data');
+        KAISIGN_DEBUG && console.warn('[OnChainVerifier] API returned incomplete leaf data');
         return null;
       }
       return data;
     } catch (e) {
-      console.warn('[OnChainVerifier] Failed to fetch leaf data:', e.message);
+      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to fetch leaf data:', e.message);
       return null;
     }
   }
@@ -402,7 +408,7 @@ class OnChainVerifier {
 
       return '0x' + result.slice(2, 66);
     } catch (e) {
-      console.warn('[OnChainVerifier] Failed to get on-chain leaf:', e.message);
+      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to get on-chain leaf:', e.message);
       return null;
     }
   }
@@ -474,7 +480,7 @@ class OnChainVerifier {
 
       // Need at least 11 words (704 hex chars) for the full struct
       if (hex.length < 704) {
-        console.warn('[OnChainVerifier] Response too short for Attestation struct');
+        KAISIGN_DEBUG && console.warn('[OnChainVerifier] Response too short for Attestation struct');
         return null;
       }
 
@@ -488,7 +494,7 @@ class OnChainVerifier {
 
       return { chainId, extcodehash, metadataHash, idx, revoked };
     } catch (e) {
-      console.warn('[OnChainVerifier] Failed to decode attestation struct:', e.message);
+      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to decode attestation struct:', e.message);
       return null;
     }
   }
@@ -567,9 +573,9 @@ class OnChainVerifier {
       }
 
       // Step 2: Query registry for latest attestation UID
-      console.log('[OnChainVerifier] extcodehash:', extcodehash);
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] extcodehash:', extcodehash);
       const spec = await this.getLatestSpec(chainId, extcodehash);
-      console.log('[OnChainVerifier] Registry UID:', spec.uid, 'valid:', spec.valid);
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] Registry UID:', spec.uid, 'valid:', spec.valid);
       if (!spec.valid || !spec.uid) {
         result.details = 'No attestation found on-chain for this contract';
         this._cacheResult(cacheKey, result);
@@ -596,7 +602,7 @@ class OnChainVerifier {
         return result;
       }
       result.onChainHash = onChainLeaf;
-      console.log('[OnChainVerifier] On-chain leaf:', onChainLeaf.slice(0, 18), 'Recomputed:', recomputedLeaf.slice(0, 18));
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] On-chain leaf:', onChainLeaf.slice(0, 18), 'Recomputed:', recomputedLeaf.slice(0, 18));
 
       // Step 6: Compare recomputed vs on-chain
       if (recomputedLeaf.toLowerCase() === onChainLeaf.toLowerCase()) {
@@ -644,3 +650,5 @@ const onChainVerifier = new OnChainVerifier();
 window.onChainVerifier = onChainVerifier;
 
 console.log('[KaiSign] On-chain verifier ready');
+
+} // End of duplicate-load guard

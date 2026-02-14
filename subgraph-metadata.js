@@ -3,7 +3,13 @@
  * Fetches all ERC-7730 metadata from subgraph (no local files, no embedded metadata)
  */
 
+// Guard against duplicate loading (MAIN world scripts can run multiple times)
+if (window.metadataService) {
+  console.log('[KaiSign] Subgraph metadata service already loaded, skipping');
+} else {
+
 console.log('[KaiSign] Subgraph metadata service loading...');
+const KAISIGN_DEBUG = false;
 
 class SubgraphMetadataService {
   constructor(config) {
@@ -28,7 +34,7 @@ class SubgraphMetadataService {
     this.blobCache = new Map(); // blobHash -> metadata
     this.tokenCache = new Map(); // address -> token info
 
-    console.log('[Subgraph] Service initialized:', {
+    KAISIGN_DEBUG && console.log('[Subgraph] Service initialized:', {
       subgraph: this.subgraphUrl,
       blobscanBaseUrl: this.blobscanBaseUrl,
       cacheTTL: this.cacheTTL
@@ -56,12 +62,12 @@ class SubgraphMetadataService {
           // Extract address from 32-byte slot (last 20 bytes)
           const implAddress = '0x' + result.slice(-40).toLowerCase();
           if (implAddress !== '0x0000000000000000000000000000000000000000') {
-            console.log('[KaiSign API] Found implementation at slot', slot, ':', implAddress);
+            KAISIGN_DEBUG && console.log('[KaiSign API] Found implementation at slot', slot, ':', implAddress);
             return implAddress;
           }
         }
       } catch (e) {
-        console.warn('[KaiSign API] Failed to read slot', slot, e.message);
+        KAISIGN_DEBUG && console.warn('[KaiSign API] Failed to read slot', slot, e.message);
       }
     }
     return null;
@@ -124,13 +130,13 @@ class SubgraphMetadataService {
 
         // Check it's not zero address
         if (facetAddr !== '0x0000000000000000000000000000000000000000') {
-          console.log('[KaiSign] Diamond facet for selector', selector, ':', facetAddr);
+          KAISIGN_DEBUG && console.log('[KaiSign] Diamond facet for selector', selector, ':', facetAddr);
           return facetAddr;
         }
       }
     } catch (error) {
       // If facetAddress call fails, this is not a Diamond proxy
-      console.debug('[KaiSign] Diamond facetAddress call failed (not a Diamond proxy?):', error.message);
+      KAISIGN_DEBUG && console.debug('[KaiSign] Diamond facetAddress call failed (not a Diamond proxy?):', error.message);
     }
 
     return null;
@@ -175,12 +181,12 @@ class SubgraphMetadataService {
     // Check cache first
     const cached = this.metadataCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
-      console.log('[KaiSign API] Cache hit for:', normalizedAddress);
+      KAISIGN_DEBUG && console.log('[KaiSign API] Cache hit for:', normalizedAddress);
       return cached.data;
     }
 
     try {
-      console.log('[KaiSign API] Fetching metadata for:', normalizedAddress, 'chain:', normalizedChainId);
+      KAISIGN_DEBUG && console.log('[KaiSign API] Fetching metadata for:', normalizedAddress, 'chain:', normalizedChainId);
 
       // Fetch via KaiSign API /contract endpoint
       const apiBase = this._localApiBase || 'https://kai-sign-production.up.railway.app';
@@ -192,15 +198,15 @@ class SubgraphMetadataService {
       // Extract metadata from API response
       if (!response.success || !response.metadata) {
         // Direct lookup failed - check for proxy patterns
-        console.log('[KaiSign API] Direct lookup failed, checking for proxy patterns...');
+        KAISIGN_DEBUG && console.log('[KaiSign API] Direct lookup failed, checking for proxy patterns...');
 
         // Try Diamond proxy detection first (if we have a selector)
         if (selector) {
-          console.log('[KaiSign API] Checking for Diamond proxy with selector:', selector);
+          KAISIGN_DEBUG && console.log('[KaiSign API] Checking for Diamond proxy with selector:', selector);
           const facetAddress = await this.getDiamondFacetAddress(normalizedAddress, selector);
 
           if (facetAddress && facetAddress !== normalizedAddress) {
-            console.log('[KaiSign API] Diamond facet found:', facetAddress, '- fetching metadata');
+            KAISIGN_DEBUG && console.log('[KaiSign API] Diamond facet found:', facetAddress, '- fetching metadata');
             try {
               const facetMetadata = await this.getContractMetadataDirectly(facetAddress, chainId);
 
@@ -212,7 +218,7 @@ class SubgraphMetadataService {
 
               return facetMetadata;
             } catch (facetError) {
-              console.warn('[KaiSign API] Facet metadata fetch failed:', facetError.message);
+              KAISIGN_DEBUG && console.warn('[KaiSign API] Facet metadata fetch failed:', facetError.message);
               // Continue to try other proxy patterns
             }
           }
@@ -222,7 +228,7 @@ class SubgraphMetadataService {
         const implAddress = await this.getImplementationAddress(normalizedAddress);
 
         if (implAddress && implAddress !== normalizedAddress) {
-          console.log('[KaiSign API] Found implementation:', implAddress, '- fetching metadata');
+          KAISIGN_DEBUG && console.log('[KaiSign API] Found implementation:', implAddress, '- fetching metadata');
           const implMetadata = await this.getContractMetadataDirectly(implAddress, chainId);
 
           // Cache for original proxy address too
@@ -249,11 +255,11 @@ class SubgraphMetadataService {
         });
 
         if (!hasMatchingFormat) {
-          console.log('[KaiSign API] No matching format for selector, checking for Diamond facet...');
+          KAISIGN_DEBUG && console.log('[KaiSign API] No matching format for selector, checking for Diamond facet...');
           const facetAddress = await this.getDiamondFacetAddress(normalizedAddress, selector);
 
           if (facetAddress && facetAddress !== normalizedAddress) {
-            console.log('[KaiSign API] Diamond facet for unmatched selector:', facetAddress);
+            KAISIGN_DEBUG && console.log('[KaiSign API] Diamond facet for unmatched selector:', facetAddress);
             try {
               const facetMetadata = await this.getContractMetadataDirectly(facetAddress, chainId);
 
@@ -261,10 +267,10 @@ class SubgraphMetadataService {
               if (facetMetadata.display?.formats) {
                 metadata.display = metadata.display || { formats: {} };
                 Object.assign(metadata.display.formats, facetMetadata.display.formats);
-                console.log('[KaiSign API] Merged facet metadata formats');
+                KAISIGN_DEBUG && console.log('[KaiSign API] Merged facet metadata formats');
               }
             } catch (facetError) {
-              console.warn('[KaiSign API] Facet metadata merge failed:', facetError.message);
+              KAISIGN_DEBUG && console.warn('[KaiSign API] Facet metadata merge failed:', facetError.message);
             }
           }
         }
@@ -278,11 +284,11 @@ class SubgraphMetadataService {
         window.onChainVerifier.verifyMetadata(metadata, verifyAddress, verifyChainId)
           .then(verification => {
             metadata._verification = verification;
-            console.log('[KaiSign API] Verification result:', verification.source, verification.verified);
+            KAISIGN_DEBUG && console.log('[KaiSign API] Verification result:', verification.source, verification.verified);
           })
           .catch(err => {
             metadata._verification = { verified: false, source: 'error', details: err.message };
-            console.warn('[KaiSign API] Verification failed:', err.message);
+            KAISIGN_DEBUG && console.warn('[KaiSign API] Verification failed:', err.message);
           });
       }
 
@@ -292,11 +298,10 @@ class SubgraphMetadataService {
         timestamp: Date.now()
       });
 
-      console.log('[KaiSign API] Successfully fetched metadata for:', normalizedAddress);
+      KAISIGN_DEBUG && console.log('[KaiSign API] Successfully fetched metadata for:', normalizedAddress);
       return metadata;
 
     } catch (error) {
-      console.error('[KaiSign API] Failed to fetch metadata:', error);
       throw new Error(`No metadata found for contract ${normalizedAddress} on chain ${chainId}`);
     }
   }
@@ -399,7 +404,7 @@ class SubgraphMetadataService {
     // Check token cache
     const cached = this.tokenCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
-      console.log('[KaiSign API] Token cache hit:', normalizedAddress);
+      KAISIGN_DEBUG && console.log('[KaiSign API] Token cache hit:', normalizedAddress);
       return cached.data;
     }
 
@@ -414,38 +419,35 @@ class SubgraphMetadataService {
       decimals = metadata.metadata?.decimals || metadata.context?.contract?.decimals || 0;
       name = metadata.metadata?.name || metadata.context?.contract?.name || 'Unknown Token';
     } catch (error) {
-      console.warn('[KaiSign API] Token API metadata not found:', normalizedAddress, error.message);
+      KAISIGN_DEBUG && console.warn('[KaiSign API] Token API metadata not found:', normalizedAddress, error.message);
     }
 
     // If no decimals from API, fetch from on-chain
     if (!decimals) {
-      console.log('[KaiSign API] Fetching token decimals on-chain:', normalizedAddress);
+      KAISIGN_DEBUG && console.log('[KaiSign API] Fetching token decimals on-chain:', normalizedAddress);
       try {
         // decimals() selector: 0x313ce567
         const decimalsResult = await this.ethCall(normalizedAddress, '0x313ce567');
         if (decimalsResult && decimalsResult !== '0x') {
           decimals = parseInt(decimalsResult, 16);
-          console.log('[KaiSign API] Got decimals from on-chain:', decimals);
+          KAISIGN_DEBUG && console.log('[KaiSign API] Got decimals from on-chain:', decimals);
         }
       } catch (e) {
-        console.warn('[KaiSign API] Failed to fetch decimals on-chain:', e.message);
-        decimals = 18; // Default
+        decimals = 18;
       }
     }
 
     // If no symbol from API, fetch from on-chain
     if (!symbol) {
-      console.log('[KaiSign API] Fetching token symbol on-chain:', normalizedAddress);
+      KAISIGN_DEBUG && console.log('[KaiSign API] Fetching token symbol on-chain:', normalizedAddress);
       try {
         // symbol() selector: 0x95d89b41
         const symbolResult = await this.ethCall(normalizedAddress, '0x95d89b41');
         if (symbolResult && symbolResult !== '0x' && symbolResult.length > 2) {
-          // Decode string return value (ABI encoded)
           symbol = this.decodeAbiString(symbolResult);
-          console.log('[KaiSign API] Got symbol from on-chain:', symbol);
+          KAISIGN_DEBUG && console.log('[KaiSign API] Got symbol from on-chain:', symbol);
         }
       } catch (e) {
-        console.warn('[KaiSign API] Failed to fetch symbol on-chain:', e.message);
         symbol = `${normalizedAddress.slice(0, 6)}...${normalizedAddress.slice(-4)}`;
       }
     }
@@ -463,7 +465,7 @@ class SubgraphMetadataService {
       timestamp: Date.now()
     });
 
-    console.log('[KaiSign API] Token metadata resolved:', tokenInfo);
+    KAISIGN_DEBUG && console.log('[KaiSign API] Token metadata resolved:', tokenInfo);
     return tokenInfo;
   }
 
@@ -488,7 +490,7 @@ class SubgraphMetadataService {
       }
       return str;
     } catch (e) {
-      console.warn('[KaiSign API] Failed to decode ABI string:', e.message);
+      KAISIGN_DEBUG && console.warn('[KaiSign API] Failed to decode ABI string:', e.message);
       return '';
     }
   }
@@ -517,7 +519,7 @@ class SubgraphMetadataService {
         }
       }
 
-      console.warn('[KaiSign API] No EIP-712 format found for:', primaryType);
+      KAISIGN_DEBUG && console.warn('[KaiSign API] No EIP-712 format found for:', primaryType);
       return metadata;
     } catch (error) {
       console.error('[KaiSign API] EIP-712 metadata fetch failed:', error);
@@ -533,7 +535,7 @@ class SubgraphMetadataService {
   async getSelectorInfo(selector) {
     // Note: Selectors are best matched via contract metadata ABIs
     // This method is primarily for backward compatibility
-    console.log('[Subgraph] Selector lookup requested:', selector);
+    KAISIGN_DEBUG && console.log('[Subgraph] Selector lookup requested:', selector);
 
     // Cannot efficiently query by selector without contract address
     // Return null - caller should use contract metadata instead
@@ -582,7 +584,7 @@ class SubgraphMetadataService {
     this.metadataCache.clear();
     this.blobCache.clear();
     this.tokenCache.clear();
-    console.log('[KaiSign API] All caches cleared');
+    KAISIGN_DEBUG && console.log('[KaiSign API] All caches cleared');
   }
 
   /**
@@ -607,7 +609,7 @@ const metadataService = new SubgraphMetadataService({
 
 // Clear cache on init to ensure fresh metadata after extension reload
 metadataService.clearCache();
-console.log('[KaiSign] Cache auto-cleared on init');
+KAISIGN_DEBUG && console.log('[KaiSign] Cache auto-cleared on init');
 
 // Expose globally
 window.metadataService = metadataService;
@@ -626,8 +628,9 @@ window.extractSelectorMetadata = (metadata, selector) =>
 // Expose cache control for debugging
 window.clearMetadataCache = () => {
   metadataService.clearCache();
-  console.log('[KaiSign] Metadata cache cleared');
+  KAISIGN_DEBUG && console.log('[KaiSign] Metadata cache cleared');
 };
 
 console.log('[KaiSign] Subgraph metadata service ready');
-console.log('[KaiSign] To clear cache, run: clearMetadataCache()');
+
+} // End of duplicate-load guard
