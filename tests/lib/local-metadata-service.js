@@ -130,14 +130,24 @@ export class LocalMetadataService {
 
     const normalizedAddress = address.toLowerCase();
     const normalizedSelector = selector ? selector.toLowerCase() : null;
-    const cacheKey = `${normalizedAddress}-${chainId}-${normalizedSelector || ''}`;
 
-    // Check cache first
-    if (this.metadataCache.has(cacheKey)) {
-      return this.metadataCache.get(cacheKey);
+    // Two cache key formats:
+    // - baseKey: for full contract metadata (from addMetadata or file loading)
+    // - selectorKey: for Diamond per-facet metadata (selector-specific)
+    const baseKey = `${normalizedAddress}-${chainId}`;
+    const selectorKey = normalizedSelector ? `${baseKey}-${normalizedSelector}` : null;
+
+    // Check selector-specific cache first (Diamond per-facet metadata)
+    if (selectorKey && this.metadataCache.has(selectorKey)) {
+      return this.metadataCache.get(selectorKey);
     }
 
-    // Try Diamond facet index first (address + selector -> per-facet file or metadata object)
+    // Check base cache (full contract metadata from addMetadata or file)
+    if (this.metadataCache.has(baseKey)) {
+      return this.metadataCache.get(baseKey);
+    }
+
+    // Try Diamond facet index (address + selector -> per-facet file or metadata object)
     if (normalizedSelector && this.diamondFacetIndex.has(normalizedAddress)) {
       const selectorMap = this.diamondFacetIndex.get(normalizedAddress);
       const facetEntry = selectorMap.get(normalizedSelector);
@@ -147,13 +157,13 @@ export class LocalMetadataService {
           try {
             const content = fs.readFileSync(facetEntry, 'utf8');
             const metadata = JSON.parse(content);
-            this.metadataCache.set(cacheKey, metadata);
+            this.metadataCache.set(selectorKey, metadata);
             return metadata;
           } catch (e) {
             console.error(`[LocalMetadataService] Failed to read facet file ${facetEntry}:`, e.message);
           }
         } else {
-          this.metadataCache.set(cacheKey, facetEntry);
+          this.metadataCache.set(selectorKey, facetEntry);
           return facetEntry;
         }
       }
@@ -171,8 +181,8 @@ export class LocalMetadataService {
       const content = fs.readFileSync(filePath, 'utf8');
       const metadata = JSON.parse(content);
 
-      // Cache result
-      this.metadataCache.set(cacheKey, metadata);
+      // Cache with base key (full contract metadata)
+      this.metadataCache.set(baseKey, metadata);
 
       return metadata;
     } catch (e) {
@@ -219,10 +229,13 @@ export class LocalMetadataService {
       const metadata = await this.getContractMetadata(normalizedAddress, chainId);
 
       const tokenInfo = {
-        symbol: metadata?.metadata?.symbol || metadata?.context?.contract?.symbol || 'TOKEN',
+        // Return null for symbol if no metadata exists - allows fallback to shortened address
+        symbol: metadata?.metadata?.symbol || metadata?.context?.contract?.symbol || null,
         decimals: metadata?.metadata?.decimals || metadata?.context?.contract?.decimals || 18,
         name: metadata?.metadata?.name || metadata?.context?.contract?.name || 'Unknown Token',
-        address: normalizedAddress
+        address: normalizedAddress,
+        // Flag indicating whether this came from actual metadata
+        hasMetadata: !!(metadata?.metadata?.symbol || metadata?.context?.contract?.symbol)
       };
 
       this.tokenCache.set(cacheKey, tokenInfo);
@@ -241,10 +254,11 @@ export class LocalMetadataService {
    * Add metadata directly (for testing)
    * @param {string} address - Contract address
    * @param {Object} metadata - ERC-7730 metadata
+   * @param {number} chainId - Chain ID (default: 1)
    */
-  addMetadata(address, metadata) {
+  addMetadata(address, metadata, chainId = 1) {
     const normalizedAddress = address.toLowerCase();
-    this.metadataCache.set(`${normalizedAddress}-1`, metadata);
+    this.metadataCache.set(`${normalizedAddress}-${chainId}`, metadata);
 
     // Also populate diamondFacetIndex for facet metadata
     if (metadata.context?.contract?.facetOf) {

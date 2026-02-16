@@ -215,7 +215,8 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: true,
       functionName: 'batchOrders',
-      intent: `First order 42 from ${makerAddress}`
+      // addressName format returns shortened address when no token metadata exists
+      intent: `First order 42 from 0xd8da...6045`
     }
   }));
 

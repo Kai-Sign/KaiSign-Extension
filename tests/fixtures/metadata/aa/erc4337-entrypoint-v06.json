@@ -8,7 +8,7 @@
         {
           "type": "function",
           "name": "handleOps",
-          "selector": "0x1fda948c",
+          "selector": "0x1fad948c",
           "inputs": [
             {
               "name": "ops",

@@ -202,8 +202,14 @@ class SimpleInterface {
       try {
         const raw = BigInt('0x' + hexValue);
         const bits = parseInt(type.slice(3)) || 256;
+
+        // For int types < 256 bits, the ABI encoding sign-extends to 256 bits
+        // Extract only the lower N bits and apply two's complement
+        const mask = (1n << BigInt(bits)) - 1n;
+        const truncated = raw & mask;
         const halfRange = 1n << BigInt(bits - 1);
-        const value = raw >= halfRange ? raw - (1n << BigInt(bits)) : raw;
+        const value = truncated >= halfRange ? truncated - (1n << BigInt(bits)) : truncated;
+
         return {
           value: { _isBigNumber: true, _hex: '0x' + hexValue, _value: value.toString() },
           size: 64
@@ -607,7 +613,8 @@ async function decodeCalldata(data, contractAddress, chainId) {
 
         let rawValue;
         if (value && typeof value === 'object' && '_isBigNumber' in value) {
-          rawValue = value._value || (value._hex ? BigInt(value._hex).toString() : String(value));
+          // Prefer _value over _hex - _value is correct for signed integers (two's complement)
+          rawValue = value._value !== undefined ? value._value : (value._hex ? BigInt(value._hex).toString() : String(value));
         } else if (typeof value === 'object' && value !== null) {
           rawValue = JSON.stringify(value);
         } else {
@@ -786,29 +793,88 @@ async function decodeCalldata(data, contractAddress, chainId) {
     if (fieldInfo && Object.keys(fieldInfo).length > 0) {
       for (const [fieldPath, fieldDef] of Object.entries(fieldInfo)) {
         if (fieldDef.format === 'calldata') {
-          const calldataValue = rawParams[fieldPath];
-          if (typeof calldataValue === 'string' && calldataValue.startsWith('0x') && calldataValue.length > 10) {
-            let target = fieldDef.calldataTarget;
-            if (typeof target === 'string') {
-              if (target.startsWith('$.')) {
-                target = resolveJsonPath(target, rawParams);
-              } else if (rawParams[target]) {
-                target = rawParams[target];
-              }
-            }
+          // Check if this is an array path like "#._swapData.[].callData"
+          const isArrayPath = fieldPath.includes('.[].');
 
-            if (target && window.decodeCalldataRecursive) {
-              try {
-                const nested = await window.decodeCalldataRecursive(calldataValue, target, chainId);
-                if (nested?.success) {
-                  if (nested.nestedIntents?.length) {
-                    nestedIntents.push(...nested.nestedIntents);
-                  } else if (nested.intent && nested.intent !== 'Contract interaction') {
-                    nestedIntents.push(nested.intent);
+          if (isArrayPath) {
+            // Handle array iteration for paths like "#._swapData.[].callData"
+            // Extract the array base path and the field within each element
+            const arrayPathMatch = fieldPath.match(/^(#\.|@\.)?(.+?)\.\[\]\.(.+)$/);
+            if (arrayPathMatch) {
+              const arrayName = arrayPathMatch[2]; // e.g., "_swapData"
+              const elementField = arrayPathMatch[3]; // e.g., "callData"
+              const array = rawParams[arrayName];
+
+              if (Array.isArray(array)) {
+                for (let i = 0; i < array.length; i++) {
+                  const element = array[i];
+                  const calldataValue = element[elementField];
+
+                  if (typeof calldataValue === 'string' && calldataValue.startsWith('0x') && calldataValue.length > 10) {
+                    // Resolve target from the same array element
+                    let target = fieldDef.calldataTarget;
+                    if (typeof target === 'string') {
+                      // For array targets like "#._swapData.[].callTo", get from same element
+                      const targetMatch = target.match(/^(#\.|@\.)?(.+?)\.\[\]\.(.+)$/);
+                      if (targetMatch && targetMatch[2] === arrayName) {
+                        // Same array, get field from current element
+                        target = element[targetMatch[3]];
+                      } else if (target.startsWith('$.') || target.startsWith('#.')) {
+                        target = resolveFieldPath(target, rawParams);
+                      } else if (rawParams[target]) {
+                        target = rawParams[target];
+                      }
+                    }
+
+                    if (target && window.decodeCalldataRecursive) {
+                      try {
+                        const nested = await window.decodeCalldataRecursive(calldataValue, target, chainId);
+                        if (nested?.success) {
+                          if (nested.nestedIntents?.length) {
+                            nestedIntents.push(...nested.nestedIntents);
+                          } else if (nested.intent && nested.intent !== 'Contract interaction') {
+                            nestedIntents.push(nested.intent);
+                          }
+                        }
+                      } catch (e) {
+                        // Ignore nested decode failures
+                      }
+                    }
                   }
                 }
-              } catch (e) {
-                // Ignore nested decode failures
+              }
+            }
+          } else {
+            // Original single-value path handling
+            let calldataValue = rawParams[fieldPath];
+            // Also try resolving with path resolution for #. prefixed paths
+            if (calldataValue === undefined && (fieldPath.startsWith('#.') || fieldPath.startsWith('@.'))) {
+              calldataValue = resolveFieldPath(fieldPath, rawParams);
+            }
+
+            if (typeof calldataValue === 'string' && calldataValue.startsWith('0x') && calldataValue.length > 10) {
+              let target = fieldDef.calldataTarget;
+              if (typeof target === 'string') {
+                if (target.startsWith('$.') || target.startsWith('#.')) {
+                  target = resolveFieldPath(target, rawParams);
+                } else if (rawParams[target]) {
+                  target = rawParams[target];
+                }
+              }
+
+              if (target && window.decodeCalldataRecursive) {
+                try {
+                  const nested = await window.decodeCalldataRecursive(calldataValue, target, chainId);
+                  if (nested?.success) {
+                    if (nested.nestedIntents?.length) {
+                      nestedIntents.push(...nested.nestedIntents);
+                    } else if (nested.intent && nested.intent !== 'Contract interaction') {
+                      nestedIntents.push(nested.intent);
+                    }
+                  }
+                } catch (e) {
+                  // Ignore nested decode failures
+                }
               }
             }
           }
@@ -1003,9 +1069,9 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
             const paramDef = cmdDef.inputs[j];
             let value = decoded[j];
 
-            // Handle BigNumber-like objects
+            // Handle BigNumber-like objects - prefer _value over _hex for signed integers
             if (value && typeof value === 'object' && '_isBigNumber' in value) {
-              value = value._value || (value._hex ? BigInt(value._hex).toString() : String(value));
+              value = value._value !== undefined ? value._value : (value._hex ? BigInt(value._hex).toString() : String(value));
             }
 
             // Apply format if specified
@@ -1289,9 +1355,9 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
     // Fall back to raw params - try rawParams first for nested object paths
     const rawObjValue = getNestedValue(rawParams, paramPath);
     if (rawObjValue !== undefined && rawObjValue !== null) {
-      // Format as string for display
+      // Format as string for display - prefer _value over _hex for signed integers
       if (typeof rawObjValue === 'object' && '_isBigNumber' in rawObjValue) {
-        return rawObjValue._value || (rawObjValue._hex ? BigInt(rawObjValue._hex).toString() : String(rawObjValue));
+        return rawObjValue._value !== undefined ? rawObjValue._value : (rawObjValue._hex ? BigInt(rawObjValue._hex).toString() : String(rawObjValue));
       }
       return String(rawObjValue);
     }
@@ -1368,10 +1434,24 @@ async function substituteInterpolatedIntent(template, rawParams, fields, chainId
     return { match: fullMatch, value: formatted };
   }));
 
-  // Apply all replacements
+  // Apply all replacements with duplicate symbol detection
   let result = template;
   for (const { match, value } of replacements) {
-    result = result.replace(match, value);
+    let finalValue = String(value);
+
+    // Check if template has a token symbol immediately after this placeholder
+    // e.g., "Sell {sellAmount} ETH" with value "0.003 ETH" → avoid "0.003 ETH ETH"
+    const matchIndex = result.indexOf(match);
+    if (matchIndex !== -1) {
+      const afterMatch = result.slice(matchIndex + match.length);
+      const symbolMatch = afterMatch.match(/^\s+(USDC|USDT|DAI|WETH|ETH|WBTC|MATIC|BNB|AVAX|FTM|ARB|OP|[A-Z]{2,6})\b/i);
+      if (symbolMatch && finalValue.toUpperCase().endsWith(symbolMatch[1].toUpperCase())) {
+        // Remove the duplicate symbol from the end of the value
+        finalValue = finalValue.replace(new RegExp(`\\s*${symbolMatch[1]}$`, 'i'), '');
+      }
+    }
+
+    result = result.replace(match, finalValue);
   }
 
   return result;
@@ -1522,10 +1602,12 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
     KAISIGN_DEBUG && console.log(`[applyFieldFormat] Resolved token: ${symbol} (${decimals} decimals)`);
 
     // Convert value to string - handle BigNumber objects from ethers.js
+    // Prefer _value over _hex - _value is correct for signed integers (two's complement)
     let valueStr;
     if (value && typeof value === 'object') {
-      if (value._isBigNumber && value._hex) {
-        // ethers.js BigNumber - convert hex to decimal string
+      if (value._isBigNumber && value._value !== undefined) {
+        valueStr = value._value;
+      } else if (value._isBigNumber && value._hex) {
         valueStr = BigInt(value._hex).toString();
       } else if (typeof value.toString === 'function') {
         valueStr = value.toString();
@@ -1544,12 +1626,13 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
   // ethAmount format - format wei value as ETH
   if (format === 'ethAmount') {
     // Convert value to string - handle BigNumber objects
+    // Prefer _value over _hex - _value is correct for signed integers (two's complement)
     let valueStr;
     if (value && typeof value === 'object') {
-      if (value._isBigNumber && value._hex) {
-        valueStr = BigInt(value._hex).toString();
-      } else if (value._value !== undefined) {
+      if (value._isBigNumber && value._value !== undefined) {
         valueStr = value._value;
+      } else if (value._isBigNumber && value._hex) {
+        valueStr = BigInt(value._hex).toString();
       } else {
         valueStr = String(value);
       }
@@ -1582,8 +1665,9 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
   }
 
   // Raw fallback - handle BigNumber objects
+  // Prefer _value over _hex - _value is correct for signed integers (two's complement)
   if (value && typeof value === 'object' && '_isBigNumber' in value) {
-    return value._value || (value._hex ? BigInt(value._hex).toString() : String(value));
+    return value._value !== undefined ? value._value : (value._hex ? BigInt(value._hex).toString() : String(value));
   }
   return String(value);
 }
