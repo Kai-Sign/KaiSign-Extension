@@ -1,0 +1,210 @@
+{
+  "generated": "2026-02-21T08:45:26.275Z",
+  "summary": {
+    "total": 33,
+    "missing": 15,
+    "mismatched": 1,
+    "synced": 9,
+    "skipped": 8
+  },
+  "missing": [
+    {
+      "address": "0xfdaFc9d1902f4e0b84f65F49f244b32b31013b74",
+      "chainId": 1,
+      "name": "CoW Protocol ComposableCoW",
+      "fixture": "metadata/protocols/cow-composable.json",
+      "formats": 5,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0xba3cb449bd2b4adddbc894d8697f5170800eadec",
+      "chainId": 1,
+      "name": "CoW Swap ETH Flow",
+      "fixture": "metadata/protocols/cow-ethflow.json",
+      "formats": 2,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x60Bf78233f48eC42eE3F101b9a05eC7878728006",
+      "chainId": 1,
+      "name": "CoW Protocol HooksTrampoline",
+      "fixture": "metadata/protocols/cow-hooks-trampoline.json",
+      "formats": 1,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x9008D19f58AAbD9eD0D60971565AA8510560ab41",
+      "chainId": 1,
+      "name": "CoW Protocol GPv2 Settlement",
+      "fixture": "metadata/protocols/cow-protocol-settlement.json",
+      "formats": 4,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x9fb7b4477576fe5b32be4c1843afb1e55f251b33",
+      "chainId": 1,
+      "name": "Fluid USDC Vault",
+      "fixture": "metadata/protocols/fluid-usdc-vault.json",
+      "formats": 2,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+      "chainId": 1,
+      "name": "Lido stETH",
+      "fixture": "metadata/protocols/lido-steth.json",
+      "formats": 1,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+      "chainId": 1,
+      "name": "Lido wstETH",
+      "fixture": "metadata/protocols/lido-wsteth.json",
+      "formats": 2,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x6A000F20005980200259B80c5102003040001068",
+      "chainId": 1,
+      "name": "ParaSwap Augustus V6",
+      "fixture": "metadata/protocols/paraswap-augustus-v6.json",
+      "formats": 5,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x000000000022d473030f116ddee9f6b43ac78ba3",
+      "chainId": 1,
+      "name": "Permit2",
+      "fixture": "metadata/protocols/permit2.json",
+      "formats": 2,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x0000000000000068f116a8949814280a0f8842a6",
+      "chainId": 1,
+      "name": "Seaport v1.6",
+      "fixture": "metadata/protocols/seaport-v1.6.json",
+      "formats": 3,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+      "chainId": 1,
+      "name": "Uniswap Quoter V2",
+      "fixture": "metadata/protocols/uniswap-quoter-v2.json",
+      "formats": 1,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad",
+      "chainId": 1,
+      "name": "Uniswap Universal Router",
+      "fixture": "metadata/protocols/uniswap-universal-router.json",
+      "formats": 1,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0x1f98431c8ad98523631ae4a59f267346ea31f984",
+      "chainId": 1,
+      "name": "Uniswap V3 Factory",
+      "fixture": "metadata/protocols/uniswap-v3-factory.json",
+      "formats": 1,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "chainId": 1,
+      "name": "USD Coin",
+      "fixture": "metadata/tokens/usdc.json",
+      "formats": 2,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    },
+    {
+      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "chainId": 1,
+      "name": "Wrapped Ether",
+      "fixture": "metadata/tokens/weth.json",
+      "formats": 4,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null
+    }
+  ],
+  "mismatched": [
+    {
+      "address": "0x111111125421ca6dc452d289314280a0f8842a65",
+      "chainId": 1,
+      "name": "1inch Aggregation Router V6",
+      "fixture": "metadata/protocols/1inch-router-v6.json",
+      "formats": 5,
+      "isEIP712": false,
+      "isFacet": false,
+      "facetOf": null,
+      "apiFormats": 3,
+      "localFormats": 5
+    }
+  ],
+  "skipped": [
+    {
+      "fixture": "metadata/aa/safe-proxy.json",
+      "reason": "No address"
+    },
+    {
+      "fixture": "metadata/aa/smart-account.json",
+      "reason": "No address"
+    },
+    {
+      "fixture": "metadata/eip712/1inch-limit-order.json",
+      "reason": "No address"
+    },
+    {
+      "fixture": "metadata/eip712/cow-gpv2-order.json",
+      "reason": "No address"
+    },
+    {
+      "fixture": "metadata/eip712/erc20-permit.json",
+      "reason": "No address"
+    },
+    {
+      "fixture": "metadata/eip712/safe-safetx.json",
+      "reason": "No address"
+    },
+    {
+      "fixture": "metadata/eip712/seaport-order.json",
+      "reason": "No address"
+    },
+    {
+      "fixture": "metadata/protocols/lifi-diamond.json",
+      "reason": "No address"
+    }
+  ]
+}

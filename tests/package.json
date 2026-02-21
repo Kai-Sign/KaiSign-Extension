@@ -7,11 +7,14 @@
   "scripts": {
     "test": "node run-all-tests.js",
     "fetch-metadata": "node scripts/fetch-metadata.js",
-    "fetch-transactions": "node scripts/fetch-transactions.js"
+    "fetch-transactions": "node scripts/fetch-transactions.js",
+    "local-server": "node local-server.js",
+    "audit-metadata": "node scripts/generate-missing-list.js"
   },
   "dependencies": {
+    "dotenv": "^16.3.1",
     "ethers": "^6.9.0",
-    "dotenv": "^16.3.1"
+    "express": "^4.22.1"
   },
   "engines": {
     "node": ">=18.0.0"
