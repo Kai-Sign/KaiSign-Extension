@@ -8,8 +8,9 @@ if (window.metadataService) {
   console.log('[KaiSign] Subgraph metadata service already loaded, skipping');
 } else {
 
-console.log('[KaiSign] Subgraph metadata service loading...');
-const KAISIGN_DEBUG = false;
+console.log('[KaiSign] Subgraph metadata service loading... (DEBUG BUILD v2025.02.15)');
+const KAISIGN_DEBUG = true;  // Enable for debugging Safe wrapper issue
+
 
 class SubgraphMetadataService {
   constructor(config) {
@@ -17,8 +18,7 @@ class SubgraphMetadataService {
     this.blobscanBaseUrl = config.blobscanBaseUrl || 'https://api.blobscan.com';
     this.cacheTTL = config.cacheTTL || 300000; // 5 minutes default
 
-    // Check for local API override (set via: localStorage.setItem('kaisign_local_api', 'http://localhost:3000'))
-    try { this._localApiBase = localStorage.getItem('kaisign_local_api') || null; } catch { this._localApiBase = null; }
+    // Note: Local API override is read dynamically via getLocalApiBase() to support runtime changes
 
     // Chain-specific Blobscan URLs
     this.blobscanUrls = {
@@ -39,6 +39,28 @@ class SubgraphMetadataService {
       blobscanBaseUrl: this.blobscanBaseUrl,
       cacheTTL: this.cacheTTL
     });
+  }
+
+  /**
+   * Get API base URL. Uses production by default.
+   * Local override only works when developer mode is explicitly enabled.
+   * @returns {string} API base URL
+   */
+  getLocalApiBase() {
+    const PRODUCTION_API = 'https://kai-sign-production.up.railway.app';
+    try {
+      // Developer mode must be explicitly enabled for local API override
+      const devMode = localStorage.getItem('kaisign_dev_mode') === 'true';
+      if (devMode) {
+        const localOverride = localStorage.getItem('kaisign_local_api');
+        if (localOverride) {
+          return localOverride;
+        }
+      }
+      return PRODUCTION_API;
+    } catch {
+      return PRODUCTION_API;
+    }
   }
 
   /**
@@ -167,6 +189,7 @@ class SubgraphMetadataService {
    */
   async getContractMetadata(address, chainId, selector) {
     const normalizedAddress = address.toLowerCase();
+    const normalizedSelector = selector?.toLowerCase() || null;
 
     // Normalize chainId to number (handle hex strings like '0x1')
     let normalizedChainId = chainId;
@@ -176,7 +199,7 @@ class SubgraphMetadataService {
       normalizedChainId = parseInt(chainId, 10);
     }
 
-    const cacheKey = `${normalizedAddress}-${normalizedChainId}-${selector || ''}`;
+    const cacheKey = `${normalizedAddress}-${normalizedChainId}-${normalizedSelector || ''}`;
 
     // Check cache first
     const cached = this.metadataCache.get(cacheKey);
@@ -185,20 +208,40 @@ class SubgraphMetadataService {
       return cached.data;
     }
 
+
     try {
       KAISIGN_DEBUG && console.log('[KaiSign API] Fetching metadata for:', normalizedAddress, 'chain:', normalizedChainId);
 
       // Fetch via KaiSign API /contract endpoint
-      const apiBase = this._localApiBase || 'https://kai-sign-production.up.railway.app';
+      const apiBase = this.getLocalApiBase();
       const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${normalizedChainId}`;
 
       const rawData = await this.fetchViaBackground(apiUrl);
-      const response = JSON.parse(rawData);
+
+      // Debug: Log raw response to identify parsing issues
+      console.log('[KaiSign API] Raw response type:', typeof rawData);
+      console.log('[KaiSign API] Raw response preview:', rawData?.substring?.(0, 300) || rawData);
+
+      let response;
+      try {
+        response = JSON.parse(rawData);
+      } catch (parseError) {
+        console.error('[KaiSign API] JSON parse failed:', parseError.message);
+        console.error('[KaiSign API] Raw data that failed to parse:', rawData);
+        throw new Error(`JSON parse error: ${parseError.message}`);
+      }
 
       // Extract metadata from API response
       if (!response.success || !response.metadata) {
         // Direct lookup failed - check for proxy patterns
-        KAISIGN_DEBUG && console.log('[KaiSign API] Direct lookup failed, checking for proxy patterns...');
+        console.log('[KaiSign API] Direct lookup failed:', {
+          success: response.success,
+          hasMetadata: !!response.metadata,
+          error: response.error,
+          address: normalizedAddress,
+          responseKeys: Object.keys(response || {})
+        });
+        KAISIGN_DEBUG && console.log('[KaiSign API] Checking for proxy patterns...');
 
         // Try Diamond proxy detection first (if we have a selector)
         if (selector) {
@@ -245,6 +288,10 @@ class SubgraphMetadataService {
 
       const metadata = response.metadata;
 
+      // Extract verification data from API response (for offline verification)
+      const leafComponents = response.leaf_components || null;
+      const merkleRoot = response.merkle_root || null;
+
       // Check if the metadata has the format for this selector
       // If not, and it's a Diamond proxy, try fetching facet metadata
       if (selector && metadata.display?.formats) {
@@ -276,20 +323,40 @@ class SubgraphMetadataService {
         }
       }
 
-      // Run on-chain verification in parallel (non-blocking)
-      // For Diamond proxies with a facet address, verify against the facet's extcodehash
+      // Run verification (preferring cached/offline verification when available)
       if (typeof window !== 'undefined' && window.onChainVerifier) {
         const verifyAddress = normalizedAddress;
         const verifyChainId = normalizedChainId;
-        window.onChainVerifier.verifyMetadata(metadata, verifyAddress, verifyChainId)
-          .then(verification => {
+
+        // Use cached verification if API provides leaf_components and merkle_root
+        if (leafComponents && merkleRoot) {
+          try {
+            const verification = window.onChainVerifier.verifyWithCache(
+              verifyAddress,
+              verifyChainId,
+              leafComponents,
+              merkleRoot
+            );
+            // Attach leaf components for potential re-verification on update
+            verification.leafComponents = leafComponents;
             metadata._verification = verification;
-            KAISIGN_DEBUG && console.log('[KaiSign API] Verification result:', verification.source, verification.verified);
-          })
-          .catch(err => {
+            KAISIGN_DEBUG && console.log('[KaiSign API] Cached verification result:', verification.source, verification.verified);
+          } catch (err) {
             metadata._verification = { verified: false, source: 'error', details: err.message };
-            KAISIGN_DEBUG && console.warn('[KaiSign API] Verification failed:', err.message);
-          });
+            KAISIGN_DEBUG && console.warn('[KaiSign API] Cached verification failed:', err.message);
+          }
+        } else {
+          // Fallback to on-chain verification (async)
+          window.onChainVerifier.verifyMetadata(metadata, verifyAddress, verifyChainId)
+            .then(verification => {
+              metadata._verification = verification;
+              KAISIGN_DEBUG && console.log('[KaiSign API] On-chain verification result:', verification.source, verification.verified);
+            })
+            .catch(err => {
+              metadata._verification = { verified: false, source: 'error', details: err.message };
+              KAISIGN_DEBUG && console.warn('[KaiSign API] On-chain verification failed:', err.message);
+            });
+        }
       }
 
       // Cache result
@@ -302,6 +369,10 @@ class SubgraphMetadataService {
       return metadata;
 
     } catch (error) {
+      // Check if extension context was invalidated
+      if (error.message.includes('Extension') || error.message.includes('refresh')) {
+        throw new Error('Extension was reloaded. Please refresh the page.');
+      }
       throw new Error(`No metadata found for contract ${normalizedAddress} on chain ${chainId}`);
     }
   }
@@ -378,16 +449,33 @@ class SubgraphMetadataService {
    */
   async getContractMetadataDirectly(address, chainId) {
     const normalizedAddress = address.toLowerCase();
-    const apiBase = this._localApiBase || 'https://kai-sign-production.up.railway.app';
+    const apiBase = this.getLocalApiBase();
     const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${chainId}`;
 
+    console.log('[KaiSign API] getContractMetadataDirectly:', normalizedAddress, 'chain:', chainId);
+
     const rawData = await this.fetchViaBackground(apiUrl);
-    const response = JSON.parse(rawData);
+
+    console.log('[KaiSign API] Direct lookup raw response:', rawData?.substring?.(0, 200) || rawData);
+
+    let response;
+    try {
+      response = JSON.parse(rawData);
+    } catch (parseError) {
+      console.error('[KaiSign API] Direct lookup JSON parse failed:', parseError.message, 'raw:', rawData);
+      throw new Error(`JSON parse error: ${parseError.message}`);
+    }
 
     if (!response.success || !response.metadata) {
+      console.error('[KaiSign API] Direct lookup failed:', {
+        success: response.success,
+        hasMetadata: !!response.metadata,
+        error: response.error
+      });
       throw new Error(response.error || 'No metadata in response');
     }
 
+    console.log('[KaiSign API] Direct lookup success for:', normalizedAddress);
     return response.metadata;
   }
 
@@ -520,7 +608,7 @@ class SubgraphMetadataService {
       }
 
       KAISIGN_DEBUG && console.warn('[KaiSign API] No EIP-712 format found for:', primaryType);
-      return metadata;
+      return null;
     } catch (error) {
       console.error('[KaiSign API] EIP-712 metadata fetch failed:', error);
       throw error;
@@ -543,19 +631,48 @@ class SubgraphMetadataService {
   }
 
   /**
-   * Fetch via background script to bypass CORS
+   * Fetch via background script to bypass CORS (with retry)
    * @param {string} url - URL to fetch
+   * @param {number} retries - Number of retries (default 2)
    * @returns {Promise<string>} Response text
    */
-  async fetchViaBackground(url) {
+  async fetchViaBackground(url, retries = 2) {
+    let lastError;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const result = await this._fetchViaBackgroundOnce(url, attempt);
+        return result;
+      } catch (error) {
+        lastError = error;
+        console.warn(`[KaiSign API] Fetch attempt ${attempt + 1} failed:`, error.message);
+        if (attempt < retries) {
+          // Wait briefly before retry
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * Single fetch attempt via background script
+   * @private
+   */
+  _fetchViaBackgroundOnce(url, attempt = 0) {
     return new Promise((resolve, reject) => {
-      const messageId = 'api-fetch-' + Date.now();
+      const messageId = `api-fetch-${Date.now()}-${attempt}`;
+      let timeoutId;
 
       const handler = (event) => {
         if (event.data.type === 'KAISIGN_BLOB_RESPONSE' && event.data.messageId === messageId) {
+          clearTimeout(timeoutId);
           window.removeEventListener('message', handler);
           if (event.data.error) {
             reject(new Error(event.data.error));
+          } else if (!event.data.data) {
+            reject(new Error('Empty response from background'));
           } else {
             resolve(event.data.data);
           }
@@ -570,10 +687,10 @@ class SubgraphMetadataService {
         url: url
       }, '*');
 
-      setTimeout(() => {
+      timeoutId = setTimeout(() => {
         window.removeEventListener('message', handler);
         reject(new Error('API fetch timeout'));
-      }, 30000);
+      }, 15000); // Shorter timeout per attempt
     });
   }
 
@@ -609,7 +726,7 @@ const metadataService = new SubgraphMetadataService({
 
 // Clear cache on init to ensure fresh metadata after extension reload
 metadataService.clearCache();
-KAISIGN_DEBUG && console.log('[KaiSign] Cache auto-cleared on init');
+console.log('[KaiSign] Cache auto-cleared on init (DEBUG BUILD v2025.02.15)');
 
 // Expose globally
 window.metadataService = metadataService;

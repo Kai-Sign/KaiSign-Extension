@@ -1,16 +1,17 @@
 // ISOLATED world content script - bridge between MAIN world and background
 
-// Fallback: inject MAIN world scripts dynamically if manifest injection failed
-// (e.g. hard refresh race condition). content-script.js has a __KAISIGN_LOADED guard.
-(function injectMainWorldScripts() {
+// Inject MAIN world scripts
+// Settings are passed via KAISIGN_GET_SETTINGS postMessage (no inline script needed - CSP safe)
+(function injectScripts() {
+  const container = document.documentElement || document.head || document.body;
+  if (!container) return;
+
+  // Inject MAIN world scripts (fallback if manifest injection failed)
   const scripts = [
     'name-resolution-service.js', 'subgraph-metadata.js', 'onchain-verifier.js',
     'runtime-registry.js', 'metadata.js', 'eip712-decoder.js', 'decode.js',
     'recursive-decoder.js', 'advanced-decoder.js', 'content-script.js'
   ];
-
-  const container = document.documentElement || document.head || document.body;
-  if (!container) return;
 
   for (const file of scripts) {
     const el = document.createElement('script');
@@ -25,6 +26,33 @@
 // Check chrome.runtime availability
 if (typeof chrome === 'undefined' || !chrome.runtime) {
   console.error('[KaiSign Bridge] CRITICAL: chrome.runtime not available!');
+}
+
+/**
+ * Safely send message to background script with error handling for extension context invalidation.
+ * Returns null if the extension context is invalid.
+ */
+function safeSendMessage(message, callback) {
+  try {
+    // Check if extension context is still valid
+    if (!chrome.runtime?.id) {
+      console.warn('[KaiSign Bridge] Extension context invalidated - please refresh the page');
+      callback?.({ error: 'Extension was reloaded. Please refresh the page.' });
+      return;
+    }
+    chrome.runtime.sendMessage(message, (response) => {
+      // Check for chrome.runtime.lastError (set when extension context is invalid)
+      if (chrome.runtime.lastError) {
+        console.warn('[KaiSign Bridge] Message failed:', chrome.runtime.lastError.message);
+        callback?.({ error: 'Extension context lost. Please refresh the page.' });
+        return;
+      }
+      callback?.(response);
+    });
+  } catch (error) {
+    console.warn('[KaiSign Bridge] Failed to send message:', error.message);
+    callback?.({ error: 'Extension context invalid. Please refresh the page.' });
+  }
 }
 
 // Listen for messages from MAIN world content script
@@ -51,7 +79,7 @@ window.addEventListener('message', (event) => {
   // Forward to background script
   switch (message.type) {
     case 'KAISIGN_SAVE_TX':
-      chrome.runtime.sendMessage({
+      safeSendMessage({
         type: 'SAVE_TRANSACTION',
         data: message.data
       }, (response) => {
@@ -61,38 +89,47 @@ window.addEventListener('message', (event) => {
         window.postMessage({
           type: 'KAISIGN_SAVE_TX_RESPONSE',
           success: response?.success,
-          count: response?.count
+          count: response?.count,
+          error: response?.error
         }, '*');
       });
       break;
 
     case 'KAISIGN_GET_TXS':
-      chrome.runtime.sendMessage({
+      safeSendMessage({
         type: 'GET_TRANSACTIONS'
       }, (response) => {
         window.postMessage({
           type: 'KAISIGN_GET_TXS_RESPONSE',
-          transactions: response?.transactions || []
+          transactions: response?.transactions || [],
+          error: response?.error
         }, '*');
       });
       break;
 
     case 'KAISIGN_CLEAR_TXS':
-      chrome.runtime.sendMessage({
+      safeSendMessage({
         type: 'CLEAR_TRANSACTIONS'
       }, (response) => {
         window.postMessage({
           type: 'KAISIGN_CLEAR_TXS_RESPONSE',
-          success: response?.success
+          success: response?.success,
+          error: response?.error
         }, '*');
       });
       break;
 
     case 'KAISIGN_FETCH_BLOB':
-      chrome.runtime.sendMessage({
+      console.log('[KaiSign Bridge] FETCH_BLOB request:', message.url);
+      safeSendMessage({
         type: 'FETCH_BLOB',
         url: message.url
       }, (response) => {
+        console.log('[KaiSign Bridge] FETCH_BLOB response:', {
+          hasData: !!response?.data,
+          dataPreview: response?.data?.substring?.(0, 200),
+          error: response?.error
+        });
         window.postMessage({
           type: 'KAISIGN_BLOB_RESPONSE',
           messageId: message.messageId,
@@ -103,7 +140,7 @@ window.addEventListener('message', (event) => {
       break;
 
     case 'KAISIGN_RPC_CALL':
-      chrome.runtime.sendMessage({
+      safeSendMessage({
         type: 'RPC_CALL',
         rpcUrl: message.rpcUrl,
         method: message.method,
@@ -117,7 +154,32 @@ window.addEventListener('message', (event) => {
         }, '*');
       });
       break;
+
+    case 'KAISIGN_GET_SETTINGS':
+      safeSendMessage({ type: 'GET_SETTINGS' }, (response) => {
+        window.postMessage({
+          type: 'KAISIGN_SETTINGS_RESPONSE',
+          settings: response?.settings || {},
+          error: response?.error
+        }, '*');
+      });
+      break;
   }
 });
+
+// Listen for settings updates from background (when user saves in options page)
+try {
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'KAISIGN_SETTINGS_UPDATED') {
+      // Forward to MAIN world so services can react to URL changes
+      window.postMessage({
+        type: 'KAISIGN_SETTINGS_UPDATED',
+        settings: message.settings
+      }, '*');
+    }
+  });
+} catch (error) {
+  console.warn('[KaiSign Bridge] Failed to add message listener:', error.message);
+}
 
 console.log('[KaiSign] Bridge script ready');

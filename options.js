@@ -13,7 +13,10 @@ const elements = {
 
   // Name Resolution
   enableNameResolution: document.getElementById('enableNameResolution'),
-  alchemyApiKey: document.getElementById('alchemyApiKey'),
+
+  // Developer Settings
+  backendApiUrl: document.getElementById('backendApiUrl'),
+  sepoliaRpcUrl: document.getElementById('sepoliaRpcUrl'),
 
   // Storage info
   storageBar: document.getElementById('storageBar'),
@@ -59,8 +62,13 @@ function loadSettings() {
     if (elements.enableNameResolution) {
       elements.enableNameResolution.checked = settings.enableNameResolution !== false;
     }
-    if (elements.alchemyApiKey) {
-      elements.alchemyApiKey.value = settings.alchemyApiKey || '';
+
+    // Developer settings
+    if (elements.backendApiUrl) {
+      elements.backendApiUrl.value = settings.backendApiUrl || '';
+    }
+    if (elements.sepoliaRpcUrl) {
+      elements.sepoliaRpcUrl.value = settings.sepoliaRpcUrl || '';
     }
 
     console.log('[KaiSign] Settings loaded:', settings);
@@ -131,7 +139,8 @@ function saveSettings() {
     rpcTracking: elements.rpcTracking.checked,
     securityAlerts: elements.securityAlerts.checked,
     enableNameResolution: elements.enableNameResolution ? elements.enableNameResolution.checked : true,
-    alchemyApiKey: elements.alchemyApiKey ? elements.alchemyApiKey.value.trim() : ''
+    backendApiUrl: elements.backendApiUrl?.value.trim() || '',
+    sepoliaRpcUrl: elements.sepoliaRpcUrl?.value.trim() || ''
   };
 
   // Validate max transactions
@@ -147,7 +156,6 @@ function saveSettings() {
       // Update name resolution service with new config
       if (window.nameResolutionService) {
         window.nameResolutionService.updateConfig({
-          alchemyApiKey: settings.alchemyApiKey,
           enabled: settings.enableNameResolution
         });
       }

@@ -221,6 +221,74 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
 }
 
+/* Text Input Styles */
+input[type="text"] {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+input[type="text"]:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+}
+
+input[type="text"]::placeholder {
+  color: var(--text-muted);
+}
+
+/* Form Group */
+.form-group {
+  margin-bottom: var(--space-lg);
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.form-group small {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+}
+
+.form-group small a {
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+
+.form-group small a:hover {
+  text-decoration: underline;
+}
+
+/* Section Description */
+.section-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-lg);
+}
+
+/* Checkbox in form-group */
+.form-group label input[type="checkbox"] {
+  margin-right: var(--space-sm);
+  accent-color: var(--accent-blue);
+}
+
 /* Toggle Switch */
 .toggle {
   position: relative;

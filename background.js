@@ -121,6 +121,20 @@ async function saveSettings(settings) {
     const currentSettings = await getSettings();
     const newSettings = { ...currentSettings, ...settings };
     await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: newSettings });
+
+    // Broadcast settings to all tabs so content scripts can update localStorage
+    try {
+      const tabs = await chrome.tabs.query({});
+      for (const tab of tabs) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'KAISIGN_SETTINGS_UPDATED',
+          settings: newSettings
+        }).catch(() => {}); // Ignore tabs without content script
+      }
+    } catch (broadcastError) {
+      // Silent fail for broadcast - settings are still saved
+    }
+
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
@@ -250,14 +264,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case 'FETCH_BLOB':
           try {
+            console.log('[KaiSign BG] FETCH_BLOB:', message.url);
             const response = await fetch(message.url);
+            console.log('[KaiSign BG] FETCH_BLOB status:', response.status, response.statusText);
             if (!response.ok) {
+              console.error('[KaiSign BG] FETCH_BLOB HTTP error:', response.status);
               sendResponse({ error: `HTTP ${response.status}: ${response.statusText}` });
               return;
             }
             const text = await response.text();
+            console.log('[KaiSign BG] FETCH_BLOB response length:', text.length, 'preview:', text.substring(0, 150));
             sendResponse({ success: true, data: text });
           } catch (fetchError) {
+            console.error('[KaiSign BG] FETCH_BLOB error:', fetchError.message);
             sendResponse({ error: fetchError.message });
           }
           break;

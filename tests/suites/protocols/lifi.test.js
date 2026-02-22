@@ -5,6 +5,7 @@
  * including calldata field for nested decode support.
  */
 
+import { ethers } from 'ethers';
 import { loadMetadata } from '../../lib/metadata-loader.js';
 
 export async function runTests(harness) {
@@ -78,8 +79,55 @@ export async function runTests(harness) {
     }
   }));
 
-  // Note: tuple[] with actual data test removed temporarily - hangs during async token metadata fetch.
-  // The fix for tuple[] dynamic type detection was applied in decode.js line 242.
+  // Test nested calldata resolution with #._swapData.[].callTo path
+  // This test verifies the fix for resolving #. prefixed calleePath
+  // WITHOUT the fix: decoder tries to use receiver address (0xa10235ea...) which has no metadata
+  // WITH the fix: decoder resolves #._swapData.[].callTo to USDC address and decodes approve call
+  const lifiIface = new ethers.Interface([
+    'function swapTokensMultipleV3ERC20ToNative(bytes32 _transactionId, string _integrator, string _referrer, address _receiver, uint256 _minAmountOut, tuple(address callTo, address approveTo, address sendingAssetId, address receivingAssetId, uint256 fromAmount, bytes callData, bool requiresDeposit)[] _swapData)'
+  ]);
+
+  const usdcIface = new ethers.Interface([
+    'function approve(address spender, uint256 amount)'
+  ]);
+
+  // Create approve calldata for USDC
+  const approveCalldata = usdcIface.encodeFunctionData('approve', [
+    '0x1111111254EEB25477B68fb85Ed929f73A960582', // 1inch router
+    ethers.MaxUint256
+  ]);
+
+  // Encode full LiFi swap with nested calldata
+  const lifiCalldata = lifiIface.encodeFunctionData('swapTokensMultipleV3ERC20ToNative', [
+    '0xa482dfda03721a978ea9a5e8e3ea827a463f0a10529d1365061e99e14b01767a', // txId
+    'test-integrator',
+    'test-referrer',
+    '0xa10235ea549daa39a108bc26d63bd8daa68e4a22', // receiver (NOT the callTo target)
+    ethers.parseEther('0.001'), // minAmountOut
+    [
+      {
+        callTo: usdcAddress, // This is what #._swapData.[].callTo should resolve to
+        approveTo: usdcAddress,
+        sendingAssetId: usdcAddress,
+        receivingAssetId: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH
+        fromAmount: ethers.parseUnits('100', 6), // 100 USDC
+        callData: approveCalldata, // Nested calldata to decode
+        requiresDeposit: false
+      }
+    ]
+  ]);
+
+  results.push(await harness.runRecursiveTest({
+    name: 'LiFi nested calldata with #. path resolution',
+    calldata: lifiCalldata,
+    contractAddress: lifiAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x2c57e884',
+      functionName: 'swapTokensMultipleV3ERC20ToNative',
+      intentContains: 'Swap'
+    }
+  }));
 
   return results;
 }

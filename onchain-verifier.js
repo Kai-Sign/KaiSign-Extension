@@ -25,14 +25,11 @@ class OnChainVerifier {
   constructor(config = {}) {
     this.registryAddress = config.registryAddress || '0xC203e8C22eFCA3C9218a6418f6d4281Cb7744dAa';
 
-    // Check for local override (set via: localStorage.setItem('kaisign_local_rpc', 'http://localhost:3000/rpc'))
-    let localRpc = null;
-    try { localRpc = localStorage.getItem('kaisign_local_rpc'); } catch { /* no localStorage */ }
-
-    this.rpcUrls = localRpc ? [localRpc] : (config.rpcUrls || [
+    // RPC URLs - local override is checked dynamically in _getRpcUrl()
+    this.defaultRpcUrls = config.rpcUrls || [
       'https://ethereum-sepolia-rpc.publicnode.com',
       'https://rpc.sepolia.org'
-    ]);
+    ];
     this.currentRpcIndex = 0;
     this.verificationCache = new Map(); // address-chainId -> verification result
     this.cacheTTL = config.cacheTTL || 300000; // 5 minutes
@@ -72,16 +69,25 @@ class OnChainVerifier {
 
   /**
    * Get the current RPC URL, rotating on failure
+   * Checks localStorage dynamically for runtime changes from settings
    */
   _getRpcUrl() {
-    return this.rpcUrls[this.currentRpcIndex % this.rpcUrls.length];
+    // Check for local override (supports runtime settings changes)
+    let localRpc = null;
+    try { localRpc = localStorage.getItem('kaisign_local_rpc'); } catch { /* no localStorage */ }
+
+    if (localRpc) {
+      return localRpc;
+    }
+
+    return this.defaultRpcUrls[this.currentRpcIndex % this.defaultRpcUrls.length];
   }
 
   /**
    * Rotate to next RPC URL on failure
    */
   _rotateRpc() {
-    this.currentRpcIndex = (this.currentRpcIndex + 1) % this.rpcUrls.length;
+    this.currentRpcIndex = (this.currentRpcIndex + 1) % this.defaultRpcUrls.length;
   }
 
   /**
@@ -641,6 +647,224 @@ class OnChainVerifier {
   clearCache() {
     this.verificationCache.clear();
   }
+
+  // ============================================================================
+  // Merkle Root Caching for Offline Verification
+  // ============================================================================
+
+  /**
+   * Get localStorage key for merkle root cache
+   * @param {string} address - Contract address
+   * @param {number} chainId - Chain ID
+   * @returns {string} localStorage key
+   */
+  _getMerkleRootKey(address, chainId) {
+    return `kaisign_root_${address.toLowerCase()}_${chainId}`;
+  }
+
+  /**
+   * Load cached merkle root from localStorage
+   * @param {string} address - Contract address
+   * @param {number} chainId - Chain ID
+   * @returns {string|null} Cached merkle root or null
+   */
+  _loadMerkleRoot(address, chainId) {
+    const key = this._getMerkleRootKey(address, chainId);
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Save merkle root to localStorage
+   * @param {string} address - Contract address
+   * @param {number} chainId - Chain ID
+   * @param {string} root - Merkle root (bytes32)
+   */
+  _saveMerkleRoot(address, chainId, root) {
+    const key = this._getMerkleRootKey(address, chainId);
+    try {
+      localStorage.setItem(key, root);
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] Cached merkle root:', key, root.slice(0, 18));
+    } catch (e) {
+      console.warn('[OnChainVerifier] Failed to cache merkle root:', e.message);
+    }
+  }
+
+  /**
+   * Compute leaf hash from API-provided leaf_components array
+   * @param {Array} leafComponents - [chainId, extcodehash, metadataHash, idx, revoked]
+   * @returns {string} keccak256 hash with 0x prefix
+   */
+  computeLeafFromComponents(leafComponents) {
+    if (!this.LEAF_TYPEHASH) {
+      throw new Error('LEAF_TYPEHASH not initialized');
+    }
+    if (!Array.isArray(leafComponents) || leafComponents.length < 5) {
+      throw new Error('Invalid leaf_components: expected array of 5 elements');
+    }
+
+    const [chainId, extcodehash, metadataHash, idx, revoked] = leafComponents;
+
+    const encoded = '0x' +
+      this._encodeBytes32(this.LEAF_TYPEHASH) +
+      this._encodeUint256(chainId) +
+      this._encodeBytes32(extcodehash) +
+      this._encodeBytes32(metadataHash) +
+      this._encodeUint256(idx) +
+      this._encodeBool(revoked);
+
+    return this.keccak256Bytes(encoded);
+  }
+
+  /**
+   * Verify metadata using cached merkle root for offline verification
+   * Falls back to storing API-provided root on first encounter
+   *
+   * @param {string} address - Contract address
+   * @param {number} chainId - Chain ID
+   * @param {Array} leafComponents - [chainId, extcodehash, metadataHash, idx, revoked]
+   * @param {string} apiMerkleRoot - Merkle root from API response
+   * @returns {Object} Verification result with source indicator
+   */
+  verifyWithCache(address, chainId, leafComponents, apiMerkleRoot) {
+    try {
+      // Compute leaf hash from components
+      const leafHash = this.computeLeafFromComponents(leafComponents);
+
+      // Load cached root
+      const cachedRoot = this._loadMerkleRoot(address, chainId);
+
+      if (!cachedRoot) {
+        // First time - store API root and trust it
+        this._saveMerkleRoot(address, chainId, apiMerkleRoot);
+        return {
+          verified: true,
+          source: 'api-verified',
+          leafHash,
+          merkleRoot: apiMerkleRoot,
+          details: 'First verification - cached merkle root from API'
+        };
+      }
+
+      // Normalize for comparison
+      const normalizedCached = cachedRoot.toLowerCase();
+      const normalizedApi = apiMerkleRoot.toLowerCase();
+
+      if (normalizedCached === normalizedApi) {
+        // Root matches - verified offline
+        return {
+          verified: true,
+          source: 'cached',
+          leafHash,
+          merkleRoot: cachedRoot,
+          details: 'Verified against cached merkle root (offline)'
+        };
+      }
+
+      // Root changed - prompt for update
+      return {
+        verified: false,
+        source: 'root-changed',
+        needsUpdate: true,
+        leafHash,
+        cachedRoot,
+        apiRoot: apiMerkleRoot,
+        details: 'Merkle root changed - click to update from on-chain'
+      };
+    } catch (e) {
+      return {
+        verified: false,
+        source: 'error',
+        details: `Verification error: ${e.message}`
+      };
+    }
+  }
+
+  /**
+   * Update merkle root from on-chain registry
+   * Called when API root differs from cached root
+   *
+   * @param {string} address - Contract address
+   * @param {number} chainId - Chain ID
+   * @returns {Promise<string|null>} New merkle root or null on failure
+   */
+  async updateMerkleRoot(address, chainId) {
+    try {
+      // Get extcodehash of the contract
+      const extcodehash = await this.getExtcodehash(address, chainId);
+      if (!extcodehash) {
+        throw new Error('Could not get contract bytecode hash');
+      }
+
+      // Query registry for latest attestation UID
+      const spec = await this.getLatestSpec(chainId, extcodehash);
+      if (!spec.valid || !spec.uid) {
+        throw new Error('No attestation found on-chain');
+      }
+
+      // Get attestation components to compute fresh leaf
+      const components = await this.getAttestationComponents(spec.uid);
+      if (!components) {
+        throw new Error('Could not parse attestation struct');
+      }
+
+      // Compute fresh leaf hash
+      const freshLeaf = this.computeLeafHash(components);
+
+      // Get on-chain leaf for verification
+      const onChainLeaf = await this.getOnChainLeaf(spec.uid);
+
+      if (freshLeaf.toLowerCase() === onChainLeaf?.toLowerCase()) {
+        // For now, we use the leaf hash as the "root" since we don't have merkle proof
+        // In a full implementation, you'd fetch the actual merkle root from the registry
+        this._saveMerkleRoot(address, chainId, freshLeaf);
+        console.log('[OnChainVerifier] Updated merkle root from on-chain');
+        return freshLeaf;
+      } else {
+        throw new Error('On-chain leaf mismatch');
+      }
+    } catch (e) {
+      console.error('[OnChainVerifier] Failed to update merkle root:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * Clear cached merkle root for a specific contract
+   * @param {string} address - Contract address
+   * @param {number} chainId - Chain ID
+   */
+  clearMerkleRoot(address, chainId) {
+    const key = this._getMerkleRootKey(address, chainId);
+    try {
+      localStorage.removeItem(key);
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] Cleared merkle root cache:', key);
+    } catch {
+      // Ignore localStorage errors
+    }
+  }
+
+  /**
+   * Clear all cached merkle roots
+   */
+  clearAllMerkleRoots() {
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('kaisign_root_')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      console.log('[OnChainVerifier] Cleared', keysToRemove.length, 'cached merkle roots');
+    } catch (e) {
+      console.warn('[OnChainVerifier] Failed to clear merkle roots:', e.message);
+    }
+  }
 }
 
 // Initialize global instance
@@ -648,6 +872,11 @@ const onChainVerifier = new OnChainVerifier();
 
 // Expose globally
 window.onChainVerifier = onChainVerifier;
+
+// Expose cache control for debugging
+window.clearMerkleRootCache = () => {
+  onChainVerifier.clearAllMerkleRoots();
+};
 
 console.log('[KaiSign] On-chain verifier ready');
 

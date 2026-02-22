@@ -91,8 +91,7 @@ function keccak256Simple(message) {
 /**
  * Name Resolution Service
  * Resolves addresses to human-readable names (ENS, Basenames, etc.)
- *
- * Priority: Uses free public RPC first, falls back to Alchemy API if provided
+ * Uses free public RPC endpoints
  */
 class NameResolutionService {
   constructor() {
@@ -100,9 +99,8 @@ class NameResolutionService {
     this.cacheTTL = 3600000; // 1 hour cache for names
     this.pendingRequests = new Map(); // Deduplication
     this.enabled = true;
-    this.alchemyApiKey = ''; // Optional, uses free public RPC by default
 
-    // Load API key from storage
+    // Load configuration from storage
     this._loadConfig();
   }
 
@@ -111,8 +109,7 @@ class NameResolutionService {
    */
   async _loadConfig() {
     try {
-      const result = await chrome.storage.local.get(['alchemyApiKey', 'enableNameResolution']);
-      this.alchemyApiKey = result.alchemyApiKey || '';
+      const result = await chrome.storage.local.get(['enableNameResolution']);
       this.enabled = result.enableNameResolution !== false;
     } catch (error) {
       // Silently fail - config loading errors are not critical
@@ -183,8 +180,7 @@ class NameResolutionService {
   }
 
   /**
-   * Resolve ENS name on Ethereum mainnet
-   * Priority: Public RPC first (free), then fallback to APIs if keys provided
+   * Resolve ENS name on Ethereum mainnet via public RPC
    */
   async _resolveENS(address) {
     try {
@@ -225,31 +221,6 @@ class NameResolutionService {
           console.warn(`[NameResolution] Provider ${provider} failed:`, providerError.message);
           // Try next provider
           continue;
-        }
-      }
-
-      // FALLBACK: Alchemy ENS API (only if API key provided)
-      if (this.alchemyApiKey) {
-        try {
-          const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this.alchemyApiKey}`;
-          const alchemyResponse = await fetch(alchemyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'alchemy_resolveAddress',
-              params: [address]
-            })
-          });
-
-          const alchemyData = await alchemyResponse.json();
-          if (alchemyData.result && alchemyData.result.name) {
-            console.log('[NameResolution] ENS resolved via Alchemy:', alchemyData.result.name);
-            return alchemyData.result.name;
-          }
-        } catch (alchemyError) {
-          console.warn('[NameResolution] Alchemy API failed:', alchemyError.message);
         }
       }
 
@@ -399,13 +370,10 @@ class NameResolutionService {
    * Update configuration
    */
   updateConfig(config) {
-    if (config.hasOwnProperty('alchemyApiKey')) {
-      this.alchemyApiKey = config.alchemyApiKey;
-    }
     if (config.hasOwnProperty('enabled')) {
       this.enabled = config.enabled;
     }
-    console.log('[NameResolution] Config updated:', { hasAlchemyKey: !!this.alchemyApiKey, enabled: this.enabled });
+    console.log('[NameResolution] Config updated:', { enabled: this.enabled });
   }
 }
 

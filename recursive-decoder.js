@@ -198,20 +198,29 @@ class RecursiveCalldataDecoder {
       if (processedPaths.has(path)) continue;
       processedPaths.add(path);
 
-      const pathStr = fieldDef.path;
+      let pathStr = fieldDef.path;
 
-      // Handle array paths like "calls.[].data" with parallel calleePath "calls.[].to"
+      // Strip #. or @. prefix if present (ERC-7730 format)
+      if (pathStr.startsWith('#.') || pathStr.startsWith('@.')) {
+        pathStr = pathStr.substring(2);
+      }
+
+      // Handle array paths like "calls.[].data" or "_swapData.[].callData" with parallel calleePath
       if (pathStr.includes('[]')) {
         KAISIGN_DEBUG && console.log('[RecursiveDecoder] Processing array path:', pathStr);
 
-        // Parse array path: "calls.[].data" -> arrayFieldName="calls", dataFieldName="data"
+        // Parse array path: "_swapData.[].callData" -> arrayFieldName="_swapData", dataFieldName="callData"
         const parts = pathStr.split('.');
-        const arrayFieldName = parts[0]; // "calls"
-        const dataFieldName = parts[parts.length - 1]; // "data"
+        const arrayFieldName = parts[0]; // "_swapData"
+        const dataFieldName = parts[parts.length - 1]; // "callData"
 
         // Get calleePath for target resolution (supports params.calleePath or field.to)
-        const calleePathStr = fieldDef.params?.calleePath || fieldDef.to;
-        const calleeFieldName = calleePathStr?.split('.').pop(); // "to"
+        let calleePathStr = fieldDef.params?.calleePath || fieldDef.to;
+        // Strip #. or @. prefix from calleePath too
+        if (calleePathStr?.startsWith('#.') || calleePathStr?.startsWith('@.')) {
+          calleePathStr = calleePathStr.substring(2);
+        }
+        const calleeFieldName = calleePathStr?.split('.').pop(); // "callTo"
 
         const arrayData = params[arrayFieldName];
         if (Array.isArray(arrayData)) {
@@ -251,9 +260,10 @@ class RecursiveCalldataDecoder {
       // Resolve target address using JSONPath or params.calleePath
       let targetAddress = fieldDef.to || fieldDef.params?.calleePath;
       if (targetAddress) {
-        if (targetAddress.startsWith('$.')) {
-          // JSONPath format: "$.to" or "$.message.recipient"
-          targetAddress = window.resolveJsonPath(targetAddress, params);
+        if (targetAddress.startsWith('$.') || targetAddress.startsWith('#.')) {
+          // JSONPath format: "$.to", "#._swapData.[].callTo", etc.
+          // resolveFieldPath handles both #. and $. prefixes and array notation
+          targetAddress = window.resolveFieldPath ? window.resolveFieldPath(targetAddress, params) : window.resolveJsonPath(targetAddress, params);
         } else if (!targetAddress.startsWith('0x')) {
           // Simple field name: "to" -> resolve from params.to
           targetAddress = params[targetAddress];
