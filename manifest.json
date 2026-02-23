@@ -39,8 +39,7 @@
     "https://mainnet.optimism.io/*",
     "https://optimism.llamarpc.com/*",
     "https://bsc-dataseed.binance.org/*",
-    "https://api.avax.network/*",
-    "http://localhost:3000/*"
+    "https://api.avax.network/*"
   ],
   "content_scripts": [
     {

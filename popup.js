@@ -6,7 +6,6 @@ let transactions = [];
 let currentSearch = '';
 let importData = null;
 let activeDetailTx = null;
-let currentMode = 'enhancer';
 
 // DOM Elements
 const elements = {
@@ -37,11 +36,7 @@ const elements = {
   closeDetailModalBtn: document.getElementById('closeDetailModalBtn'),
   copyRawBtn: document.getElementById('copyRawBtn'),
   copyJsonBtn: document.getElementById('copyJsonBtn'),
-  toast: document.getElementById('toast'),
-  // Mode toggle elements
-  modeSection: document.getElementById('modeSection'),
-  modeStatus: document.getElementById('modeStatus'),
-  modeEnhancer: document.getElementById('modeEnhancer')
+  toast: document.getElementById('toast')
 };
 
 // Initialize
@@ -49,87 +44,8 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
   await loadTheme();
-  await loadMode();
   await loadData();
   setupEventListeners();
-  setupModeListeners();
-}
-
-// Load wallet mode from storage
-async function loadMode() {
-  try {
-    const result = await chrome.storage.local.get(['kaisign_mode']);
-    currentMode = result.kaisign_mode || 'enhancer';
-    updateModeUI();
-  } catch (error) {
-    console.error('[KaiSign] Failed to load mode:', error);
-    currentMode = 'enhancer';
-    updateModeUI();
-  }
-}
-
-// Update mode UI based on current mode
-function updateModeUI() {
-  // Update button states
-  if (elements.modeEnhancer) {
-    elements.modeEnhancer.classList.toggle('active', currentMode === 'enhancer');
-  }
-
-  // Update status text
-  if (elements.modeStatus) {
-    elements.modeStatus.textContent = 'MetaMask Enhancer';
-    elements.modeStatus.style.color = 'var(--accent)';
-  }
-}
-
-// Set wallet mode
-async function setMode(mode) {
-  try {
-    await chrome.storage.local.set({ kaisign_mode: mode });
-    currentMode = mode;
-    updateModeUI();
-
-    // Get RPC settings to sync along with mode
-    const settings = await chrome.storage.local.get(['settings']);
-    const rpcEndpoints = settings.settings?.rpcEndpoints || {};
-
-    // Sync to localStorage in the active tab so content scripts can read it
-    // (Content scripts in MAIN world can't access chrome.storage)
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        chrome.scripting.executeScript({
-          target: { tabId: tabs[0].id },
-          func: (m, rpc) => {
-            localStorage.setItem('kaisign_mode', m);
-            localStorage.setItem('kaisign_rpc_endpoints', JSON.stringify(rpc));
-            // Notify RPC provider to reload
-            if (window.KaiSignRPC && window.KaiSignRPC.reloadEndpoints) {
-              window.KaiSignRPC.reloadEndpoints();
-            }
-          },
-          args: [mode, rpcEndpoints],
-          world: 'MAIN'
-        }).catch(() => {});
-
-        chrome.tabs.sendMessage(tabs[0].id, {
-          type: 'KAISIGN_MODE_CHANGED',
-          mode: mode
-        }).catch(() => {});
-      }
-    });
-
-    showToast('MetaMask Enhancer mode active. Refresh page to apply.', 'success');
-  } catch (error) {
-    console.error('[KaiSign] Failed to set mode:', error);
-    showToast('Failed to switch mode', 'error');
-  }
-}
-
-// Setup mode toggle listeners
-function setupModeListeners() {
-  if (elements.modeEnhancer) {
-    elements.modeEnhancer.addEventListener('click', () => setMode('enhancer'));
-  }
 }
 
 async function loadTheme() {
