@@ -7,6 +7,7 @@
 
 import { loadDecoderModules, calculateSelector } from './node-adapter.js';
 import { LocalMetadataService } from './local-metadata-service.js';
+import { RemoteMetadataService } from './remote-metadata-service.js';
 import { ResultFormatter } from './result-formatter.js';
 
 export class TestHarness {
@@ -15,10 +16,14 @@ export class TestHarness {
       fixturesPath: config.fixturesPath || './fixtures',
       extensionPath: config.extensionPath || '..',
       defaultChainId: config.defaultChainId || 1,
-      verbose: config.verbose || false
+      verbose: config.verbose || false,
+      useRemoteApi: config.useRemoteApi || false
     };
 
-    this.metadataService = new LocalMetadataService(this.config.fixturesPath);
+    // Choose metadata service based on config
+    this.metadataService = this.config.useRemoteApi
+      ? new RemoteMetadataService()
+      : new LocalMetadataService(this.config.fixturesPath);
     this.formatter = new ResultFormatter();
     this.decoders = null;
     this.initialized = false;
@@ -432,6 +437,87 @@ export class TestHarness {
    */
   addMetadata(address, metadata) {
     this.metadataService.addMetadata(address, metadata);
+  }
+
+  /**
+   * Run EIP-712 typed data signature test
+   * @param {Object} testConfig - Test configuration
+   * @returns {Object} - Test result
+   */
+  async runEIP712Test(testConfig) {
+    const { name, typedData, expected = {} } = testConfig;
+    const startTime = Date.now();
+
+    try {
+      const verifyingContract = typedData.domain?.verifyingContract?.toLowerCase();
+      const primaryType = typedData.primaryType;
+      const chainId = typedData.domain?.chainId || 1;
+
+      if (!verifyingContract) {
+        return this.createResult(name, false, null, expected, 'Missing verifyingContract in domain', Date.now() - startTime);
+      }
+
+      if (!primaryType) {
+        return this.createResult(name, false, null, expected, 'Missing primaryType', Date.now() - startTime);
+      }
+
+      // Get EIP-712 metadata from service
+      const metadata = await this.metadataService.getEIP712Metadata(verifyingContract, primaryType);
+      const duration = Date.now() - startTime;
+
+      const result = {
+        success: !!metadata?.matchedFormat,
+        primaryType,
+        verifyingContract,
+        chainId,
+        metadata: !!metadata,
+        matchedFormat: metadata?.matchedFormat || null,
+        intent: metadata?.matchedFormat?.intent || null,
+        fields: metadata?.matchedFormat?.fields || [],
+        _verification: metadata?._verification || null
+      };
+
+      // Validate expectations
+      let passed = true;
+      let error = null;
+
+      if (expected.shouldSucceed !== false && !result.matchedFormat) {
+        passed = false;
+        error = `No EIP-712 format found for ${primaryType}`;
+      } else if (expected.shouldSucceed === false && result.matchedFormat) {
+        passed = false;
+        error = `Expected failure but format was found`;
+      }
+
+      if (passed && expected.primaryType && result.primaryType !== expected.primaryType) {
+        passed = false;
+        error = `primaryType mismatch: expected ${expected.primaryType}, got ${result.primaryType}`;
+      }
+
+      if (passed && expected.intentContains) {
+        const intent = result.intent || '';
+        if (!intent.includes(expected.intentContains)) {
+          passed = false;
+          error = `Intent "${intent}" does not contain "${expected.intentContains}"`;
+        }
+      }
+
+      if (passed && expected.hasFields) {
+        const fieldPaths = result.fields.map(f => f.path);
+        for (const expectedField of expected.hasFields) {
+          if (!fieldPaths.includes(expectedField)) {
+            passed = false;
+            error = `Missing expected field: ${expectedField}`;
+            break;
+          }
+        }
+      }
+
+      return this.createResult(name, passed, result, expected, error, duration);
+    } catch (err) {
+      const duration = Date.now() - startTime;
+      return this.createResult(name, false, null, expected, err.message, duration);
+    }
   }
 
   /**

@@ -23,6 +23,7 @@ const __dirname = path.dirname(__filename);
 const args = process.argv.slice(2);
 const specificSuite = args.find(a => a.startsWith('--suite='))?.split('=')[1];
 const verbose = args.includes('--verbose') || args.includes('-v');
+const useRemoteApi = args.includes('--remote');
 
 /**
  * Test suite definitions
@@ -45,6 +46,9 @@ const TEST_SUITES = [
   { name: 'protocols/0x.test.js', path: './suites/protocols/0x.test.js' },
   { name: 'protocols/cow.test.js', path: './suites/protocols/cow.test.js' },
   { name: 'protocols/lifi.test.js', path: './suites/protocols/lifi.test.js' },
+
+  // EIP-712 typed data signature tests
+  { name: 'eip712/cow-order.test.js', path: './suites/eip712/cow-order.test.js' },
 
   // Account abstraction tests
   { name: 'aa/safe.test.js', path: './suites/aa/safe.test.js' },
@@ -110,10 +114,16 @@ async function main() {
     fixturesPath: path.resolve(__dirname, 'fixtures'),
     extensionPath: path.resolve(__dirname, '..'),
     defaultChainId: 1,
-    verbose
+    verbose,
+    useRemoteApi
   });
 
-  console.log('[TestRunner] Initializing test harness...\n');
+  // Display metadata source mode
+  if (useRemoteApi) {
+    console.log('[TestRunner] Using REMOTE API for metadata fetching\n');
+  } else {
+    console.log('[TestRunner] Using LOCAL fixtures for metadata\n');
+  }
 
   try {
     await harness.initialize();

@@ -193,9 +193,9 @@ export async function runTests(harness) {
   const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
   harness.addMetadata(usdcAddress, loadMetadata('tokens/usdc.json'));
 
-  // LiFi Diamond squid facet (for swapAndStartBridgeTokensViaSquid 0xa8f66666)
+  // LiFi Diamond (for swapAndStartBridgeTokensViaSquid 0xa8f66666)
   const lifiAddress = '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae';
-  harness.addMetadata(lifiAddress, loadMetadata('protocols/lifi-diamond/squid-facet.json'));
+  harness.addMetadata(lifiAddress, loadMetadata('protocols/lifi-diamond.json'));
 
   // Build USDC approve calldata: approve(LiFi Diamond, 100000 = 0.10 USDC)
   const usdcApproveData = '0x095ea7b3' +

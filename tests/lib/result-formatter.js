@@ -197,6 +197,18 @@ export class ResultFormatter {
   formatDecodedResult(result) {
     let output = '';
 
+    // Verification badge (matches popup logic)
+    const verification = result.metadata?._verification || result._verification;
+    if (verification) {
+      if (verification.verified) {
+        output += `  ${this.color('[Verified]', 'green')} On-chain attestation found\n`;
+      } else if (verification.source === 'mismatch') {
+        output += `  ${this.color('[Mismatch]', 'red')} ${verification.details || 'Hash mismatch'}\n`;
+      } else {
+        output += `  ${this.color('[Unverified]', 'dim')} ${verification.details || 'No attestation'}\n`;
+      }
+    }
+
     // Selector
     if (result.selector) {
       output += `  ${this.color('Selector:', 'cyan')} ${result.selector}\n`;
