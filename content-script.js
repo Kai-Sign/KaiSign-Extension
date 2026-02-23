@@ -1413,8 +1413,9 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
 
         // For Permit2 types AND any typed data with parseable structure, extract intents
         // BUT only if we don't already have decoded intents from recursive decoder
+        // AND metadata didn't already provide formatted fields
         KAISIGN_DEBUG && console.log('[KaiSign] Checking typed data:', primaryType);
-        if (!displayData.nestedIntents || displayData.nestedIntents.length === 0) {
+        if (!displayData.hasMetadataFields && (!displayData.nestedIntents || displayData.nestedIntents.length === 0)) {
           const parsedIntent = parsePermit2TypedData(typedData);
           if (parsedIntent) {
             KAISIGN_DEBUG && console.log('[KaiSign] Parsed typed data intent:', parsedIntent);

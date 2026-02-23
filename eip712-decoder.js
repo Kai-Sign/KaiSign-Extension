@@ -354,8 +354,9 @@ async function formatEIP712Display(typedData, metadata) {
     if (sellTokenField?.tokenSymbol) displayData.sellSymbol = sellTokenField.tokenSymbol;
     if (buyTokenField?.tokenSymbol) displayData.buySymbol = buyTokenField.tokenSymbol;
 
-    // Populate nestedIntents from formatted fields to prevent fallback override
-    displayData.nestedIntents = displayData.fields.map(f => `${f.label}: ${f.value}`);
+    // Mark that fields are populated so fallback doesn't override with raw data
+    // Don't duplicate fields into nestedIntents — they render in "Message Details" section
+    displayData.hasMetadataFields = true;
   }
 
   return displayData;
