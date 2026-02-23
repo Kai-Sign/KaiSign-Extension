@@ -227,12 +227,12 @@ async function applyEIP712FieldFormat(rawValue, fieldSpec, typedData) {
     }
 
     case 'addressName': {
-      // Same as 'address' - resolve to name or truncate
       const addr = String(rawValue || '');
       const result = { value: addr.length > 12 ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : addr, rawAddress: addr };
 
       const chainId = typedData?.domain?.chainId || 1;
       if (window.metadataService && addr) {
+        // Try contract metadata (protocol name)
         try {
           const meta = await Promise.race([
             window.metadataService.getContractMetadata(addr, chainId),
@@ -244,14 +244,14 @@ async function applyEIP712FieldFormat(rawValue, fieldSpec, typedData) {
           }
         } catch { /* ignore */ }
 
-        // Try token metadata as fallback (for token addresses)
-        if (!result.contractName) {
+        // Try token symbol — only for fields labeled as tokens, not receivers/spenders
+        if (!result.contractName && fieldSpec.label?.toLowerCase().includes('token')) {
           try {
             const tokenMeta = await Promise.race([
               window.metadataService.getTokenMetadata(addr, chainId),
               new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
             ]);
-            if (tokenMeta?.symbol) {
+            if (tokenMeta?.symbol && tokenMeta.symbol !== 'TOKEN') {
               result.value = tokenMeta.symbol;
               result.tokenSymbol = tokenMeta.symbol;
             }
