@@ -1491,10 +1491,23 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
       const intent = decoded?.intent || 'Signature Request - parsing...';
       getIntentAndShow(txData, 'eth_signTypedData_v4', walletName, context);
     } else {
-      // No embedded transaction - show typed data structure info with generic display
+      // No embedded transaction - use EIP-712 display with parsed typed data
       KAISIGN_DEBUG && console.log('[KaiSign] No embedded transaction in typed data');
       updateLoadingStatus('Complete');
-      showTypedDataInfo(typedData, signerAddress, walletName);
+
+      // Build display data from parsed typed data (fallback when metadata unavailable)
+      const parsedIntent = parsePermit2TypedData(typedData);
+      const domain = typedData?.domain || {};
+      const fallbackDisplay = {
+        primaryType: typedData?.primaryType || 'Unknown',
+        domainName: domain.name || 'Unknown',
+        intent: parsedIntent?.intent || `Sign ${typedData?.primaryType || 'Message'}`,
+        nestedIntents: parsedIntent?.details || [],
+        fields: [],
+        verifyingContract: domain.verifyingContract || '',
+        chainId: domain.chainId || ''
+      };
+      await showEIP712TypedDataDisplay(typedData, fallbackDisplay, walletName);
     }
   } catch (error) {
     console.error('[KaiSign] Error handling typed data signature:', error);
