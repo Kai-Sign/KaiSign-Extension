@@ -1,43 +1,58 @@
 // KaiSign Extension - Options Page Script
 console.log('[KaiSign] Options page loading...');
 
-// DOM Elements
-const elements = {
-  // Settings
-  maxTransactions: document.getElementById('maxTransactions'),
-  autoExport: document.getElementById('autoExport'),
-  theme: document.getElementById('theme'),
-  notifications: document.getElementById('notifications'),
-  rpcTracking: document.getElementById('rpcTracking'),
-  securityAlerts: document.getElementById('securityAlerts'),
+// DOM Elements - wait for DOM to be ready
+let elements = {};
 
-  // Name Resolution
-  enableNameResolution: document.getElementById('enableNameResolution'),
+// Current RPC endpoints state (chainId -> url)
+let rpcEndpointsState = {};
 
-  // Developer Settings
-  backendApiUrl: document.getElementById('backendApiUrl'),
-  sepoliaRpcUrl: document.getElementById('sepoliaRpcUrl'),
+function initElements() {
+  elements = {
+    // Settings
+    maxTransactions: document.getElementById('maxTransactions'),
+    autoExport: document.getElementById('autoExport'),
+    theme: document.getElementById('theme'),
+    notifications: document.getElementById('notifications'),
 
-  // Storage info
-  storageBar: document.getElementById('storageBar'),
-  storageText: document.getElementById('storageText'),
+    // Name Resolution
+    enableNameResolution: document.getElementById('enableNameResolution'),
 
-  // Buttons
-  saveBtn: document.getElementById('saveBtn'),
-  exportAllBtn: document.getElementById('exportAllBtn'),
-  importBtn: document.getElementById('importBtn'),
-  clearAllBtn: document.getElementById('clearAllBtn'),
-  fileInput: document.getElementById('fileInput'),
+    // RPC Settings (dynamic)
+    rpcEndpointsList: document.getElementById('rpcEndpointsList'),
+    addRpcBtn: document.getElementById('addRpcBtn'),
 
-  // Version and toast
-  version: document.getElementById('version'),
-  toast: document.getElementById('toast')
-};
+    // Developer Settings
+    backendApiUrl: document.getElementById('backendApiUrl'),
+
+    // Storage info
+    storageBar: document.getElementById('storageBar'),
+    storageText: document.getElementById('storageText'),
+
+    // Buttons
+    saveBtn: document.getElementById('saveBtn'),
+    exportAllBtn: document.getElementById('exportAllBtn'),
+    importBtn: document.getElementById('importBtn'),
+    clearAllBtn: document.getElementById('clearAllBtn'),
+    fileInput: document.getElementById('fileInput'),
+
+    // Version and toast
+    version: document.getElementById('version'),
+    toast: document.getElementById('toast')
+  };
+
+  console.log('[KaiSign] Elements initialized:', {
+    rpcEndpointsList: !!elements.rpcEndpointsList,
+    addRpcBtn: !!elements.addRpcBtn,
+    saveBtn: !!elements.saveBtn
+  });
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+  initElements();
   loadSettings();
   loadStorageInfo();
   setupEventListeners();
@@ -46,33 +61,206 @@ async function init() {
 
 // Load settings from storage
 function loadSettings() {
+  console.log('[KaiSign] Loading settings...');
+
   chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, (response) => {
+    console.log('[KaiSign] GET_SETTINGS response:', response);
+
     const settings = response?.settings || {};
 
-    elements.maxTransactions.value = settings.maxTransactions || 100;
-    elements.autoExport.checked = settings.autoExport || false;
-    if (elements.theme) {
-      elements.theme.value = settings.theme || 'dark';
-    }
-    elements.notifications.checked = settings.notifications !== false;
-    elements.rpcTracking.checked = settings.rpcTracking !== false;
-    elements.securityAlerts.checked = settings.securityAlerts !== false;
+    if (elements.maxTransactions) elements.maxTransactions.value = settings.maxTransactions || 100;
+    if (elements.autoExport) elements.autoExport.checked = settings.autoExport || false;
+    if (elements.theme) elements.theme.value = settings.theme || 'dark';
+    if (elements.notifications) elements.notifications.checked = settings.notifications !== false;
 
     // Name Resolution settings
     if (elements.enableNameResolution) {
       elements.enableNameResolution.checked = settings.enableNameResolution !== false;
     }
 
+    // RPC settings - load into state and render
+    const rpcEndpoints = settings.rpcEndpoints || {};
+    console.log('[KaiSign] RPC endpoints from settings:', rpcEndpoints);
+
+    // Normalize keys to numbers and store in state
+    rpcEndpointsState = {};
+    for (const [chainId, url] of Object.entries(rpcEndpoints)) {
+      if (url && url.trim()) {
+        rpcEndpointsState[parseInt(chainId, 10)] = url.trim();
+      }
+    }
+
+    // Render RPC endpoints
+    renderRpcEndpoints();
+
     // Developer settings
     if (elements.backendApiUrl) {
       elements.backendApiUrl.value = settings.backendApiUrl || '';
     }
-    if (elements.sepoliaRpcUrl) {
-      elements.sepoliaRpcUrl.value = settings.sepoliaRpcUrl || '';
+
+    console.log('[KaiSign] Settings loaded successfully');
+  });
+}
+
+// Create placeholder message for empty RPC list
+function createRpcPlaceholder() {
+  const p = document.createElement('p');
+  p.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
+  p.textContent = 'No custom RPC endpoints configured. Click "Add Chain" to add one.';
+  return p;
+}
+
+// Render RPC endpoints list
+function renderRpcEndpoints() {
+  if (!elements.rpcEndpointsList) return;
+
+  // Clear existing content
+  while (elements.rpcEndpointsList.firstChild) {
+    elements.rpcEndpointsList.removeChild(elements.rpcEndpointsList.firstChild);
+  }
+
+  const chainIds = Object.keys(rpcEndpointsState).map(Number).sort((a, b) => a - b);
+
+  // If no endpoints, show placeholder
+  if (chainIds.length === 0) {
+    elements.rpcEndpointsList.appendChild(createRpcPlaceholder());
+    return;
+  }
+
+  for (const chainId of chainIds) {
+    const url = rpcEndpointsState[chainId];
+    const row = createRpcEndpointRow(chainId, url);
+    elements.rpcEndpointsList.appendChild(row);
+  }
+}
+
+// Create a single RPC endpoint row element using safe DOM methods
+function createRpcEndpointRow(chainId = '', url = '') {
+  const row = document.createElement('div');
+  row.className = 'rpc-endpoint-row';
+  row.dataset.chainId = chainId;
+
+  // Chain ID container
+  const chainDiv = document.createElement('div');
+  chainDiv.className = 'rpc-chain-id';
+
+  const chainLabel = document.createElement('label');
+  chainLabel.textContent = 'Chain ID';
+  chainDiv.appendChild(chainLabel);
+
+  const chainInput = document.createElement('input');
+  chainInput.type = 'number';
+  chainInput.className = 'rpc-chain-input';
+  chainInput.value = chainId;
+  chainInput.placeholder = 'e.g., 1';
+  chainInput.min = '1';
+  chainDiv.appendChild(chainInput);
+
+  // URL container
+  const urlDiv = document.createElement('div');
+  urlDiv.className = 'rpc-url';
+
+  const urlLabel = document.createElement('label');
+  urlLabel.textContent = 'RPC URL';
+  urlDiv.appendChild(urlLabel);
+
+  const urlInput = document.createElement('input');
+  urlInput.type = 'text';
+  urlInput.className = 'rpc-url-input';
+  urlInput.value = url;
+  urlInput.placeholder = 'https://...';
+  urlDiv.appendChild(urlInput);
+
+  // Remove button
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'rpc-remove-btn';
+  removeBtn.title = 'Remove';
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('fill', 'currentColor');
+
+  const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path1.setAttribute('d', 'M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z');
+  svg.appendChild(path1);
+
+  const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path2.setAttribute('fill-rule', 'evenodd');
+  path2.setAttribute('d', 'M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4L4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z');
+  svg.appendChild(path2);
+
+  removeBtn.appendChild(svg);
+
+  // Assemble row
+  row.appendChild(chainDiv);
+  row.appendChild(urlDiv);
+  row.appendChild(removeBtn);
+
+  // Add remove button handler
+  removeBtn.addEventListener('click', () => {
+    const currentChainId = row.dataset.chainId;
+    if (currentChainId) {
+      delete rpcEndpointsState[parseInt(currentChainId, 10)];
+    }
+    row.remove();
+
+    // Show placeholder if list is empty
+    if (Object.keys(rpcEndpointsState).length === 0 && elements.rpcEndpointsList.children.length === 0) {
+      elements.rpcEndpointsList.appendChild(createRpcPlaceholder());
+    }
+  });
+
+  // Track chain ID changes
+  chainInput.addEventListener('change', () => {
+    const oldChainId = row.dataset.chainId;
+    const newChainId = parseInt(chainInput.value, 10);
+
+    // Remove old entry from state
+    if (oldChainId) {
+      delete rpcEndpointsState[parseInt(oldChainId, 10)];
     }
 
-    console.log('[KaiSign] Settings loaded:', settings);
+    // Update row's chainId reference
+    if (!isNaN(newChainId) && newChainId > 0) {
+      row.dataset.chainId = newChainId;
+      if (urlInput.value.trim()) {
+        rpcEndpointsState[newChainId] = urlInput.value.trim();
+      }
+    } else {
+      row.dataset.chainId = '';
+    }
   });
+
+  // Track URL changes
+  urlInput.addEventListener('change', () => {
+    const currentChainId = parseInt(row.dataset.chainId, 10);
+    if (!isNaN(currentChainId) && currentChainId > 0) {
+      if (urlInput.value.trim()) {
+        rpcEndpointsState[currentChainId] = urlInput.value.trim();
+      } else {
+        delete rpcEndpointsState[currentChainId];
+      }
+    }
+  });
+
+  return row;
+}
+
+// Add a new RPC endpoint row
+function addRpcEndpoint() {
+  // Remove placeholder if present
+  const placeholder = elements.rpcEndpointsList.querySelector('p');
+  if (placeholder) {
+    placeholder.remove();
+  }
+
+  const row = createRpcEndpointRow('', '');
+  elements.rpcEndpointsList.appendChild(row);
+
+  // Focus the chain ID input
+  const chainInput = row.querySelector('.rpc-chain-input');
+  chainInput.focus();
 }
 
 // Load storage info
@@ -127,21 +315,45 @@ function setupEventListeners() {
 
   // Update storage info when max transactions changes
   elements.maxTransactions.addEventListener('change', loadStorageInfo);
+
+  // Add RPC endpoint
+  if (elements.addRpcBtn) {
+    elements.addRpcBtn.addEventListener('click', addRpcEndpoint);
+  }
 }
 
 // Save settings
 function saveSettings() {
+  // Collect RPC endpoints from current DOM state (in case user hasn't blurred inputs)
+  const rpcEndpoints = {};
+  if (elements.rpcEndpointsList) {
+    const rows = elements.rpcEndpointsList.querySelectorAll('.rpc-endpoint-row');
+    rows.forEach(row => {
+      const chainInput = row.querySelector('.rpc-chain-input');
+      const urlInput = row.querySelector('.rpc-url-input');
+      const chainId = parseInt(chainInput?.value, 10);
+      const url = urlInput?.value?.trim();
+
+      if (!isNaN(chainId) && chainId > 0 && url) {
+        rpcEndpoints[chainId] = url;
+      }
+    });
+  }
+
+  // Update state to match what we're saving
+  rpcEndpointsState = { ...rpcEndpoints };
+
   const settings = {
-    maxTransactions: parseInt(elements.maxTransactions.value) || 100,
-    autoExport: elements.autoExport.checked,
-    theme: elements.theme ? elements.theme.value : 'dark',
-    notifications: elements.notifications.checked,
-    rpcTracking: elements.rpcTracking.checked,
-    securityAlerts: elements.securityAlerts.checked,
-    enableNameResolution: elements.enableNameResolution ? elements.enableNameResolution.checked : true,
-    backendApiUrl: elements.backendApiUrl?.value.trim() || '',
-    sepoliaRpcUrl: elements.sepoliaRpcUrl?.value.trim() || ''
+    maxTransactions: parseInt(elements.maxTransactions?.value) || 100,
+    autoExport: elements.autoExport?.checked || false,
+    theme: elements.theme?.value || 'dark',
+    notifications: elements.notifications?.checked !== false,
+    enableNameResolution: elements.enableNameResolution?.checked !== false,
+    rpcEndpoints: rpcEndpoints,
+    backendApiUrl: elements.backendApiUrl?.value?.trim() || ''
   };
+
+  console.log('[KaiSign] Saving settings:', settings);
 
   // Validate max transactions
   if (settings.maxTransactions < 10) settings.maxTransactions = 10;

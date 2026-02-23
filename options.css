@@ -292,6 +292,7 @@ input[type="text"]::placeholder {
 /* Toggle Switch */
 .toggle {
   position: relative;
+  display: inline-block;
   width: 44px;
   height: 24px;
 }
@@ -531,6 +532,69 @@ input[type="text"]::placeholder {
   border-color: var(--accent-red);
 }
 
+/* RPC Endpoints List */
+.rpc-endpoints-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.rpc-endpoint-row {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+  padding: var(--space-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.rpc-chain-id {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.rpc-chain-id input {
+  width: 100%;
+}
+
+.rpc-url {
+  flex: 1;
+  min-width: 0;
+}
+
+.rpc-url input {
+  width: 100%;
+}
+
+.rpc-remove-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  margin-top: 22px;
+}
+
+.rpc-remove-btn:hover {
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.rpc-remove-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
   .settings-container {
@@ -555,5 +619,19 @@ input[type="text"]::placeholder {
   input[type="number"],
   select {
     width: 100%;
+  }
+
+  .rpc-endpoint-row {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .rpc-chain-id {
+    width: 100%;
+  }
+
+  .rpc-remove-btn {
+    margin-top: 0;
+    align-self: flex-end;
   }
 }
