@@ -5,10 +5,10 @@
 console.log('[KaiSign] Content script loading...');
 
 // Guard against double execution (manifest + dynamic injection fallback)
+// Uses if/else block scope so `const` declarations don't cause SyntaxError on reload
 if (window.__KAISIGN_LOADED) {
   console.log('[KaiSign] Already loaded, skipping');
-  throw new Error('KaiSign already loaded');
-}
+} else {
 window.__KAISIGN_LOADED = true;
 console.log('[KaiSign] Content script initialized');
 
@@ -1067,6 +1067,32 @@ function parsePermit2TypedData(typedData) {
     };
   }
 
+  // Handle Order types (CoW Protocol, etc.) with semantic labels
+  if (primaryType === 'Order' && message.sellToken && message.buyToken) {
+    // Use plain text truncation (no HTML) - HTML formatting happens at render time
+    const truncateAddr = (addr) => addr ? `${addr.slice(0, 10)}...${addr.slice(-8)}` : 'Unknown';
+    const sellToken = truncateAddr(message.sellToken);
+    const buyToken = truncateAddr(message.buyToken);
+    const sellAmount = message.sellAmount?.toString() || '0';
+    const buyAmount = message.buyAmount?.toString() || '0';
+    const kind = message.kind || 'swap';
+
+    return {
+      intent: `${kind === 'sell' ? 'Sell' : kind === 'buy' ? 'Buy' : 'Swap'} Order`,
+      details: [
+        `Sell Token: ${sellToken}`,
+        `Buy Token: ${buyToken}`,
+        `Receiver: ${message.receiver ? truncateAddr(message.receiver) : 'Self'}`,
+        `Sell Amount: ${sellAmount}`,
+        `Buy Amount: ${buyAmount}`,
+        `Valid Until: ${message.validTo ? new Date(parseInt(message.validTo) * 1000).toLocaleString() : 'N/A'}`,
+        `Fee: ${message.feeAmount?.toString() || '0'}`,
+        `Order Type: ${kind}`,
+        `Partial Fill: ${message.partiallyFillable ? 'Yes' : 'No'}`
+      ].filter(d => !d.includes('undefined'))
+    };
+  }
+
   // Handle generic typed data - extract all fields recursively
   if (types && types[primaryType]) {
     const fields = extractTypedDataFields(message, types, primaryType);
@@ -1332,7 +1358,7 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
       if (eip712Metadata) {
         KAISIGN_DEBUG && console.log('[KaiSign] Found EIP-712 metadata for', primaryType);
         updateLoadingStatus(`Found metadata for ${primaryType}`);
-        const displayData = window.formatEIP712Display(typedData, eip712Metadata);
+        const displayData = await window.formatEIP712Display(typedData, eip712Metadata);
 
         // Generic: decode nested transaction data if present (works for any typed data with embedded calldata)
         // Look for common patterns: message.data + message.to (calldata to contract)
@@ -1533,7 +1559,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
           ${displayData.nestedIntents.map((intent, i) => `
             <div class="kaisign-intent-row">
               <span class="kaisign-intent-num">${i + 1}.</span>
-              <span class="kaisign-intent-text">${escapeHtml(intent)}</span>
+              <span class="kaisign-intent-text">${intent}</span>
             </div>
           `).join('')}
         </div>
@@ -3640,3 +3666,5 @@ if (document.readyState === 'loading') {
 } else {
   startKaiSign();
 }
+
+} // End of duplicate-load guard

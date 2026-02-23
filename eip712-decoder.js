@@ -226,8 +226,52 @@ async function applyEIP712FieldFormat(rawValue, fieldSpec, typedData) {
       return { value: new Date(num * 1000).toLocaleString() };
     }
 
+    case 'addressName': {
+      // Same as 'address' - resolve to name or truncate
+      const addr = String(rawValue || '');
+      const result = { value: addr.length > 12 ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : addr, rawAddress: addr };
+
+      const chainId = typedData?.domain?.chainId || 1;
+      if (window.metadataService && addr) {
+        try {
+          const meta = await Promise.race([
+            window.metadataService.getContractMetadata(addr, chainId),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+          ]);
+          if (meta?.metadata?.owner) {
+            result.value = meta.metadata.owner;
+            result.contractName = meta.metadata.owner;
+          }
+        } catch { /* ignore */ }
+
+        // Try token metadata as fallback (for token addresses)
+        if (!result.contractName) {
+          try {
+            const tokenMeta = await Promise.race([
+              window.metadataService.getTokenMetadata(addr, chainId),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+            ]);
+            if (tokenMeta?.symbol) {
+              result.value = tokenMeta.symbol;
+              result.tokenSymbol = tokenMeta.symbol;
+            }
+          } catch { /* ignore */ }
+        }
+      }
+      return result;
+    }
+
     case 'integer': {
       return { value: String(rawValue) };
+    }
+
+    case 'string': {
+      return { value: String(rawValue ?? '') };
+    }
+
+    case 'boolean': {
+      const boolVal = rawValue === true || rawValue === 'true';
+      return { value: boolVal ? 'Yes' : 'No' };
     }
 
     default: {
@@ -309,6 +353,9 @@ async function formatEIP712Display(typedData, metadata) {
     const buyTokenField = displayData.fields.find(f => f.path === 'buyToken');
     if (sellTokenField?.tokenSymbol) displayData.sellSymbol = sellTokenField.tokenSymbol;
     if (buyTokenField?.tokenSymbol) displayData.buySymbol = buyTokenField.tokenSymbol;
+
+    // Populate nestedIntents from formatted fields to prevent fallback override
+    displayData.nestedIntents = displayData.fields.map(f => `${f.label}: ${f.value}`);
   }
 
   return displayData;
