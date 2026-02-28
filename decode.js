@@ -173,6 +173,20 @@ class SimpleInterface {
    * @returns {{value: any, size: number}}
    */
   decodeStaticType(type, paramData, offset, input = null) {
+    // Fixed-size arrays MUST be checked first, before scalar type checks
+    // (e.g., uint256[5] starts with 'uint' but is an array, not a scalar)
+    const fixedArr = this.parseArrayType(type);
+    if (fixedArr && fixedArr.size !== null && !this.isDynamicType(fixedArr.baseType, input)) {
+      const results = [];
+      let arrOffset = 0;
+      for (let i = 0; i < fixedArr.size; i++) {
+        const { value, size } = this.decodeStaticType(fixedArr.baseType, paramData, offset + arrOffset, input);
+        results.push(value);
+        arrOffset += size;
+      }
+      return { value: results, size: arrOffset };
+    }
+
     // Address: 20 bytes right-padded in 32 bytes
     if (type === 'address') {
       const rawAddr = this.safeSlice(paramData, offset + 24, offset + 64);
@@ -234,19 +248,6 @@ class SimpleInterface {
         value: lastByte !== '00',
         size: 64
       };
-    }
-
-    // Fixed-size arrays of static types: T[N] where T is static
-    const fixedArr = this.parseArrayType(type);
-    if (fixedArr && fixedArr.size !== null && !this.isDynamicType(fixedArr.baseType, input)) {
-      const results = [];
-      let arrOffset = 0;
-      for (let i = 0; i < fixedArr.size; i++) {
-        const { value, size } = this.decodeStaticType(fixedArr.baseType, paramData, offset + arrOffset, input);
-        results.push(value);
-        arrOffset += size;
-      }
-      return { value: results, size: arrOffset };
     }
 
     // Tuple (struct) - static tuples only
@@ -681,13 +682,20 @@ async function decodeCalldata(data, contractAddress, chainId) {
           }
         } else if (fieldDef?.format === 'tokenAmount' && fieldDef.params?.tokenPath) {
           // Dynamic token lookup - resolve decimals/symbol from token address in another param
-          const tokenAddress = rawParams[fieldDef.params.tokenPath];
+          // Support ERC-7730 paths like "_route.[0]" via resolveFieldPath
+          let tokenAddress = rawParams[fieldDef.params.tokenPath];
+          if (tokenAddress === undefined) {
+            tokenAddress = resolveFieldPath(fieldDef.params.tokenPath, rawParams);
+          }
           if (tokenAddress && typeof tokenAddress === 'string' && tokenAddress.length >= 10) {
             try {
               let decimals = 18, symbol = '';
               const normalizedAddr = tokenAddress.toLowerCase();
-              if (normalizedAddr === '0x0000000000000000000000000000000000000000' ||
-                  normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+              const nativeCurrency = fieldDef.params.nativeCurrencyAddress;
+              const isNative = normalizedAddr === '0x0000000000000000000000000000000000000000' ||
+                normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+                (nativeCurrency && normalizedAddr === nativeCurrency.toLowerCase());
+              if (isNative) {
                 decimals = 18; symbol = 'ETH';
               } else if (window.metadataService) {
                 const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
@@ -710,6 +718,68 @@ async function decodeCalldata(data, contractAddress, chainId) {
           format: fieldDef?.format || (input.type === 'address' ? 'address' :
                                        input.type === 'uint256' ? 'token' : 'raw'),
           params: fieldDef?.params || {}
+        };
+      }
+
+      // ERC-7730: Process fields with sub-paths (e.g., "_route.[0]", "order.token")
+      // These reference specific elements within decoded arrays/tuples
+      for (const [fieldPath, fieldDef] of Object.entries(fieldInfo)) {
+        // Skip if already handled as a top-level param or if it's a calldata field
+        if (rawParams[fieldPath] !== undefined || fieldDef.format === 'calldata') continue;
+
+        // Try to resolve the sub-path value from decoded params
+        const resolvedValue = resolveFieldPath(fieldPath, rawParams);
+        if (resolvedValue === undefined) continue;
+
+        let rawValue;
+        if (resolvedValue && typeof resolvedValue === 'object' && '_isBigNumber' in resolvedValue) {
+          rawValue = resolvedValue._value !== undefined ? resolvedValue._value : String(resolvedValue);
+        } else {
+          rawValue = String(resolvedValue || '');
+        }
+
+        let displayValue = rawValue;
+
+        // Apply tokenAmount formatting for sub-path fields
+        if (fieldDef.format === 'tokenAmount' && fieldDef.params?.tokenPath) {
+          let tokenAddress = rawParams[fieldDef.params.tokenPath];
+          if (tokenAddress === undefined) {
+            tokenAddress = resolveFieldPath(fieldDef.params.tokenPath, rawParams);
+          }
+          if (tokenAddress && typeof tokenAddress === 'string' && tokenAddress.length >= 10) {
+            try {
+              let decimals = 18, symbol = '';
+              const normalizedAddr = tokenAddress.toLowerCase();
+              const nativeCurrency = fieldDef.params.nativeCurrencyAddress;
+              const isNative = normalizedAddr === '0x0000000000000000000000000000000000000000' ||
+                normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+                (nativeCurrency && normalizedAddr === nativeCurrency.toLowerCase());
+              if (isNative) {
+                decimals = 18; symbol = 'ETH';
+              } else if (typeof window !== 'undefined' && window.metadataService) {
+                const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
+                decimals = tokenInfo.decimals || 18;
+                symbol = tokenInfo.symbol || '';
+              }
+              displayValue = formatTokenAmount(rawValue, decimals, symbol);
+            } catch (e) {
+              // Fall through to raw display
+            }
+          }
+        } else if (fieldDef.format === 'addressName') {
+          // Keep raw address, wallet resolves names
+          displayValue = rawValue;
+        }
+
+        // Use the field path as key (avoiding conflicts with ABI param names)
+        const formattedKey = fieldPath.replace(/\.\[/g, '[').replace(/\]/g, ']');
+        params[formattedKey] = rawValue;
+        formatted[formattedKey] = {
+          label: fieldDef.label || formattedKey,
+          value: displayValue,
+          rawValue: rawValue,
+          format: fieldDef.format || 'raw',
+          params: fieldDef.params || {}
         };
       }
     } else {

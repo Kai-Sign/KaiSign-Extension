@@ -106,6 +106,18 @@ export class LocalMetadataService {
             }
           }
 
+          // ERC-7730: Also index by deployments[].address for non-facet contracts
+          if (!facetOf) {
+            const deployments = metadata.context?.contract?.deployments;
+            if (Array.isArray(deployments)) {
+              for (const dep of deployments) {
+                if (dep.address) {
+                  this.addressToFilePath.set(dep.address.toLowerCase(), fullPath);
+                }
+              }
+            }
+          }
+
           if (address) {
             this.addressToFilePath.set(address, fullPath);
           }

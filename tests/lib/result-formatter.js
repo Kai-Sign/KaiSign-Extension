@@ -245,26 +245,31 @@ export class ResultFormatter {
           }
         }
 
-        // Decode 0x transformations
+        // Decode 0x transformations (only for objects with deploymentNonce)
         if ((labelLower.includes('route') || keyLower === 'transformations') &&
             typeof rawValue === 'string' && rawValue.startsWith('[')) {
           try {
             const parsed = JSON.parse(rawValue);
-            const decoded = decode0xTransformations(parsed);
-            if (decoded) {
-              displayValue = `[${decoded.join(' → ')}]`;
+            if (parsed.length > 0 && parsed[0]?.deploymentNonce !== undefined) {
+              const decoded = decode0xTransformations(parsed);
+              if (decoded) {
+                displayValue = `[${decoded.join(' → ')}]`;
+              }
             }
           } catch {}
         }
 
-        // Decode 1inch pools
+        // Decode 1inch pools (only for 1inch-style BigNumber arrays, not address arrays)
         if ((labelLower.includes('route') || keyLower === 'pools') &&
             typeof rawValue === 'string' && rawValue.startsWith('[')) {
           try {
             const parsed = JSON.parse(rawValue);
-            const decoded = decode1inchPools(parsed);
-            if (decoded) {
-              displayValue = `[${decoded.join(' → ')}]`;
+            // Only decode as 1inch pools if elements have _hex property (BigNumber format)
+            if (parsed.length > 0 && parsed[0]?._hex) {
+              const decoded = decode1inchPools(parsed);
+              if (decoded) {
+                displayValue = `[${decoded.join(' → ')}]`;
+              }
             }
           } catch {}
         }
