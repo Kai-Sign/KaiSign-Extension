@@ -1649,10 +1649,13 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
       // Use TOKEN placeholder - metadata fetch will fail
       symbol = 'TOKEN';
     } else if (tokenAddress) {
-      // Handle native ETH addresses
+      // Handle native ETH addresses (including ERC-7730 nativeCurrencyAddress)
       const normalizedAddr = tokenAddress.toLowerCase();
-      if (normalizedAddr === '0x0000000000000000000000000000000000000000' ||
-          normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+      const nativeCurrency = params.nativeCurrencyAddress;
+      const isNative = normalizedAddr === '0x0000000000000000000000000000000000000000' ||
+        normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+        (nativeCurrency && normalizedAddr === nativeCurrency.toLowerCase());
+      if (isNative) {
         decimals = 18;
         symbol = 'ETH';
       } else {
