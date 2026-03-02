@@ -148,7 +148,7 @@ Want to add support for a new protocol? See the [Contributing Guide](CONTRIBUTIN
 
 ## Funding
 
-KaiSign is supported by an [ENS Public Goods](https://ensgrants.xyz/) grant. We're grateful to the ENS ecosystem for supporting open source Ethereum tooling.
+KaiSign is supported by an [ENS Public Goods](https://builder.ensgrants.xyz/) grant. We're grateful to the ENS ecosystem for supporting open source Ethereum tooling.
 
 ## Contributing
 
