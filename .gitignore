@@ -8,3 +8,24 @@ local-metadata
 # Test dependencies
 tests/node_modules/
 tests/.env
+tests/test-results/
+
+# Build artifacts
+*.zip
+*.crx
+
+# Dev tools / generated
+crawler/
+untracked/
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

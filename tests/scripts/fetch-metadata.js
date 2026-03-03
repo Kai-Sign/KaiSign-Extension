@@ -17,7 +17,6 @@ const __dirname = path.dirname(__filename);
 
 // Load env from parent project if exists
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../../Kai-Sign-Builder/.env') });
 
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || '';
 const KAISIGN_API_URL = 'https://kai-sign-production.up.railway.app/api/py/contract';

@@ -8,8 +8,8 @@ if (window.metadataService) {
   console.log('[KaiSign] Subgraph metadata service already loaded, skipping');
 } else {
 
-console.log('[KaiSign] Subgraph metadata service loading... (DEBUG BUILD v2025.02.15)');
-const KAISIGN_DEBUG = true;  // Enable for debugging Safe wrapper issue
+console.log('[KaiSign] Subgraph metadata service loading...');
+const KAISIGN_DEBUG = false;
 
 
 class SubgraphMetadataService {

@@ -17,7 +17,6 @@ const __dirname = path.dirname(__filename);
 
 // Load env
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../../Kai-Sign-Builder/.env') });
 
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || '';
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL || 'https://eth-mainnet.g.alchemy.com/v2/demo';

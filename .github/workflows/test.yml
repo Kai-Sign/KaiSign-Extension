@@ -32,7 +32,6 @@ jobs:
     - name: Run intent decoder tests
       working-directory: ./tests
       env:
-        CURVEGRID_JWT: ${{ secrets.CURVEGRID_JWT }}
         ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
         ALCHEMY_API: ${{ secrets.ALCHEMY_API }}
       run: npm test
