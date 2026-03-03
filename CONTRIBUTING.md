@@ -1,6 +1,6 @@
-# Contributing to KaiSign
+# Contributing to KaiSign Extension
 
-Thanks for your interest in contributing! KaiSign is under active development and PRs are welcome — whether you're fixing a decoding bug, adding a new protocol, or improving the UI.
+Thanks for your interest in contributing! **KaiSign Extension** is a Chrome extension that uses the [KaiSign](https://github.com/Kai-Sign) on-chain metadata registry for transaction decoding and verification. It's under active development and PRs are welcome — whether you're fixing a decoding bug, adding a new protocol, or improving the UI.
 
 ## Getting Started
 
@@ -68,6 +68,26 @@ This is the most impactful way to contribute. Many contracts and protocols don't
    ```
 
 4. **Submit a PR** — include the protocol name, contract address, and which functions you added.
+
+### Local Development Server
+
+You can test metadata changes live in the browser before submitting a PR:
+
+1. **Start the local server:**
+   ```bash
+   cd tests
+   npm install
+   npm run local-server
+   ```
+
+2. **Point the extension at it:**
+   - Open extension options (right-click extension icon → Options)
+   - Set **Backend API URL** to `http://localhost:3000`
+   - Save settings
+
+3. **Iterate:** Edit your metadata JSON in `tests/fixtures/metadata/protocols/`, restart the server, and trigger the transaction on a dapp to see your changes decoded in real time.
+
+The local server falls back to the production API for any contract not found in your local fixtures, so the extension continues to work normally for all other transactions.
 
 ### Finding Missing Protocols
 

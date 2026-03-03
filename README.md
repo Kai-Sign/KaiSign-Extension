@@ -1,18 +1,20 @@
-# KaiSign
+# KaiSign Extension
 
 [![CI](https://github.com/Kai-Sign/KaiSign-Extension/actions/workflows/test.yml/badge.svg)](https://github.com/Kai-Sign/KaiSign-Extension/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-KaiSign-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/kaisign/YOUR_EXTENSION_ID)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-KaiSign-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/kaisign/lifhfmmakjideolgpkohjimgfigcmjnh)
 
-**Transaction analysis and clear signing for Ethereum wallets.**
+**A Chrome extension for transaction analysis and clear signing on Ethereum.**
 
-> KaiSign intercepts `eth_sendTransaction` and `eth_signTypedData` calls in your browser, decodes the calldata using [ERC-7730](https://eips.ethereum.org/EIPS/eip-7730) metadata, and presents a human-readable summary before you sign.
+> This extension intercepts `eth_sendTransaction` and `eth_signTypedData` calls in your browser, decodes the calldata using [ERC-7730](https://eips.ethereum.org/EIPS/eip-7730) metadata, and presents a human-readable summary before you sign.
+>
+> **KaiSign** is the on-chain metadata registry and verification platform. This repository contains the **KaiSign Extension** — a browser-based client that reads ERC-7730 metadata (from the KaiSign API or local fixtures) and verifies it against the [KaiSign Registry](https://github.com/Kai-Sign) on Sepolia.
 
 ---
 
 ## Status & Contributions
 
-KaiSign is under **active development**. Some transaction decoding may not work for all contracts or protocols yet — coverage is expanding with every release.
+KaiSign Extension is under **active development**. Some transaction decoding may not work for all contracts or protocols yet — coverage is expanding with every release.
 
 **PRs are welcome and encouraged.** Whether it's adding metadata for a new protocol, fixing a decoding edge case, or improving the UI, we'd love your help. The team will improve functionality where needed based on community feedback.
 
@@ -35,7 +37,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
 ### Chrome Web Store
 
-Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/kaisign/YOUR_EXTENSION_ID).
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/kaisign/lifhfmmakjideolgpkohjimgfigcmjnh).
 
 ### From Source
 
@@ -85,6 +87,8 @@ The extension uses Chrome's Manifest V3 with two content script worlds:
 - **MAIN world** scripts share the page's JS context and can intercept wallet provider calls
 - **ISOLATED world** bridge forwards messages to the background service worker for network requests (CORS bypass)
 
+When a transaction is intercepted, the extension fetches ERC-7730 metadata from the KaiSign API (or a local server during development), decodes the calldata into human-readable fields, and optionally verifies the metadata on-chain against the KaiSign Registry on Sepolia.
+
 ## Supported Protocols
 
 | Category | Protocols |
@@ -115,6 +119,36 @@ npm test
 
 Some tests require API keys — see [`tests/.env.example`](tests/.env.example) for the template.
 
+### Using Local Metadata
+
+For developing and testing metadata before submitting to the production registry:
+
+1. Start the local metadata server:
+   ```bash
+   cd tests
+   npm install
+   npm run local-server
+   ```
+
+2. Configure the extension to use local metadata:
+   - Open extension options (right-click extension icon → Options)
+   - Set **Backend API URL** to `http://localhost:3000`
+   - Save settings
+
+3. Add metadata JSON files to `tests/fixtures/metadata/protocols/`
+
+The local server mirrors the production API and falls back to production for contracts not found locally. Available endpoints:
+- `GET /api/py/contract/:address?chain_id=N&selector=S`
+- `GET /api/py/eip712/:contract/:primaryType`
+- `GET /api/contracts` — list all indexed contracts
+- `GET /health` — server status
+
+Alternatively, enable dev mode via browser console on any dapp page:
+```js
+localStorage.setItem('kaisign_dev_mode', 'true');
+localStorage.setItem('kaisign_local_api', 'http://localhost:3000');
+```
+
 ### Project Structure
 
 ```
@@ -143,12 +177,13 @@ Some tests require API keys — see [`tests/.env.example`](tests/.env.example) f
 Want to add support for a new protocol? See the [Contributing Guide](CONTRIBUTING.md#adding-protocol-support) for details. In short:
 
 1. Create an ERC-7730 metadata JSON file in `tests/fixtures/metadata/protocols/`
-2. Add test cases with real calldata
-3. Submit a PR
+2. Test locally using the [local metadata server](#using-local-metadata)
+3. Add test cases with real calldata
+4. Submit a PR
 
 ## Funding
 
-KaiSign is supported by an [ENS Public Goods](https://builder.ensgrants.xyz/) grant. We're grateful to the ENS ecosystem for supporting open source Ethereum tooling.
+KaiSign Extension is supported by an [ENS Public Goods](https://builder.ensgrants.xyz/) grant. We're grateful to the ENS ecosystem for supporting open source Ethereum tooling.
 
 ## Contributing
 
