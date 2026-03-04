@@ -181,6 +181,12 @@ Want to add support for a new protocol? See the [Contributing Guide](CONTRIBUTIN
 3. Add test cases with real calldata
 4. Submit a PR
 
+## Smart Contracts
+
+The KaiSign Registry smart contracts live in a separate repository:
+
+- **[v1-core](https://github.com/Kai-Sign/v1-core)** — KaiSign Registry contracts (Sepolia). The latest version is currently under development and undergoing audits.
+
 ## Funding
 
 KaiSign Extension is supported by an [ENS Public Goods](https://builder.ensgrants.xyz/) grant. We're grateful to the ENS ecosystem for supporting open source Ethereum tooling.
