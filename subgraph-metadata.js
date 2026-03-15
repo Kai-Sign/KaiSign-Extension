@@ -9,7 +9,15 @@ if (window.metadataService) {
 } else {
 
 console.log('[KaiSign] Subgraph metadata service loading...');
-const KAISIGN_DEBUG = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('kaisign_dev_mode') === 'true') || false;
+function getKaiSignDebugFlag() {
+  try {
+    return typeof window !== 'undefined' && window.localStorage?.getItem('kaisign_dev_mode') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+const KAISIGN_DEBUG = getKaiSignDebugFlag();
 
 
 class SubgraphMetadataService {

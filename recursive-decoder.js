@@ -7,7 +7,15 @@ if (window.recursiveCalldataDecoder) {
   console.log('[KaiSign] Recursive decoder already loaded, skipping');
 } else {
 
-const KAISIGN_DEBUG = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('kaisign_dev_mode') === 'true') || false;
+function getKaiSignDebugFlag() {
+  try {
+    return typeof window !== 'undefined' && window.localStorage?.getItem('kaisign_dev_mode') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+const KAISIGN_DEBUG = getKaiSignDebugFlag();
 
 /**
  * RecursiveCalldataDecoder - Decodes nested calldata using ERC-7730 metadata
@@ -863,13 +871,13 @@ class RecursiveCalldataDecoder {
    * @returns {Promise<object|null>}
    */
   async getMetadata(address, chainId, selector = null) {
-    console.log(`[RecursiveDecoder] getMetadata called: address=${address}, chainId=${chainId}, selector=${selector || '(none)'}`);
+    KAISIGN_DEBUG && console.log(`[RecursiveDecoder] getMetadata called: address=${address}, chainId=${chainId}, selector=${selector || '(none)'}`);
     if (window.metadataService) {
       const result = await window.metadataService.getContractMetadata(address, chainId, selector);
-      console.log(`[RecursiveDecoder] getMetadata result: ${result ? 'FOUND' : 'NOT FOUND'}`);
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] getMetadata result: ${result ? 'FOUND' : 'NOT FOUND'}`);
       return result;
     }
-    console.log(`[RecursiveDecoder] getMetadata: No metadataService available`);
+    KAISIGN_DEBUG && console.log(`[RecursiveDecoder] getMetadata: No metadataService available`);
     return null;
   }
 }

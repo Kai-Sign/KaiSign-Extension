@@ -141,21 +141,21 @@ export const CONTRACTS = {
       address: '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
       chainId: 1,
       functions: ['swap', 'joinPool', 'exitPool'],
-      metadataFile: 'dex/balancer-vault-v2.json'
+      metadataFile: 'protocols/balancer-vault-v2.json'
     },
     sushiSwapRouterV3: {
       name: 'SushiSwap Router V3',
       address: '0x827179dD56d07A7eeA32e3873493835da2866976',
       chainId: 1,
       functions: ['exactInputSingle', 'exactInput', 'multicall'],
-      metadataFile: 'dex/sushiswap-router-v3.json'
+      metadataFile: 'protocols/sushiswap-router-v3.json'
     },
     pancakeSwapSmartRouterV3: {
       name: 'PancakeSwap Smart Router V3',
       address: '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4',
       chainId: 1,
       functions: ['exactInputSingle', 'exactInput', 'multicall'],
-      metadataFile: 'dex/pancakeswap-smart-router-v3.json'
+      metadataFile: 'protocols/pancakeswap-smart-router-v3.json'
     }
   },
 
@@ -247,7 +247,7 @@ export const CONTRACTS = {
       address: '0x889edC2BdB48866702480d17344cD3124Ac9681E',
       chainId: 1,
       functions: ['requestWithdrawals', 'requestWithdrawalsWstETH', 'claimWithdrawals', 'claimWithdrawal'],
-      metadataFile: 'staking/lido-withdrawal-queue.json'
+      metadataFile: 'protocols/lido-withdrawal-queue.json'
     },
     rocketPoolStorage: {
       name: 'Rocket Pool Storage',
@@ -275,14 +275,14 @@ export const CONTRACTS = {
       address: '0xF403C135812408BFbE8713b5A23a04b3D48AAE31',
       chainId: 1,
       functions: ['deposit', 'depositAll', 'withdraw', 'withdrawAll'],
-      metadataFile: 'staking/convex-booster.json'
+      metadataFile: 'protocols/convex-booster.json'
     },
     convexCvxCRVStaking: {
       name: 'Convex cvxCRV Staking',
       address: '0x3Fe65692bfCD0e6CF84Cb1E7d24108E434A7587e',
       chainId: 1,
       functions: ['stake', 'withdraw', 'getReward', 'stakeAll', 'withdrawAll'],
-      metadataFile: 'staking/convex-cvxcrv-staking.json'
+      metadataFile: 'protocols/convex-cvxcrv-staking.json'
     }
   },
 

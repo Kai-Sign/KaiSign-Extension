@@ -7,7 +7,15 @@ if (window.SimpleInterface) {
 } else {
 
 console.log('[decode.js] VERSION 2.1 LOADED - formatTokenAmount FIXED');
-const KAISIGN_DEBUG = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('kaisign_dev_mode') === 'true') || false;
+function getKaiSignDebugFlag() {
+  try {
+    return typeof window !== 'undefined' && window.localStorage?.getItem('kaisign_dev_mode') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+const KAISIGN_DEBUG = getKaiSignDebugFlag();
 
 // Simple keccak256 implementation for selector calculation
 // Uses SubtleCrypto when available, falls back to simple hash
