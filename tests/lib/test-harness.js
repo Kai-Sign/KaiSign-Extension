@@ -463,6 +463,17 @@ export class TestHarness {
 
       // Get EIP-712 metadata from service
       const metadata = await this.metadataService.getEIP712Metadata(verifyingContract, primaryType);
+      
+      // Format display if decoder is available
+      let formattedDisplay = null;
+      if (metadata?.matchedFormat && globalThis.window.formatEIP712Display) {
+        try {
+          formattedDisplay = await globalThis.window.formatEIP712Display(typedData, metadata);
+        } catch (e) {
+          console.warn('[TestHarness] formatEIP712Display failed:', e.message);
+        }
+      }
+      
       const duration = Date.now() - startTime;
 
       const result = {
@@ -472,9 +483,10 @@ export class TestHarness {
         chainId,
         metadata: !!metadata,
         matchedFormat: metadata?.matchedFormat || null,
-        intent: metadata?.matchedFormat?.intent || null,
-        fields: metadata?.matchedFormat?.fields || [],
-        _verification: metadata?._verification || null
+        intent: formattedDisplay?.intent || metadata?.matchedFormat?.intent || null,
+        fields: formattedDisplay?.fields || metadata?.matchedFormat?.fields || [],
+        _verification: metadata?._verification || null,
+        formattedDisplay: formattedDisplay
       };
 
       // Validate expectations

@@ -26,5 +26,20 @@ export async function runTests(harness) {
     }
   }));
 
+  // Test 2: withdraw(address asset, uint256 amount)
+  results.push(await harness.runTest({
+    name: 'Compound V3 withdraw',
+    calldata: '0xf3fef3a3' +
+      '000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' + // USDC
+      '0000000000000000000000000000000000000000000000000000000002faf080',  // 50000000 = 50 USDC
+    contractAddress: cUSDCAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0xf3fef3a3',
+      functionName: 'withdraw',
+      intentContains: 'Compound'
+    }
+  }));
+
   return results;
 }

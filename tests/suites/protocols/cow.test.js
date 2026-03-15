@@ -109,11 +109,11 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x322bba21',
       functionName: 'createOrder',
-      intentContains: 'Sell',  // Interpolated: "Sell {sellAmount} ETH for {buyToken}"
+       intentContains: 'Sell',  // Interpolated: "Sell {sellAmount} ETH for {buyAmount}"
       // Verify ethAmount format is applied (0.003 ETH, not raw wei)
       intentNotContains: '3000000000000000',
       // Should show formatted ETH amount
-      intentMatches: /Sell\s+[\d.]+\s*ETH\s+for/i  // "Sell 0.003 ETH for USDC"
+       intentMatches: /Sell\s+[\d.]+\s*ETH\s+for\s+[\d.]+\s*USDC/i  // "Sell 0.003 ETH for 5.644932 USDC"
     }
   }));
 

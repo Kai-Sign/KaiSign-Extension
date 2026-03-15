@@ -1,0 +1,85 @@
+{
+  "context": {
+    "contract": {
+      "address": "0x889edC2BdB48866702480d17344cD3124Ac9681E",
+      "chainId": 1,
+      "name": "Lido Withdrawal Queue",
+      "abi": [
+        {
+          "type": "function",
+          "name": "requestWithdrawals",
+          "selector": "0xd6681042",
+          "inputs": [
+            { "name": "_amounts", "type": "uint256[]" },
+            { "name": "_owner", "type": "address" }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "requestWithdrawalsWstETH",
+          "selector": "0x19aa6257",
+          "inputs": [
+            { "name": "_amounts", "type": "uint256[]" },
+            { "name": "_owner", "type": "address" }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "claimWithdrawals",
+          "selector": "0xe3afe0a3",
+          "inputs": [
+            { "name": "_requestIds", "type": "uint256[]" },
+            { "name": "_hints", "type": "uint256[]" }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "claimWithdrawal",
+          "selector": "0xf8444436",
+          "inputs": [
+            { "name": "_requestId", "type": "uint256" }
+          ],
+          "stateMutability": "nonpayable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "requestWithdrawals(uint256[],address)": {
+        "intent": "Request stETH withdrawal from Lido",
+        "interpolatedIntent": "Request stETH withdrawal from Lido for {_owner}",
+        "fields": [
+          { "path": "_amounts", "label": "Withdrawal Amounts", "format": "raw" },
+          { "path": "_owner", "label": "Owner", "format": "addressName" }
+        ]
+      },
+      "requestWithdrawalsWstETH(uint256[],address)": {
+        "intent": "Request wstETH withdrawal from Lido",
+        "interpolatedIntent": "Request wstETH withdrawal from Lido for {_owner}",
+        "fields": [
+          { "path": "_amounts", "label": "Withdrawal Amounts", "format": "raw" },
+          { "path": "_owner", "label": "Owner", "format": "addressName" }
+        ]
+      },
+      "claimWithdrawals(uint256[],uint256[])": {
+        "intent": "Claim Lido withdrawals",
+        "interpolatedIntent": "Claim Lido withdrawals for request IDs {_requestIds}",
+        "fields": [
+          { "path": "_requestIds", "label": "Request IDs", "format": "raw" },
+          { "path": "_hints", "label": "Hints", "format": "raw" }
+        ]
+      },
+      "claimWithdrawal(uint256)": {
+        "intent": "Claim Lido withdrawal",
+        "interpolatedIntent": "Claim Lido withdrawal #{_requestId}",
+        "fields": [
+          { "path": "_requestId", "label": "Request ID", "format": "raw" }
+        ]
+      }
+    }
+  }
+}

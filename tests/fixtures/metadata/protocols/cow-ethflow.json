@@ -57,7 +57,7 @@
     "formats": {
       "createOrder((address,address,uint256,uint256,bytes32,uint256,uint32,bool,int64))": {
         "intent": "Sell ETH via CoW Swap",
-        "interpolatedIntent": "Sell {order.sellAmount} ETH for {order.buyToken}",
+        "interpolatedIntent": "Sell {order.sellAmount} ETH for {order.buyAmount}",
         "fields": [
           { "path": "order.buyToken", "label": "Buy Token", "format": "addressOrName" },
           { "path": "order.receiver", "label": "Receiver", "format": "addressOrName" },

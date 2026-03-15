@@ -12,7 +12,7 @@ if (window.__KAISIGN_LOADED) {
 window.__KAISIGN_LOADED = true;
 console.log('[KaiSign] Content script initialized');
 
-const KAISIGN_DEBUG = false;
+const KAISIGN_DEBUG = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('kaisign_dev_mode') === 'true') || false;
 
 // Inject complete embedded styles (MAIN world cannot load external CSS files)
 (function injectStyles() {

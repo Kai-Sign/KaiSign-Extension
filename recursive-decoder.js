@@ -7,7 +7,7 @@ if (window.recursiveCalldataDecoder) {
   console.log('[KaiSign] Recursive decoder already loaded, skipping');
 } else {
 
-const KAISIGN_DEBUG = false;
+const KAISIGN_DEBUG = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('kaisign_dev_mode') === 'true') || false;
 
 /**
  * RecursiveCalldataDecoder - Decodes nested calldata using ERC-7730 metadata
@@ -34,7 +34,9 @@ class RecursiveCalldataDecoder {
    * @param {number} depth - Current recursion depth
    * @returns {Promise<object>} - Decoded result with nested intents
    */
-  async decode(calldata, targetAddress, chainId, parentContext = null, depth = 0) {
+   async decode(calldata, targetAddress, chainId, parentContext = null, depth = 0) {
+    KAISIGN_DEBUG && console.log(`[RecursiveDecoder] decode ENTER: depth=${depth}, target=${targetAddress}, selector=${calldata.slice(0,10)}...`);
+    
     // Validate calldata
     if (!calldata || calldata === '0x' || calldata.length < 10) {
       return {
@@ -72,9 +74,10 @@ class RecursiveCalldataDecoder {
     }
     this.decodingStack.push(stackKey);
 
-    try {
+     try {
       // Use existing decodeCalldata for initial decode
       const decoded = await window.decodeCalldata(calldata, targetAddress, chainId);
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Initial decode result: success=${decoded.success}, function=${decoded.functionName || decoded.function}, intent="${decoded.intent}"`);
 
       if (!decoded.success) {
         return { ...decoded, depth };
@@ -82,7 +85,9 @@ class RecursiveCalldataDecoder {
 
       // Get metadata for this contract to check for calldata fields
       // Pass selector for proxy detection (e.g., Safe proxies)
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Requesting metadata: address=${targetAddress}, chainId=${chainId}, selector=${selector}`);
       const metadata = await this.getMetadata(targetAddress, chainId, selector);
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Metadata retrieved: ${metadata ? 'YES' : 'NO'}`);
 
       // Process fields looking for nested calldata
       // Use function signature (e.g. "multicall(bytes)") if available, fallback to functionName
@@ -129,7 +134,10 @@ class RecursiveCalldataDecoder {
    * @param {number} depth - Current depth
    * @returns {Promise<{params: object, nestedDecodes: Array}>}
    */
-  async processFieldsRecursively(params, functionName, metadata, context, chainId, depth) {
+   async processFieldsRecursively(params, functionName, metadata, context, chainId, depth) {
+    KAISIGN_DEBUG && console.log(`[RecursiveDecoder] processFieldsRecursively ENTER: function="${functionName}", depth=${depth}, hasMetadata=${!!metadata}`);
+    KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Available params: ${Object.keys(params).join(', ')}`);
+    
     const nestedDecodes = [];
     const processedParams = { ...params };
 
@@ -165,39 +173,52 @@ class RecursiveCalldataDecoder {
     }
 
     if (!format) {
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] No format found for function "${functionName}", skipping field processing`);
       return { params: processedParams, nestedDecodes };
     }
+
+    KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Found format for function "${functionName}" (matchedKey: ${matchedKey})`);
 
     // Find all calldata field definitions and DEDUPLICATE by path
     const calldataFieldsMap = new Map(); // Use Map to dedupe by path
 
     if (format.intent?.format) {
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Checking intent.format for calldata fields`);
       const intentFields = [];
       this.findCalldataFields(format.intent.format, intentFields);
       for (const field of intentFields) {
         if (field.path && !calldataFieldsMap.has(field.path)) {
           calldataFieldsMap.set(field.path, field);
+          KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Found calldata field in intent.format: path="${field.path}", type="${field.type}", format="${field.format}"`);
         }
       }
     }
 
     if (format.fields) {
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Checking format.fields (${format.fields.length} fields)`);
       for (const field of format.fields) {
         if ((field.type === 'calldata' || field.format === 'calldata') && field.path) {
           // Only add if not already present
           if (!calldataFieldsMap.has(field.path)) {
             calldataFieldsMap.set(field.path, field);
+            KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Found calldata field in format.fields: path="${field.path}", type="${field.type}", format="${field.format}"`);
           }
         }
       }
     }
+    
+    KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Total unique calldata fields: ${calldataFieldsMap.size}`);
 
     // Process UNIQUE calldata fields only
     const processedPaths = new Set();
+    KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Processing ${calldataFieldsMap.size} unique calldata fields`);
+    
     for (const [path, fieldDef] of calldataFieldsMap) {
       if (processedPaths.has(path)) continue;
       processedPaths.add(path);
 
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Processing calldata field: path="${path}", fieldDef=`, fieldDef);
+      
       let pathStr = fieldDef.path;
 
       // Strip #. or @. prefix if present (ERC-7730 format)
@@ -259,20 +280,31 @@ class RecursiveCalldataDecoder {
 
       // Resolve target address using JSONPath or params.calleePath
       let targetAddress = fieldDef.to || fieldDef.params?.calleePath;
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Target address spec: "${targetAddress}"`);
+      
       if (targetAddress) {
         if (targetAddress.startsWith('$.') || targetAddress.startsWith('#.')) {
           // JSONPath format: "$.to", "#._swapData.[].callTo", etc.
           // resolveFieldPath handles both #. and $. prefixes and array notation
+          KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Resolving JSONPath: "${targetAddress}"`);
           targetAddress = window.resolveFieldPath ? window.resolveFieldPath(targetAddress, params) : window.resolveJsonPath(targetAddress, params);
+          KAISIGN_DEBUG && console.log(`[RecursiveDecoder] JSONPath resolved to: "${targetAddress}"`);
         } else if (!targetAddress.startsWith('0x')) {
           // Simple field name: "to" -> resolve from params.to
+          KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Resolving simple field: "${targetAddress}"`);
           targetAddress = params[targetAddress];
+          KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Field resolved to: "${targetAddress}"`);
         }
         // else: already an address like "0x..."
       }
 
-      if (!targetAddress) continue;
+      if (!targetAddress) {
+        KAISIGN_DEBUG && console.log(`[RecursiveDecoder] No target address resolved, skipping field "${path}"`);
+        continue;
+      }
 
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Recursively decoding: rawValue length=${rawValue.length}, target=${targetAddress}, depth=${depth+1}`);
+      
       // Recursively decode the nested calldata
       const nestedResult = await this.decode(rawValue, targetAddress, chainId, context, depth + 1);
 
@@ -831,9 +863,13 @@ class RecursiveCalldataDecoder {
    * @returns {Promise<object|null>}
    */
   async getMetadata(address, chainId, selector = null) {
+    console.log(`[RecursiveDecoder] getMetadata called: address=${address}, chainId=${chainId}, selector=${selector || '(none)'}`);
     if (window.metadataService) {
-      return await window.metadataService.getContractMetadata(address, chainId, selector);
+      const result = await window.metadataService.getContractMetadata(address, chainId, selector);
+      console.log(`[RecursiveDecoder] getMetadata result: ${result ? 'FOUND' : 'NOT FOUND'}`);
+      return result;
     }
+    console.log(`[RecursiveDecoder] getMetadata: No metadataService available`);
     return null;
   }
 }

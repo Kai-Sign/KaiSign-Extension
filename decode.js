@@ -7,7 +7,7 @@ if (window.SimpleInterface) {
 } else {
 
 console.log('[decode.js] VERSION 2.1 LOADED - formatTokenAmount FIXED');
-const KAISIGN_DEBUG = false;
+const KAISIGN_DEBUG = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('kaisign_dev_mode') === 'true') || false;
 
 // Simple keccak256 implementation for selector calculation
 // Uses SubtleCrypto when available, falls back to simple hash
@@ -442,12 +442,15 @@ class SimpleInterface {
 async function decodeCalldata(data, contractAddress, chainId) {
   try {
     const selector = data.slice(0, 10);
+    KAISIGN_DEBUG && console.log('[Decode] decodeCalldata called:', { contractAddress, chainId, selector, dataLength: data.length });
 
     // Pass selector to metadata lookup for proxy detection (e.g., Safe proxies)
     let metadata = await getContractMetadata(contractAddress, chainId, selector);
+    KAISIGN_DEBUG && console.log('[Decode] Metadata fetch result:', metadata ? 'FOUND' : 'NOT FOUND', metadata);
 
     // If no metadata from subgraph, return failure
     if (!metadata) {
+      KAISIGN_DEBUG && console.log('[Decode] No metadata found, returning Contract interaction');
       return {
         success: false,
         selector,
@@ -487,6 +490,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
     
     if (!functionSignature && !functionName) {
       const contractName = metadata.context?.contract?.name || '';
+      KAISIGN_DEBUG && console.log('[Decode] Function not found in metadata ABI:', { selector, contractName, abiLength: metadata.context?.contract?.abi?.length });
       return {
         success: false,
         selector,
@@ -514,6 +518,9 @@ async function decodeCalldata(data, contractAddress, chainId) {
           format = metadata.display.formats[key];
           break;
         }
+      }
+      if (!format) {
+        KAISIGN_DEBUG && console.warn(`[Decode] No format found for function ${functionName} (signature ${functionSignature})`);
       }
     }
 
@@ -689,22 +696,34 @@ async function decodeCalldata(data, contractAddress, chainId) {
           }
           if (tokenAddress && typeof tokenAddress === 'string' && tokenAddress.length >= 10) {
             try {
-              let decimals = 18, symbol = '';
               const normalizedAddr = tokenAddress.toLowerCase();
               const nativeCurrency = fieldDef.params.nativeCurrencyAddress;
               const isNative = normalizedAddr === '0x0000000000000000000000000000000000000000' ||
                 normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
                 (nativeCurrency && normalizedAddr === nativeCurrency.toLowerCase());
+              
               if (isNative) {
-                decimals = 18; symbol = 'ETH';
+                // Native ETH - we know decimals and symbol
+                displayValue = formatTokenAmount(rawValue, 18, 'ETH');
               } else if (window.metadataService) {
                 const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
-                decimals = tokenInfo.decimals || 18;
-                symbol = tokenInfo.symbol || '';
+                const decimals = tokenInfo.decimals;
+                const symbol = tokenInfo.symbol || '';
+                
+                // Only format if we have decimals from metadata
+                if (decimals !== undefined && decimals !== null) {
+                  displayValue = formatTokenAmount(rawValue, decimals, symbol);
+                } else {
+                  // No decimals from metadata, keep raw value
+                  displayValue = rawValue;
+                }
+              } else {
+                // No metadata service available, keep raw value
+                displayValue = rawValue;
               }
-              displayValue = formatTokenAmount(rawValue, decimals, symbol);
             } catch (e) {
               console.warn('[Decode] tokenAmount format error:', e.message);
+              displayValue = rawValue;
             }
           }
         }
@@ -748,22 +767,34 @@ async function decodeCalldata(data, contractAddress, chainId) {
           }
           if (tokenAddress && typeof tokenAddress === 'string' && tokenAddress.length >= 10) {
             try {
-              let decimals = 18, symbol = '';
               const normalizedAddr = tokenAddress.toLowerCase();
               const nativeCurrency = fieldDef.params.nativeCurrencyAddress;
               const isNative = normalizedAddr === '0x0000000000000000000000000000000000000000' ||
                 normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
                 (nativeCurrency && normalizedAddr === nativeCurrency.toLowerCase());
+              
               if (isNative) {
-                decimals = 18; symbol = 'ETH';
+                // Native ETH - we know decimals and symbol
+                displayValue = formatTokenAmount(rawValue, 18, 'ETH');
               } else if (typeof window !== 'undefined' && window.metadataService) {
                 const tokenInfo = await window.metadataService.getTokenMetadata(tokenAddress, chainId);
-                decimals = tokenInfo.decimals || 18;
-                symbol = tokenInfo.symbol || '';
+                const decimals = tokenInfo.decimals;
+                const symbol = tokenInfo.symbol || '';
+                
+                // Only format if we have decimals from metadata
+                if (decimals !== undefined && decimals !== null) {
+                  displayValue = formatTokenAmount(rawValue, decimals, symbol);
+                } else {
+                  // No decimals from metadata, keep raw value
+                  displayValue = rawValue;
+                }
+              } else {
+                // No metadata service available, keep raw value
+                displayValue = rawValue;
               }
-              displayValue = formatTokenAmount(rawValue, decimals, symbol);
             } catch (e) {
               // Fall through to raw display
+              displayValue = rawValue;
             }
           }
         } else if (fieldDef.format === 'addressName') {
@@ -1517,7 +1548,12 @@ async function substituteInterpolatedIntent(template, rawParams, fields, chainId
       const symbolMatch = afterMatch.match(/^\s+(USDC|USDT|DAI|WETH|ETH|WBTC|MATIC|BNB|AVAX|FTM|ARB|OP|[A-Z]{2,6})\b/i);
       if (symbolMatch && finalValue.toUpperCase().endsWith(symbolMatch[1].toUpperCase())) {
         // Remove the duplicate symbol from the end of the value
+        const originalValue = finalValue;
         finalValue = finalValue.replace(new RegExp(`\\s*${symbolMatch[1]}$`, 'i'), '');
+        // If stripping leaves an empty value, keep the original
+        if (finalValue.trim() === '') {
+          finalValue = originalValue;
+        }
       }
     }
 

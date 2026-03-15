@@ -1,0 +1,87 @@
+{
+  "context": {
+    "contract": {
+      "address": "0x3Fe65692bfCD0e6CF84Cb1E7d24108E434A7587e",
+      "chainId": 1,
+      "name": "Convex cvxCRV Staking",
+      "abi": [
+        {
+          "type": "function",
+          "name": "stake",
+          "selector": "0xa694fc3a",
+          "inputs": [
+            { "name": "_amount", "type": "uint256" }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "withdraw",
+          "selector": "0x2e1a7d4d",
+          "inputs": [
+            { "name": "_amount", "type": "uint256" }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "getReward",
+          "selector": "0xc00007b0",
+          "inputs": [
+            { "name": "_account", "type": "address" }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "stakeAll",
+          "selector": "0x8dcb4061",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "withdrawAll",
+          "selector": "0x853828b6",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "stake(uint256)": {
+        "intent": "Stake cvxCRV on Convex",
+        "interpolatedIntent": "Stake {_amount} cvxCRV on Convex",
+        "fields": [
+          { "path": "_amount", "label": "Amount", "format": "amount", "params": { "decimals": 18, "symbol": "cvxCRV" } }
+        ]
+      },
+      "withdraw(uint256)": {
+        "intent": "Withdraw cvxCRV from Convex",
+        "interpolatedIntent": "Withdraw {_amount} cvxCRV from Convex",
+        "fields": [
+          { "path": "_amount", "label": "Amount", "format": "amount", "params": { "decimals": 18, "symbol": "cvxCRV" } }
+        ]
+      },
+      "getReward(address)": {
+        "intent": "Claim Convex cvxCRV rewards",
+        "interpolatedIntent": "Claim Convex cvxCRV rewards for {_account}",
+        "fields": [
+          { "path": "_account", "label": "Account", "format": "addressName" }
+        ]
+      },
+      "stakeAll()": {
+        "intent": "Stake all cvxCRV on Convex",
+        "interpolatedIntent": "Stake all cvxCRV on Convex",
+        "fields": []
+      },
+      "withdrawAll()": {
+        "intent": "Withdraw all cvxCRV from Convex",
+        "interpolatedIntent": "Withdraw all cvxCRV from Convex",
+        "fields": []
+      }
+    }
+  }
+}

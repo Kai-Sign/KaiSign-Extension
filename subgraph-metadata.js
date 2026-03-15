@@ -9,7 +9,7 @@ if (window.metadataService) {
 } else {
 
 console.log('[KaiSign] Subgraph metadata service loading...');
-const KAISIGN_DEBUG = false;
+const KAISIGN_DEBUG = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('kaisign_dev_mode') === 'true') || false;
 
 
 class SubgraphMetadataService {
@@ -369,6 +369,7 @@ class SubgraphMetadataService {
       return metadata;
 
     } catch (error) {
+      KAISIGN_DEBUG && console.log('[KaiSign API] Metadata fetch error:', error.message, error.stack);
       // Check if extension context was invalidated
       if (error.message.includes('Extension') || error.message.includes('refresh')) {
         throw new Error('Extension was reloaded. Please refresh the page.');

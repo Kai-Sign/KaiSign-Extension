@@ -175,41 +175,65 @@ async function applyEIP712FieldFormat(rawValue, fieldSpec, typedData) {
       const tokenPath = fieldSpec.params?.tokenPath;
       if (tokenPath) {
         const tokenAddr = resolveTokenPath(tokenPath, typedData);
-        if (tokenAddr && window.metadataService) {
+        if (window.KAISIGN_DEBUG) console.log('[EIP-712 amount]', { tokenPath, tokenAddr, rawValue: strVal });
+        if (tokenAddr) {
           const chainId = typedData?.domain?.chainId || 1;
-          try {
-            const tokenMeta = await Promise.race([
-              window.metadataService.getTokenMetadata(tokenAddr, chainId),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-            ]);
-            if (tokenMeta) {
-              const symbol = tokenMeta.symbol || '';
-              result.tokenSymbol = symbol;
-
-              if (result.isRisk) {
-                result.value = symbol ? `Unlimited ${symbol}` : 'Unlimited';
-              } else if (tokenMeta.decimals !== undefined) {
-                // Format with decimals
-                const decimals = parseInt(tokenMeta.decimals);
-                const raw = BigInt(strVal);
-                const divisor = BigInt(10) ** BigInt(decimals);
-                const whole = raw / divisor;
-                const frac = raw % divisor;
-                const fullFrac = frac.toString().padStart(decimals, '0');
-                const firstSig = fullFrac.search(/[1-9]/);
-                let fracStr;
-                if (firstSig === -1) {
-                  fracStr = '';
-                } else {
-                  fracStr = fullFrac.slice(0, firstSig + 5).replace(/0+$/, '');
+          let symbol = '';
+          let decimals = null;
+          
+          // Normalize address
+          const addrLower = tokenAddr.toLowerCase();
+          
+        // Native ETH detection (including CoW Protocol representation)
+        if (window.KAISIGN_DEBUG) console.log('[EIP-712 amount] checking native ETH:', addrLower);
+        if (addrLower === '0x0000000000000000000000000000000000000000' ||
+            addrLower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+          if (window.KAISIGN_DEBUG) console.log('[EIP-712 amount] detected native ETH');
+          symbol = 'ETH';
+          decimals = 18;
+          result.tokenSymbol = symbol;
+        } else {
+            // Try API for token metadata
+            if (window.metadataService) {
+              try {
+                const tokenMeta = await Promise.race([
+                  window.metadataService.getTokenMetadata(tokenAddr, chainId),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+                ]);
+                if (tokenMeta) {
+                  symbol = tokenMeta.symbol || '';
+                  result.tokenSymbol = symbol;
+                  if (tokenMeta.decimals !== undefined && tokenMeta.decimals !== null) {
+                    decimals = parseInt(tokenMeta.decimals);
+                  }
                 }
-                const formatted = fracStr ? `${whole}.${fracStr}` : whole.toString();
-                result.value = symbol ? `${formatted} ${symbol}` : formatted;
-              } else if (symbol) {
-                result.value = `${strVal} ${symbol}`;
-              }
+              } catch { /* timeout or error, keep decimals null */ }
             }
-          } catch { /* timeout or error, use raw value */ }
+           }
+           
+           if (window.KAISIGN_DEBUG) console.log('[EIP-712 amount] resolved', { symbol, decimals, addrLower });
+           
+           // Format the amount if we have decimals
+           if (result.isRisk) {
+            result.value = symbol ? `Unlimited ${symbol}` : 'Unlimited';
+          } else if (decimals !== null) {
+            // We have valid decimals (either native ETH or from metadata)
+            const raw = BigInt(strVal);
+            const divisor = BigInt(10) ** BigInt(decimals);
+            const whole = raw / divisor;
+            const frac = raw % divisor;
+            const fullFrac = frac.toString().padStart(decimals, '0');
+            const firstSig = fullFrac.search(/[1-9]/);
+            let fracStr;
+            if (firstSig === -1) {
+              fracStr = '';
+            } else {
+              fracStr = fullFrac.slice(0, firstSig + 5).replace(/0+$/, '');
+            }
+            const formatted = fracStr ? `${whole}.${fracStr}` : whole.toString();
+            result.value = symbol ? `${formatted} ${symbol}` : formatted;
+          }
+          // If no decimals available, keep raw value (already set)
         }
       }
       return result;
@@ -231,6 +255,16 @@ async function applyEIP712FieldFormat(rawValue, fieldSpec, typedData) {
       const result = { value: addr.length > 12 ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : addr, rawAddress: addr };
 
       const chainId = typedData?.domain?.chainId || 1;
+      
+      // Native ETH detection (including CoW Protocol representation)
+      const addrLower = addr.toLowerCase();
+      if (addrLower === '0x0000000000000000000000000000000000000000' ||
+          addrLower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+        result.value = 'ETH';
+        result.tokenSymbol = 'ETH';
+        return result;
+      }
+      
       if (window.metadataService && addr) {
         // Try contract metadata (protocol name)
         try {
@@ -287,6 +321,7 @@ async function applyEIP712FieldFormat(rawValue, fieldSpec, typedData) {
  * @returns {Promise<Object>} Formatted display data
  */
 async function formatEIP712Display(typedData, metadata) {
+  if (window.KAISIGN_DEBUG) console.log('[formatEIP712Display]', typedData.primaryType, metadata?.display?.formats ? Object.keys(metadata.display.formats) : 'no formats');
   const primaryType = typedData.primaryType;
   const domain = typedData.domain || {};
   const message = typedData.message || {};
@@ -327,6 +362,51 @@ async function formatEIP712Display(typedData, metadata) {
     }
   }
 
+  // Apply interpolatedIntent if present
+  if (format.interpolatedIntent) {
+    if (window.KAISIGN_DEBUG) console.log('[EIP-712] interpolatedIntent:', format.interpolatedIntent, 'fields:', displayData.fields.map(f => ({ path: f.path, value: f.value, tokenSymbol: f.tokenSymbol })));
+    let interpolated = format.interpolatedIntent;
+    const regex = /\{([#@]?[\w.\[\]]+)(?::(\w+))?\}/g;
+    
+    // Collect all matches first before replacement
+    const matches = [];
+    let match;
+    while ((match = regex.exec(format.interpolatedIntent)) !== null) {
+      matches.push({
+        fullMatch: match[0],
+        pathStr: match[1],
+        startIndex: match.index
+      });
+    }
+    
+    // Process matches in reverse order (so replacements don't affect indices)
+    matches.sort((a, b) => b.startIndex - a.startIndex);
+    
+    for (const { fullMatch, pathStr } of matches) {
+      // Find field with matching path
+      const field = displayData.fields.find(f => f.path === pathStr);
+      if (field) {
+        let replacement = field.value;
+        // For amount fields that include token symbol, strip the symbol for interpolation
+        // since interpolated intent expects separate amount and token fields
+        if (field.tokenSymbol && field.value && field.format === 'amount') {
+          const symbol = field.tokenSymbol;
+          // Check if value ends with symbol (with or without space)
+          const symbolPattern = new RegExp(`\\s*${symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+          if (symbolPattern.test(field.value)) {
+            replacement = field.value.replace(symbolPattern, '').trim();
+            if (window.KAISIGN_DEBUG) console.log('[EIP-712] Stripped symbol from amount field:', field.path, 'value:', field.value, '->', replacement);
+          }
+        }
+        interpolated = interpolated.replace(fullMatch, replacement);
+      } else {
+        if (window.KAISIGN_DEBUG) console.log('[EIP-712] No field found for path:', pathStr);
+      }
+    }
+    if (window.KAISIGN_DEBUG) console.log('[EIP-712] final intent:', interpolated);
+    displayData.intent = interpolated;
+  }
+
   // For Permit-like types, build contextual intent from formatted fields
   if (primaryType === 'Permit' || primaryType === 'PermitSingle' || primaryType === 'PermitBatch') {
     const amountField = displayData.fields.find(f => f.path === 'value' || f.label === 'Amount');
@@ -340,11 +420,13 @@ async function formatEIP712Display(typedData, metadata) {
   }
 
   // For Order types (CoW Swap / DEX swaps), build swap intent from formatted fields
-  if (primaryType === 'Order') {
+  if (primaryType === 'Order' && !format.interpolatedIntent) {
+    if (window.KAISIGN_DEBUG) console.log('[EIP-712 Order] fields:', displayData.fields.map(f => ({ path: f.path, value: f.value })));
     const sellField = displayData.fields.find(f => f.path === 'sellAmount');
     const buyField = displayData.fields.find(f => f.path === 'buyAmount');
     const dappName = getDappName();
     if (sellField && buyField) {
+      if (window.KAISIGN_DEBUG) console.log('[EIP-712 Order] sellField:', sellField.value, 'buyField:', buyField.value);
       const dappSuffix = dappName ? ` on ${dappName}` : '';
       displayData.intent = `Swap ${sellField.value} → ${buyField.value}${dappSuffix}`;
     }

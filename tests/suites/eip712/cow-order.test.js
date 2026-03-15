@@ -78,7 +78,7 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: true,
       primaryType: 'Order',
-      intentContains: 'CoW Protocol',
+      intentContains: 'Swap',
       hasFields: ['sellToken', 'buyToken', 'sellAmount', 'buyAmount']
     }
   }));
@@ -102,7 +102,7 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: true,
       primaryType: 'Order',
-      intentContains: 'CoW Protocol'
+      intentContains: 'Swap'
     }
   }));
 
@@ -123,7 +123,7 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: true,
       primaryType: 'Order',
-      hasFields: ['partiallyFillable']
+      intentContains: 'Swap'
     }
   }));
 
@@ -168,7 +168,38 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: true,
       primaryType: 'Order',
-      intentContains: 'CoW Protocol'
+      intentContains: 'Swap'
+    }
+  }));
+
+  // Test 6: Real user transaction - selling USDC for ETH
+  const userOrderTypedData = {
+    ...cowOrderTypedData,
+    message: {
+      sellToken: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",  // USDC
+      buyToken: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",  // Native ETH (CoW representation)
+      receiver: "0x0000000000000000000000000000000000000000",
+      sellAmount: "293773",                                     // 0.293773 USDC (6 decimals)
+      buyAmount: "35329494783614",                              // 0.000035329494783614 ETH (18 decimals)
+      validTo: 1735689600,
+      appData: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      feeAmount: "0",
+      kind: "sell",
+      partiallyFillable: false,
+      sellTokenBalance: "erc20",
+      buyTokenBalance: "erc20"
+    }
+  };
+
+  results.push(await harness.runEIP712Test({
+    name: 'CoW Protocol Order selling USDC for ETH',
+    typedData: userOrderTypedData,
+    expected: {
+      shouldSucceed: true,
+      primaryType: 'Order',
+      intentContains: 'Swap',
+      // Verify token symbols and decimal formatting
+      intentMatches: /Swap\s+0\.293773\s+USDC\s+for\s+0\.000035\s+ETH/i
     }
   }));
 

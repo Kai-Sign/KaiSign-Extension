@@ -44,7 +44,13 @@ const mockWindow = {
   // Mock postMessage for background script communication
   postMessage: () => {},
   addEventListener: () => {},
-  removeEventListener: () => {}
+  removeEventListener: () => {},
+
+  // Mock location for getDappName (used by EIP-712 decoder)
+  location: { hostname: 'localhost' },
+
+  // Debug flag
+  KAISIGN_DEBUG: false
 };
 
 // Set global window
@@ -80,6 +86,11 @@ export async function loadDecoderModules(metadataService) {
   const adaptedAdvancedCode = adaptBrowserCode(advancedCode, 'advanced-decoder.js');
   eval(adaptedAdvancedCode);
 
+  // Load eip712-decoder.js
+  const eip712Code = fs.readFileSync(path.join(extensionPath, 'eip712-decoder.js'), 'utf8');
+  const adaptedEIP712Code = adaptBrowserCode(eip712Code, 'eip712-decoder.js');
+  eval(adaptedEIP712Code);
+
   // Return exposed functions from mockWindow
   return {
     decodeCalldata: mockWindow.decodeCalldata,
@@ -90,7 +101,11 @@ export async function loadDecoderModules(metadataService) {
     decodeCalldataRecursive: mockWindow.decodeCalldataRecursive,
     advancedTransactionDecoder: mockWindow.advancedTransactionDecoder,
     calculateSelector: mockWindow.calculateSelector,
-    SimpleInterface: mockWindow.SimpleInterface
+    SimpleInterface: mockWindow.SimpleInterface,
+    // EIP-712 decoder functions
+    getEIP712Metadata: mockWindow.getEIP712Metadata,
+    formatEIP712Display: mockWindow.formatEIP712Display,
+    getDappName: mockWindow.getDappName
   };
 }
 

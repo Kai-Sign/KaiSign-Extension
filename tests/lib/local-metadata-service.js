@@ -149,33 +149,45 @@ export class LocalMetadataService {
     const baseKey = `${normalizedAddress}-${chainId}`;
     const selectorKey = normalizedSelector ? `${baseKey}-${normalizedSelector}` : null;
 
+    console.log(`[LocalMetadataService] getContractMetadata: address=${normalizedAddress}, chainId=${chainId}, selector=${normalizedSelector || '(none)'}`);
+    console.log(`[LocalMetadataService] Cache keys: baseKey=${baseKey}, selectorKey=${selectorKey || '(none)'}`);
+
     // Check selector-specific cache first (Diamond per-facet metadata)
     if (selectorKey && this.metadataCache.has(selectorKey)) {
+      console.log(`[LocalMetadataService] Cache HIT selectorKey: ${selectorKey}`);
       return this.metadataCache.get(selectorKey);
     }
 
     // Check base cache (full contract metadata from addMetadata or file)
     if (this.metadataCache.has(baseKey)) {
+      console.log(`[LocalMetadataService] Cache HIT baseKey: ${baseKey}`);
       return this.metadataCache.get(baseKey);
     }
+
+    console.log(`[LocalMetadataService] Cache MISS for both keys`);
 
     // Try Diamond facet index (address + selector -> per-facet file or metadata object)
     if (normalizedSelector && this.diamondFacetIndex.has(normalizedAddress)) {
       const selectorMap = this.diamondFacetIndex.get(normalizedAddress);
       const facetEntry = selectorMap.get(normalizedSelector);
       if (facetEntry) {
+        console.log(`[LocalMetadataService] Found in diamondFacetIndex: address=${normalizedAddress}, selector=${normalizedSelector}`);
         // facetEntry is either a file path (string, from walkDirectory) or metadata object (from addMetadata)
         if (typeof facetEntry === 'string') {
           try {
+            console.log(`[LocalMetadataService] Reading facet file: ${facetEntry}`);
             const content = fs.readFileSync(facetEntry, 'utf8');
             const metadata = JSON.parse(content);
             this.metadataCache.set(selectorKey, metadata);
+            console.log(`[LocalMetadataService] Cached facet metadata with selectorKey: ${selectorKey}`);
             return metadata;
           } catch (e) {
             console.error(`[LocalMetadataService] Failed to read facet file ${facetEntry}:`, e.message);
           }
         } else {
+          console.log(`[LocalMetadataService] Using pre-loaded facet metadata from addMetadata`);
           this.metadataCache.set(selectorKey, facetEntry);
+          console.log(`[LocalMetadataService] Cached facet metadata with selectorKey: ${selectorKey}`);
           return facetEntry;
         }
       }
@@ -185,9 +197,12 @@ export class LocalMetadataService {
     const filePath = this.addressToFilePath.get(normalizedAddress);
 
     if (!filePath) {
-      console.log(`[LocalMetadataService] No metadata found for ${normalizedAddress}`);
+      console.log(`[LocalMetadataService] No metadata found for ${normalizedAddress} in addressToFilePath map`);
+      console.log(`[LocalMetadataService] addressToFilePath has ${this.addressToFilePath.size} entries`);
       return null;
     }
+
+    console.log(`[LocalMetadataService] Found file path: ${filePath}`);
 
     try {
       const content = fs.readFileSync(filePath, 'utf8');
@@ -195,6 +210,18 @@ export class LocalMetadataService {
 
       // Cache with base key (full contract metadata)
       this.metadataCache.set(baseKey, metadata);
+      console.log(`[LocalMetadataService] Cached file metadata with baseKey: ${baseKey}`);
+
+      // Also cache selector-specific keys for each ABI entry
+      const abiEntries = metadata.context?.contract?.abi || [];
+      for (const abiEntry of abiEntries) {
+        if (abiEntry.selector) {
+          const selector = abiEntry.selector.toLowerCase();
+          const selectorKey = `${baseKey}-${selector}`;
+          this.metadataCache.set(selectorKey, metadata);
+          console.log(`[LocalMetadataService] Cached selectorKey: ${selectorKey}`);
+        }
+      }
 
       return metadata;
     } catch (e) {
@@ -270,7 +297,24 @@ export class LocalMetadataService {
    */
   addMetadata(address, metadata, chainId = 1) {
     const normalizedAddress = address.toLowerCase();
-    this.metadataCache.set(`${normalizedAddress}-${chainId}`, metadata);
+    const baseKey = `${normalizedAddress}-${chainId}`;
+    
+    console.log(`[LocalMetadataService] addMetadata: address=${normalizedAddress}, chainId=${chainId}`);
+    console.log(`[LocalMetadataService] addMetadata caching with baseKey: ${baseKey}`);
+    
+    this.metadataCache.set(baseKey, metadata);
+
+    // Also populate selector-specific cache for each ABI entry (non-diamond)
+    // This ensures selector-specific lookups (used by recursive decoder) hit cache
+    const abiEntries = metadata.context?.contract?.abi || [];
+    for (const abiEntry of abiEntries) {
+      if (abiEntry.selector) {
+        const selector = abiEntry.selector.toLowerCase();
+        const selectorKey = `${baseKey}-${selector}`;
+        this.metadataCache.set(selectorKey, metadata);
+        console.log(`[LocalMetadataService] addMetadata cached selectorKey: ${selectorKey}`);
+      }
+    }
 
     // Also populate diamondFacetIndex for facet metadata
     if (metadata.context?.contract?.facetOf) {
@@ -279,12 +323,22 @@ export class LocalMetadataService {
         this.diamondFacetIndex.set(diamondAddr, new Map());
       }
       const selectorMap = this.diamondFacetIndex.get(diamondAddr);
-      for (const abiEntry of (metadata.context?.contract?.abi || [])) {
+      for (const abiEntry of abiEntries) {
         if (abiEntry.selector) {
-          selectorMap.set(abiEntry.selector.toLowerCase(), metadata);
+          const selector = abiEntry.selector.toLowerCase();
+          selectorMap.set(selector, metadata);
+          console.log(`[LocalMetadataService] addMetadata added to diamondFacetIndex: diamond=${diamondAddr}, selector=${selector}`);
         }
       }
     }
+    
+    // Check if we should also add to addressToFilePath for file lookup fallback
+    const hasAddressInMetadata = metadata.context?.contract?.address || metadata.address;
+    if (hasAddressInMetadata) {
+      console.log(`[LocalMetadataService] addMetadata: metadata contains address ${hasAddressInMetadata}, but NOT adding to addressToFilePath map`);
+    }
+    
+    console.log(`[LocalMetadataService] addMetadata completed. Current cache size: ${this.metadataCache.size}`);
   }
 
   /**

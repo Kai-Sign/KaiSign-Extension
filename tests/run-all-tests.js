@@ -46,9 +46,20 @@ const TEST_SUITES = [
   { name: 'protocols/0x.test.js', path: './suites/protocols/0x.test.js' },
   { name: 'protocols/cow.test.js', path: './suites/protocols/cow.test.js' },
   { name: 'protocols/lifi.test.js', path: './suites/protocols/lifi.test.js' },
+  { name: 'protocols/balancer.test.js', path: './suites/protocols/balancer.test.js' },
+  { name: 'protocols/sushiswap.test.js', path: './suites/protocols/sushiswap.test.js' },
+  { name: 'protocols/pancakeswap.test.js', path: './suites/protocols/pancakeswap.test.js' },
+  { name: 'protocols/convex.test.js', path: './suites/protocols/convex.test.js' },
+  { name: 'protocols/fluid.test.js', path: './suites/protocols/fluid.test.js' },
+  { name: 'protocols/aerodrome.test.js', path: './suites/protocols/aerodrome.test.js' },
+  { name: 'protocols/tokens.test.js', path: './suites/protocols/tokens.test.js' },
 
   // EIP-712 typed data signature tests
   { name: 'eip712/cow-order.test.js', path: './suites/eip712/cow-order.test.js' },
+  { name: 'eip712/erc20-permit.test.js', path: './suites/eip712/erc20-permit.test.js' },
+  { name: 'eip712/1inch-limit-order.test.js', path: './suites/eip712/1inch-limit-order.test.js' },
+  { name: 'eip712/seaport-order.test.js', path: './suites/eip712/seaport-order.test.js' },
+  { name: 'eip712/safe-safetx.test.js', path: './suites/eip712/safe-safetx.test.js' },
 
   // Account abstraction tests
   { name: 'aa/safe.test.js', path: './suites/aa/safe.test.js' },
