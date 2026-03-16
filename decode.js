@@ -106,6 +106,137 @@ function calculateSelector(signature) {
   return hash.slice(0, 10);
 }
 
+function shortenHex(value, prefix = 8, suffix = 6) {
+  if (!value || value.length <= prefix + suffix) return value || '';
+  return `${value.slice(0, prefix)}...${value.slice(-suffix)}`;
+}
+
+function extractCalldataWords(data) {
+  if (!data || !data.startsWith('0x') || data.length < 10) return [];
+  const payload = data.slice(10);
+  const words = [];
+  for (let i = 0; i + 64 <= payload.length; i += 64) {
+    words.push(payload.slice(i, i + 64).toLowerCase());
+  }
+  return words;
+}
+
+function extractAddressCandidates(words) {
+  const candidates = [];
+  const seen = new Set();
+
+  for (const word of words) {
+    if (!/^[0-9a-f]{64}$/.test(word)) continue;
+    if (!/^0{24}/.test(word)) continue;
+
+    const address = `0x${word.slice(24)}`;
+    if (address === '0x0000000000000000000000000000000000000000') continue;
+    if (seen.has(address)) continue;
+
+    seen.add(address);
+    candidates.push(address);
+  }
+
+  return candidates;
+}
+
+function extractTimestampCandidates(words) {
+  const timestamps = [];
+  const seen = new Set();
+
+  for (const word of words) {
+    try {
+      const value = BigInt(`0x${word}`);
+      if (value < 1700000000n || value > 2200000000n) continue;
+
+      const numeric = Number(value);
+      if (seen.has(numeric)) continue;
+      seen.add(numeric);
+      timestamps.push(numeric);
+    } catch {
+      // Ignore invalid words.
+    }
+  }
+
+  return timestamps.sort((a, b) => a - b);
+}
+
+async function resolveUnknownSummaryAddressLabels(addresses, chainId) {
+  const labels = [];
+  const tokenHints = [];
+
+  for (const address of addresses) {
+    let label = shortenHex(address);
+
+    try {
+      const tokenInfo = await window.metadataService?.getTokenMetadata?.(address, chainId);
+      if (tokenInfo?.symbol && tokenInfo.symbol !== 'UNKNOWN') {
+        tokenHints.push(tokenInfo.symbol);
+        label = `${tokenInfo.symbol} (${shortenHex(address)})`;
+      }
+    } catch {
+      // Keep the shortened address fallback.
+    }
+
+    labels.push(label);
+  }
+
+  return {
+    labels,
+    tokenHints: [...new Set(tokenHints)]
+  };
+}
+
+async function buildUnknownCalldataSummary(data, chainId, baseTitle = '') {
+  const selector = data?.slice(0, 10) || '0x';
+  const selectorInfo = window.registryLoader?.getSelectorInfo?.(selector);
+  const words = extractCalldataWords(data);
+  const addresses = extractAddressCandidates(words);
+  const timestamps = extractTimestampCandidates(words);
+  const { labels: addressLabels, tokenHints } = await resolveUnknownSummaryAddressLabels(addresses.slice(0, 4), chainId);
+
+  const title = baseTitle || (selectorInfo?.intent
+    ? `${selectorInfo.intent} on unknown contract`
+    : `Unknown call ${selector}`);
+
+  const lines = [
+    `Selector: ${selector}`
+  ];
+
+  if (selectorInfo?.signature) {
+    lines.push(`Known selector: ${selectorInfo.signature}`);
+  }
+  if (addressLabels.length) {
+    lines.push(`Address refs: ${addressLabels.join(', ')}`);
+  }
+  if (timestamps.length) {
+    const formattedTimes = timestamps.slice(0, 2).map(value => {
+      try {
+        return new Date(value * 1000).toISOString().replace('.000Z', 'Z');
+      } catch {
+        return String(value);
+      }
+    });
+    lines.push(`Time bounds: ${formattedTimes.join(', ')}`);
+  }
+  lines.push(`Calldata size: ${Math.max(0, (data.length - 2) / 2)} bytes`);
+
+  return {
+    title,
+    selector,
+    selectorName: selectorInfo?.name || null,
+    selectorSignature: selectorInfo?.signature || null,
+    calldataBytes: Math.max(0, (data.length - 2) / 2),
+    preview: `${data.slice(0, 18)}...${data.slice(-16)}`,
+    addresses,
+    addressLabels,
+    addressCount: addresses.length,
+    tokenHints,
+    timestamps,
+    lines
+  };
+}
+
 // Enhanced ABI decoder - supports all Solidity types including bytes, bytes[], arrays
 // NO HARDCODED SELECTORS - all type handling is generic
 class SimpleInterface {
@@ -459,10 +590,12 @@ async function decodeCalldata(data, contractAddress, chainId) {
     // If no metadata from subgraph, return failure
     if (!metadata) {
       KAISIGN_DEBUG && console.log('[Decode] No metadata found, returning Contract interaction');
+      const unknownSummary = await buildUnknownCalldataSummary(data, chainId);
       return {
         success: false,
         selector,
-        intent: 'Contract interaction',
+        intent: unknownSummary.title,
+        unknownSummary,
         error: 'No metadata found in subgraph'
       };
     }
@@ -499,14 +632,20 @@ async function decodeCalldata(data, contractAddress, chainId) {
     if (!functionSignature && !functionName) {
       const contractName = metadata.context?.contract?.name || '';
       KAISIGN_DEBUG && console.log('[Decode] Function not found in metadata ABI:', { selector, contractName, abiLength: metadata.context?.contract?.abi?.length });
+      const unknownSummary = await buildUnknownCalldataSummary(
+        data,
+        chainId,
+        contractName
+          ? `Unknown function on ${contractName}`
+          : `Unknown call ${selector}`
+      );
       return {
         success: false,
         selector,
         contractName,
         metadata,
-        intent: contractName
-          ? `Unknown function on ${contractName}`
-          : `Unknown contract interaction (${selector})`,
+        intent: unknownSummary.title,
+        unknownSummary,
         error: 'Function not found in metadata ABI'
       };
     }
@@ -1013,10 +1152,12 @@ async function decodeCalldata(data, contractAddress, chainId) {
     
   } catch (error) {
     console.error('[Decode] Error:', error.message);
+    const unknownSummary = await buildUnknownCalldataSummary(data, chainId);
     return {
       success: false,
       selector: data.slice(0, 10),
-      intent: 'Contract interaction',
+      intent: unknownSummary.title,
+      unknownSummary,
       error: error.message
     };
   }

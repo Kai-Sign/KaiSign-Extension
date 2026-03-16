@@ -65,6 +65,14 @@ const KAISIGN_DEBUG = getKaiSignDebugFlag();
     .kaisign-copy-btn.copied { background: #16a34a; }
     .kaisign-bytecode { background: #f7f3ee; padding: 8px; border-radius: 6px; word-break: break-all; max-height: 100px; overflow-y: auto; font-family: 'SF Mono', Consolas, monospace; font-size: 10px; color: #7a6f63; border: 1px solid #e6dccf; }
     .kaisign-bytecode-info { margin-top: 8px; font-size: 10px; color: #9a8f82; }
+    .kaisign-summary-list { margin: 0; padding-left: 18px; color: #2b2722; }
+    .kaisign-summary-list li { margin: 0 0 6px; }
+    .kaisign-disclosure { border: 1px solid #e6dccf; border-radius: 8px; background: #f7f3ee; }
+    .kaisign-disclosure summary { cursor: pointer; padding: 10px 12px; font-weight: 600; color: #0f9f9a; list-style: none; }
+    .kaisign-disclosure summary::-webkit-details-marker { display: none; }
+    .kaisign-disclosure summary::after { content: 'Show'; float: right; font-size: 10px; color: #7a6f63; text-transform: uppercase; letter-spacing: 0.04em; }
+    .kaisign-disclosure[open] summary::after { content: 'Hide'; }
+    .kaisign-disclosure-body { padding: 0 12px 12px; }
     .kaisign-tree { background: #f7f3ee; padding: 12px; border-radius: 8px; margin-top: 8px; border: none; }
     .kaisign-tree-header { font-size: 11px; font-weight: 700; color: #16a34a; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e6dccf; }
     .kaisign-tree-item { margin: 6px 0; padding: 8px; background: #fff; border-radius: 6px; border: none; box-shadow: 0 6px 12px rgba(43,39,34,0.08); }
@@ -94,6 +102,9 @@ const KAISIGN_DEBUG = getKaiSignDebugFlag();
     .kaisign-popup.theme-dark .kaisign-section-title { color: #58a6ff; }
     .kaisign-popup.theme-dark .kaisign-copy-btn { background: #58a6ff; }
     .kaisign-popup.theme-dark .kaisign-bytecode { background: #0d1117; border-color: #30363d; color: #8b949e; }
+    .kaisign-popup.theme-dark .kaisign-summary-list { color: #e6edf3; }
+    .kaisign-popup.theme-dark .kaisign-disclosure { background: #0d1117; border-color: #30363d; }
+    .kaisign-popup.theme-dark .kaisign-disclosure summary { color: #58a6ff; }
     .kaisign-popup.theme-dark .kaisign-tree { background: #0d1117; border: none; }
     .kaisign-popup.theme-dark .kaisign-tree-item { background: #161b22; border: none; box-shadow: 0 8px 16px rgba(0,0,0,0.35); }
     .kaisign-popup.theme-dark .kaisign-tree-bytecode-value { background: #0d1117; color: #8b949e; }
@@ -2659,16 +2670,20 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         KAISIGN_DEBUG && console.log(`[KaiSign] Decoded transaction: ${intent}`);
       } else if (decoded && !decoded.success && decoded.intent) {
         // Metadata was found but function selector wasn't matched — use the informative intent
+        const missingMetadata = (decoded.error || '').toLowerCase().includes('no metadata');
         intent = decoded.intent;
         decodedResult = {
           success: false,
           selector: selector,
           contractName: decoded.contractName || '',
           metadata: decoded.metadata,
+          unknownSummary: decoded.unknownSummary || null,
           intent: intent,
           error: decoded.error || 'Function not found in metadata',
-          statusTitle: 'Function not recognized',
-          statusDetail: decoded.contractName
+          statusTitle: missingMetadata ? 'Metadata not found' : 'Function not recognized',
+          statusDetail: missingMetadata
+            ? (decoded.unknownSummary?.lines?.[0] || 'No matching metadata for this contract')
+            : decoded.contractName
             ? `Selector ${selector} not found in ${decoded.contractName} metadata`
             : decoded.error || 'Function not found in metadata'
         };
@@ -2717,6 +2732,9 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
     intent = 'Unknown contract interaction';
     updateLoadingStatus('Metadata not found');
   } else {
+    if (decodedResult.unknownSummary?.lines?.length) {
+      decodedResult.statusDetail = decodedResult.unknownSummary.lines[0];
+    }
     updateLoadingStatus('Complete');
   }
 
@@ -2886,13 +2904,36 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   const bytecodeSection = tx.data ? `
     <div class="kaisign-section">
       <div class="kaisign-section-header">
-        <span class="kaisign-section-title">Complete Bytecode Data</span>
+        <span class="kaisign-section-title">${decodedResult?.unknownSummary ? 'Raw Calldata' : 'Complete Bytecode Data'}</span>
         <button class="kaisign-copy-btn" onclick="copyToClipboard('${escapeHtml(tx.data)}', this)">Copy All</button>
       </div>
-      <div class="kaisign-bytecode">${escapeHtml(tx.data)}</div>
-      <div class="kaisign-bytecode-info">
-        Length: ${tx.data.length} chars | Selector: ${tx.data.slice(0, 10)}
+      ${decodedResult?.unknownSummary ? `
+        <details class="kaisign-disclosure">
+          <summary>Expand full calldata</summary>
+          <div class="kaisign-disclosure-body">
+            <div class="kaisign-bytecode">${escapeHtml(tx.data)}</div>
+            <div class="kaisign-bytecode-info">
+              Length: ${tx.data.length} chars | Selector: ${tx.data.slice(0, 10)}
+            </div>
+          </div>
+        </details>
+      ` : `
+        <div class="kaisign-bytecode">${escapeHtml(tx.data)}</div>
+        <div class="kaisign-bytecode-info">
+          Length: ${tx.data.length} chars | Selector: ${tx.data.slice(0, 10)}
+        </div>
+      `}
+    </div>
+  ` : '';
+
+  const unknownSummarySection = decodedResult?.unknownSummary ? `
+    <div class="kaisign-section">
+      <div class="kaisign-section-header">
+        <span class="kaisign-section-title">Compact Calldata Summary</span>
       </div>
+      <ul class="kaisign-summary-list">
+        ${decodedResult.unknownSummary.lines.map(line => `<li>${escapeHtml(line)}</li>`).join('')}
+      </ul>
     </div>
   ` : '';
 
@@ -3016,6 +3057,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     <div class="kaisign-popup-content">
       ${batchSection}
       ${authorizationSection}
+      ${unknownSummarySection}
       ${bytecodeSection}
       ${extractedSection}
       ${decodingSection}

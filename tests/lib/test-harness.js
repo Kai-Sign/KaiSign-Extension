@@ -268,6 +268,49 @@ export class TestHarness {
       }
     }
 
+    if (expected.unknownSummary) {
+      if (!result.unknownSummary) {
+        console.error('Expected unknownSummary object');
+        return false;
+      }
+
+      if (expected.unknownSummary.selector && result.unknownSummary.selector !== expected.unknownSummary.selector) {
+        console.error(`unknownSummary selector mismatch: expected ${expected.unknownSummary.selector}, got ${result.unknownSummary.selector}`);
+        return false;
+      }
+
+      if (expected.unknownSummary.addressCount !== undefined &&
+          result.unknownSummary.addressCount !== expected.unknownSummary.addressCount) {
+        console.error(`unknownSummary addressCount mismatch: expected ${expected.unknownSummary.addressCount}, got ${result.unknownSummary.addressCount}`);
+        return false;
+      }
+
+      if (expected.unknownSummary.addressCountMin !== undefined &&
+          (result.unknownSummary.addressCount || 0) < expected.unknownSummary.addressCountMin) {
+        console.error(`unknownSummary addressCount too small: expected at least ${expected.unknownSummary.addressCountMin}, got ${result.unknownSummary.addressCount}`);
+        return false;
+      }
+
+      if (expected.unknownSummary.tokenHintsContain) {
+        for (const tokenHint of expected.unknownSummary.tokenHintsContain) {
+          if (!result.unknownSummary.tokenHints?.includes(tokenHint)) {
+            console.error(`unknownSummary missing token hint: ${tokenHint}`);
+            return false;
+          }
+        }
+      }
+
+      if (expected.unknownSummary.linesContain) {
+        for (const snippet of expected.unknownSummary.linesContain) {
+          const found = result.unknownSummary.lines?.some(line => line.includes(snippet));
+          if (!found) {
+            console.error(`unknownSummary missing line containing: ${snippet}`);
+            return false;
+          }
+        }
+      }
+    }
+
     // NEW: Decoded commands validation (Uniswap command registry)
     if (expected.decodedCommands) {
       if (!Array.isArray(result.decodedCommands)) {
@@ -435,8 +478,8 @@ export class TestHarness {
   /**
    * Add metadata to service (for testing)
    */
-  addMetadata(address, metadata) {
-    this.metadataService.addMetadata(address, metadata);
+  addMetadata(address, metadata, chainId = 1) {
+    this.metadataService.addMetadata(address, metadata, chainId);
   }
 
   /**
