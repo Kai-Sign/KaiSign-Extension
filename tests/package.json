@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node run-all-tests.js",
+    "test:live-sepolia": "KAISIGN_LIVE_SEPOLIA=1 node run-all-tests.js --suite=onchain-verifier",
     "fetch-metadata": "node scripts/fetch-metadata.js",
     "fetch-transactions": "node scripts/fetch-transactions.js",
     "local-server": "node local-server.js",
