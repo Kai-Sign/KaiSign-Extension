@@ -1,4 +1,41 @@
-// Enhanced Advanced EVM Transaction Decoder - True Nested Bytecode Separation
+/**
+ * advanced-decoder.js - Transaction Classifier (advancedTransactionDecoder)
+ *
+ * Purpose
+ *   Top-level router that classifies an inbound RPC request (eth_sendTransaction,
+ *   eth_signTypedData_v4, EIP-7702 authorization, etc.) and dispatches to the
+ *   right decoder pipeline (ABI vs EIP-712 vs delegation). Loaded into the
+ *   page's MAIN world.
+ *
+ * Trust boundary
+ *   The RPC request shape comes from the page (untrusted) by way of the
+ *   wallet provider; routing decisions must not be influenced by the page's
+ *   identity. The Subgraph and Blobscan endpoints below are display-only data
+ *   sources - their responses are never used as a trust signal for whether
+ *   to render or what to render.
+ *
+ * Security-critical invariants
+ *   - Routing is derived from metadata.context.contract shape and method
+ *     name only, never from window.location, document.title, or wallet
+ *     identity. A malicious page must not be able to coerce a different
+ *     classification.
+ *   - The KAISIGN_SUBGRAPH_URL and BLOBSCAN_API_BASE constants are read-only
+ *     display data sources. A failure to fetch from either must degrade the
+ *     display, never short-circuit the verification gate in
+ *     subgraph-metadata.js.
+ *   - EIP-712 typed-data hashing must remain pure - struct hash computation
+ *     does not consult any external state.
+ *
+ * Trust dependencies
+ *   - decode.js (window.SimpleInterface) - ABI decoding for the calldata path.
+ *   - eip712-decoder.js - typed-data decoding for the signing path.
+ *   - subgraph-metadata.js - fetches metadata; gates verification.
+ *   - recursive-decoder.js - nested calldata when display.recursive is set.
+ *
+ * Out of scope
+ *   - Network-level CORS / host whitelisting (background.js).
+ *   - On-chain leaf-hash math (onchain-verifier.js).
+ */
 
 // Guard against duplicate loading (MAIN world scripts can run multiple times)
 if (window.advancedTransactionDecoder) {

@@ -1,7 +1,36 @@
 /**
- * Runtime Registry - Minimal replacement for registry-loader.js
- * Contains only embedded ERC standards (never change)
- * All other metadata fetched from subgraph
+ * runtime-registry.js - Embedded ERC-Standard Selector Cache
+ *
+ * Purpose
+ *   Last-resort lookup table mapping ERC-20 / ERC-721 / ERC-1155 selectors
+ *   to their canonical signatures. Consulted by decode.js when subgraph
+ *   metadata + ABI lookup both fail, so the popup title can degrade from
+ *   "Unknown call 0xa9059cbb" to "Unknown call (transferFrom)" instead of
+ *   showing a hex selector to the user.
+ *
+ * Trust boundary
+ *   This file IS the trusted source for ERC-standard selectors. Its contents
+ *   are checked into the repo and never fetched at runtime. A reviewer can
+ *   verify each selector by computing keccak256 of the listed signature.
+ *
+ * Security-critical invariants
+ *   - Data only. No executable code patterns, no eval, no template strings
+ *     interpolated from external input.
+ *   - ERC-standard scope only. Adding non-standard / protocol-specific
+ *     selectors here defeats the point - those belong in the subgraph
+ *     metadata path where they get on-chain verification. This file's value
+ *     is precisely that you can audit it once and trust it forever.
+ *   - No mutation. The registry is constructed once at load time and never
+ *     written to.
+ *   - No network. The registry never fetches.
+ *
+ * Trust dependencies
+ *   - None at runtime. window.metadataService is referenced for graceful
+ *     fallback wiring but the selector data does not depend on it.
+ *
+ * Reviewer checklist
+ *   - Every entry's keccak256(signature).slice(0,10) === selector.
+ *   - No selector outside ERC-20/721/1155 scope.
  */
 
 // Guard against duplicate loading (MAIN world scripts can run multiple times)

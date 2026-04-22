@@ -1,6 +1,40 @@
-// Recursive Calldata Decoder - ERC-7730 compliant, metadata-driven
-// NO HARDCODED SELECTORS OR PROTOCOL-SPECIFIC LOGIC
-// All parsing structures come from metadata
+/**
+ * recursive-decoder.js - Nested Calldata Decoder (RecursiveCalldataDecoder)
+ *
+ * Purpose
+ *   Decodes calldata that contains other calldata (e.g. multicall, exec
+ *   wrappers, router pipelines). Drives recursion entirely from ERC-7730
+ *   metadata's display.recursive directives - no protocol logic in code.
+ *   Loaded into the page's MAIN world.
+ *
+ * Trust boundary
+ *   Inner calldata blobs are untrusted. A malformed nested call must not
+ *   crash the outer decode; it should report a per-step error and surface
+ *   what was decoded successfully. Metadata is also untrusted - a
+ *   metadata-driven recursion that loops forever or recurses too deep must
+ *   be bounded.
+ *
+ * Security-critical invariants
+ *   - Bounded recursion. maxDepth defaults to 5 (line 32) and is enforced
+ *     before each recursive descent (line 61). Removing this enables an
+ *     unbounded recursion DoS via crafted metadata or crafted calldata.
+ *   - Cycle detection. decodingStack (line 33) tracks the current descent;
+ *     a cycle yields an error rather than infinite work.
+ *   - Zero hardcoded selectors / protocol logic. Every parsing structure
+ *     comes from metadata. Adding a "just for protocol X" branch here
+ *     defeats the audit invariant that this decoder treats all metadata
+ *     uniformly.
+ *
+ * Trust dependencies
+ *   - decode.js (window.SimpleInterface) - inner ABI decoding is delegated
+ *     to the same bounded primitives that decode the outer call.
+ *   - ERC-7730 metadata's display.recursive shape - treated as configuration,
+ *     bounded by maxDepth.
+ *
+ * Out of scope
+ *   - Top-level intent rendering (decode.js).
+ *   - On-chain verification (onchain-verifier.js).
+ */
 
 // Guard against duplicate loading (MAIN world scripts can run multiple times)
 if (window.recursiveCalldataDecoder) {

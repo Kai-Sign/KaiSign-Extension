@@ -1,6 +1,43 @@
 /**
- * Subgraph-Only Metadata Service
- * Fetches all ERC-7730 metadata from subgraph (no local files, no embedded metadata)
+ * subgraph-metadata.js - Subgraph Metadata Fetcher (SubgraphMetadataService)
+ *
+ * Purpose
+ *   Fetches ERC-7730 metadata blobs from the KaiSign subgraph and gates
+ *   them through on-chain verification before any caller sees them.
+ *   Loaded into the page's MAIN world.
+ *
+ * Trust boundary
+ *   The subgraph response is UNTRUSTED. A malicious or compromised indexer
+ *   could return a metadata blob that mis-renders intent (e.g. a fake
+ *   "Approve 1 USDC" cover for a max-uint approve). Verification against
+ *   the on-chain registry is the only thing standing between that blob and
+ *   the user's display - it must run BEFORE the cache write, never after.
+ *
+ * Security-critical invariants
+ *   - On-chain verification (line 360) is awaited; the result is assigned to
+ *     metadata._verification BEFORE the cache write (line 371). Reverting
+ *     this to fire-and-forget freezes _verification as undefined and breaks
+ *     the popup's verified/unverified badge.
+ *   - The cache key includes chainId and selector; metadata for one
+ *     (address, chainId, selector) tuple must never satisfy a lookup for
+ *     a different tuple.
+ *   - When verification throws, _verification is set to a failure record
+ *     ({verified: false, source: 'error', ...}) - never silently dropped.
+ *     The popup must surface "unverified" rather than show metadata as if
+ *     it had been verified.
+ *
+ * Trust dependencies
+ *   - window.onChainVerifier (onchain-verifier.js) - the verification
+ *     primitive. This file trusts the verifier's verdict but nothing else
+ *     in the request path.
+ *   - background.js RPC host whitelist - all network calls flow through
+ *     fetchViaBackground / rpcCallViaBackground and are constrained by the
+ *     allow-list there. This file does not perform direct fetches.
+ *
+ * Out of scope
+ *   - Decoding (decode.js).
+ *   - Leaf-hash math (onchain-verifier.js).
+ *   - RPC host whitelisting (background.js).
  */
 
 // Guard against duplicate loading (MAIN world scripts can run multiple times)

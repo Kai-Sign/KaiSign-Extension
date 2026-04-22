@@ -1,5 +1,45 @@
-// Pure dynamic decoder - NO HARDCODED METADATA
-// KaiSign dynamic decoder v2.1 - FIXED formatTokenAmount
+/**
+ * decode.js - Pure ABI Calldata Decoder (SimpleInterface)
+ *
+ * Purpose
+ *   Decodes EVM calldata into typed parameter values and renders human
+ *   intent strings using ERC-7730 metadata. Pure compute: no network, no
+ *   storage writes, no remote code execution. Loaded into the page's MAIN
+ *   world by the extension manifest.
+ *
+ * Trust boundary
+ *   Inputs (calldata bytes, ERC-7730 metadata blob, chainId) are all treated
+ *   as untrusted data. Calldata may be malformed or truncated; metadata may
+ *   mis-tag fields. This file must never throw on adversarial input - it
+ *   degrades gracefully (zero-padding, raw-hex fallback) and surfaces what
+ *   it could decode.
+ *
+ * Security-critical invariants
+ *   - safeSlice (line 255) zero-pads truncated calldata rather than throwing.
+ *     Removing this breaks LiFi minimal fixtures and any short-call edge case.
+ *   - formatTokenAmount (line 1177) treats values within 1000 of MAX_UINT256
+ *     (line 1198) as the "unlimited" sentinel - never as a literal 78-digit
+ *     number. This is what stops Approve titles from showing wei garbage.
+ *   - Token-formatted values exceeding ~2^200 (and not MAX_UINT256) fall back
+ *     to raw hex display. Defends against backend metadata that incorrectly
+ *     marks a packed bitfield (e.g. 1inch v6 partnerAndFee) as a token amount.
+ *   - parseArrayType (line 277) rejects malformed Solidity array type strings.
+ *   - keccak256 hashing is delegated to ethers.js (window.ethers) and must
+ *     remain pure - no metadata-derived data ever influences the hash function.
+ *
+ * Trust dependencies
+ *   - window.ethers - loaded by manifest, treated as trusted runtime.
+ *   - window.metadataService / window.getContractMetadata - the verification
+ *     gate lives in subgraph-metadata.js; this file consumes the result but
+ *     does not re-verify.
+ *   - window.registryLoader - read-only ERC-standard selector cache, used as
+ *     last-resort fallback when metadata + ABI lookup both fail.
+ *
+ * Out of scope
+ *   - On-chain verification (lives in onchain-verifier.js).
+ *   - Network fetching (lives in subgraph-metadata.js, gated by background.js
+ *     RPC host whitelist).
+ */
 
 // Guard against duplicate loading (MAIN world scripts can run multiple times)
 if (window.SimpleInterface) {
