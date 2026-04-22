@@ -1089,6 +1089,9 @@ class AdvancedTransactionDecoder {
       }
       
       if (!functionSignature || !functionName) {
+        if (window.decodeCalldata) {
+          return await window.decodeCalldata(data, contractAddress, chainId);
+        }
         return {
           success: false,
           error: 'Function not found in metadata',

@@ -277,6 +277,399 @@ async function buildUnknownCalldataSummary(data, chainId, baseTitle = '') {
   };
 }
 
+function splitTopLevelTypes(typeList) {
+  const parts = [];
+  let depthParen = 0;
+  let depthBracket = 0;
+  let current = '';
+
+  for (const char of typeList) {
+    if (char === ',' && depthParen === 0 && depthBracket === 0) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    if (char === '(') depthParen++;
+    if (char === ')') depthParen--;
+    if (char === '[') depthBracket++;
+    if (char === ']') depthBracket--;
+    current += char;
+  }
+
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function parseRuntimeSignatureType(typeString, fallbackName = 'value') {
+  let type = typeString.trim();
+  const arraySuffixes = [];
+
+  while (type.endsWith(']')) {
+    const openBracket = type.lastIndexOf('[');
+    arraySuffixes.unshift(type.slice(openBracket));
+    type = type.slice(0, openBracket);
+  }
+
+  if (type.startsWith('(') && type.endsWith(')')) {
+    const inner = type.slice(1, -1).trim();
+    const components = inner
+      ? splitTopLevelTypes(inner).map((part, index) => parseRuntimeSignatureType(part, `${fallbackName}${index}`))
+      : [];
+
+    return {
+      name: fallbackName,
+      type: `tuple${arraySuffixes.join('')}`,
+      components
+    };
+  }
+
+  return {
+    name: fallbackName,
+    type: `${type}${arraySuffixes.join('')}`
+  };
+}
+
+function buildAbiFromRuntimeSignature(selectorInfo) {
+  if (!selectorInfo?.signature || !selectorInfo?.name) return null;
+  const openParen = selectorInfo.signature.indexOf('(');
+  const closeParen = selectorInfo.signature.lastIndexOf(')');
+  if (openParen === -1 || closeParen === -1 || closeParen < openParen) return null;
+
+  const inputSection = selectorInfo.signature.slice(openParen + 1, closeParen);
+  const inputTypes = inputSection ? splitTopLevelTypes(inputSection) : [];
+  const inputs = inputTypes.map((type, index) => parseRuntimeSignatureType(type, `param${index}`));
+
+  return {
+    type: 'function',
+    name: selectorInfo.name,
+    selector: selectorInfo.selector,
+    inputs
+  };
+}
+
+function getRuntimeFallbackDefinition(selector, contractAddress) {
+  const normalizedContract = contractAddress?.toLowerCase?.() || '';
+
+  switch (selector) {
+    case '0x095ea7b3':
+      return {
+        title: (label) => `Approve on ${label}`,
+        abi: {
+          type: 'function',
+          name: 'approve',
+          selector,
+          inputs: [
+            { name: 'spender', type: 'address' },
+            { name: 'amount', type: 'uint256' }
+          ]
+        },
+        fields: {
+          spender: { label: 'Spender', format: 'addressOrName' },
+          amount: { label: 'Amount', format: 'contractTokenAmount', params: { tokenAddress: normalizedContract } }
+        }
+      };
+    case '0xa9059cbb':
+      return {
+        title: (label) => `Transfer on ${label}`,
+        abi: {
+          type: 'function',
+          name: 'transfer',
+          selector,
+          inputs: [
+            { name: 'to', type: 'address' },
+            { name: 'amount', type: 'uint256' }
+          ]
+        },
+        fields: {
+          to: { label: 'Recipient', format: 'addressOrName' },
+          amount: { label: 'Amount', format: 'contractTokenAmount', params: { tokenAddress: normalizedContract } }
+        }
+      };
+    case '0x23b872dd':
+      return {
+        title: (label) => `Transfer from ${label}`,
+        abi: {
+          type: 'function',
+          name: 'transferFrom',
+          selector,
+          inputs: [
+            { name: 'from', type: 'address' },
+            { name: 'to', type: 'address' },
+            { name: 'amount', type: 'uint256' }
+          ]
+        },
+        fields: {
+          from: { label: 'From', format: 'addressOrName' },
+          to: { label: 'Recipient', format: 'addressOrName' },
+          amount: { label: 'Amount', format: 'contractTokenAmount', params: { tokenAddress: normalizedContract } }
+        }
+      };
+    case '0xbcc3c255':
+      return {
+        title: (label) => `Repay ETH loan on ${label}`,
+        abi: {
+          type: 'function',
+          name: 'repayETH',
+          selector,
+          inputs: [
+            { name: 'pool', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+            { name: 'onBehalfOf', type: 'address' }
+          ]
+        },
+        fields: {
+          pool: { label: 'Pool', format: 'addressOrName' },
+          amount: { label: 'Amount', format: 'ethAmount' },
+          onBehalfOf: { label: 'On Behalf Of', format: 'addressOrName' }
+        }
+      };
+    case '0xf4e8cd69':
+      return {
+        title: (label) => `Deposit to Lyra on ${label}`,
+        abi: {
+          type: 'function',
+          name: 'depositToLyra',
+          selector,
+          inputs: [
+            { name: 'asset', type: 'address' },
+            { name: 'market', type: 'address' },
+            { name: 'isCall', type: 'bool' },
+            { name: 'strikeId', type: 'uint256' },
+            { name: 'amount', type: 'uint256' },
+            { name: 'beneficiary', type: 'address' }
+          ]
+        },
+        fields: {
+          asset: { label: 'Asset', format: 'addressOrName' },
+          market: { label: 'Market', format: 'addressOrName' },
+          isCall: { label: 'Call Option', format: 'raw' },
+          strikeId: { label: 'Strike ID', format: 'raw' },
+          amount: { label: 'Amount', format: 'tokenAmount', params: { tokenPath: 'asset' } },
+          beneficiary: { label: 'Beneficiary', format: 'addressOrName' }
+        }
+      };
+    case '0x876a02f6':
+      return {
+        title: (label) => `Swap via ${label}`,
+        abi: {
+          type: 'function',
+          name: 'swapExactAmountInOnUniswapV3',
+          selector,
+          inputs: [
+            {
+              name: 'data',
+              type: 'tuple',
+              components: [
+                { name: 'fromToken', type: 'address' },
+                { name: 'toToken', type: 'address' },
+                { name: 'fromAmount', type: 'uint256' },
+                { name: 'toAmount', type: 'uint256' },
+                { name: 'quotedAmount', type: 'uint256' },
+                { name: 'metadata', type: 'bytes32' },
+                { name: 'beneficiary', type: 'address' },
+                { name: 'routeData', type: 'bytes' }
+              ]
+            },
+            { name: 'partnerAndFee', type: 'uint256' },
+            { name: 'permit', type: 'bytes' }
+          ]
+        },
+        fields: {
+          'data.fromToken': { label: 'From Token', format: 'addressOrName' },
+          'data.toToken': { label: 'To Token', format: 'addressOrName' },
+          'data.fromAmount': { label: 'Amount In', format: 'tokenAmount', params: { tokenPath: 'data.fromToken' } },
+          'data.toAmount': { label: 'Minimum Out', format: 'tokenAmount', params: { tokenPath: 'data.toToken' } },
+          'data.beneficiary': { label: 'Beneficiary', format: 'addressOrName' },
+          partnerAndFee: { label: 'Partner And Fee', format: 'raw' }
+        }
+      };
+    case '0x1fff991f':
+      return {
+        title: (label) => `Execute on ${label}`,
+        abi: {
+          type: 'function',
+          name: 'execute',
+          selector,
+          inputs: [
+            {
+              name: 'execution',
+              type: 'tuple',
+              components: [
+                { name: 'recipient', type: 'address' },
+                { name: 'asset', type: 'address' },
+                { name: 'amount', type: 'uint256' }
+              ]
+            },
+            { name: 'calls', type: 'bytes[]' },
+            { name: 'salt', type: 'bytes32' }
+          ]
+        },
+        fields: {
+          'execution.recipient': { label: 'Recipient', format: 'addressOrName' },
+          'execution.asset': { label: 'Asset', format: 'addressOrName' },
+          'execution.amount': { label: 'Amount', format: 'tokenAmount', params: { tokenPath: 'execution.asset', nativeCurrencyAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' } }
+        }
+      };
+    default:
+      return null;
+  }
+}
+
+function stringifyDecodedValue(value) {
+  if (value && typeof value === 'object' && '_isBigNumber' in value) {
+    return value._value !== undefined ? value._value : (value._hex ? BigInt(value._hex).toString() : String(value));
+  }
+  if (typeof value === 'bigint') return value.toString();
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map(stringifyDecodedValue));
+  }
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value).map(([key, nested]) => [key, stringifyDecodedValue(nested)]);
+    return JSON.stringify(Object.fromEntries(entries));
+  }
+  return String(value ?? '');
+}
+
+async function formatRuntimeFallbackValue(rawValue, value, fieldDef, rawParams, chainId, contractAddress) {
+  if (!fieldDef) return rawValue;
+
+  if (fieldDef.format === 'contractTokenAmount') {
+    try {
+      const tokenInfo = await window.metadataService?.getTokenMetadata?.(fieldDef.params?.tokenAddress || contractAddress, chainId);
+      if (tokenInfo?.decimals !== undefined && tokenInfo?.decimals !== null) {
+        return formatTokenAmount(rawValue, tokenInfo.decimals, tokenInfo.symbol || '');
+      }
+    } catch {
+      // Fall through to raw/no-decimals formatting.
+    }
+    return formatTokenAmount(rawValue, 0, '');
+  }
+
+  if (fieldDef.format === 'tokenAmount') {
+    let tokenAddress = fieldDef.params?.tokenAddress;
+    if (!tokenAddress && fieldDef.params?.tokenPath) {
+      tokenAddress = resolveFieldPath(fieldDef.params.tokenPath, rawParams);
+    }
+
+    const normalizedAddr = typeof tokenAddress === 'string' ? tokenAddress.toLowerCase() : '';
+    const nativeCurrency = fieldDef.params?.nativeCurrencyAddress?.toLowerCase?.();
+    if (normalizedAddr === '0x0000000000000000000000000000000000000000' ||
+        normalizedAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+        (nativeCurrency && normalizedAddr === nativeCurrency)) {
+      return formatTokenAmount(rawValue, 18, 'ETH');
+    }
+
+    try {
+      const tokenInfo = tokenAddress
+        ? await window.metadataService?.getTokenMetadata?.(tokenAddress, chainId)
+        : null;
+      if (tokenInfo?.decimals !== undefined && tokenInfo?.decimals !== null) {
+        return formatTokenAmount(rawValue, tokenInfo.decimals, tokenInfo.symbol || '');
+      }
+    } catch {
+      // Fall through to no-decimals formatting to preserve sentinels like MAX_UINT256.
+    }
+    return formatTokenAmount(rawValue, 0, '');
+  }
+
+  if (fieldDef.format === 'ethAmount') {
+    return formatTokenAmount(rawValue, 18, 'ETH');
+  }
+
+  return applyFieldFormat(value, fieldDef, rawParams, chainId);
+}
+
+async function decodeRuntimeFallback(selectorInfo, data, contractAddress, chainId) {
+  if (!selectorInfo?.signature || !selectorInfo?.name) return null;
+
+  const override = getRuntimeFallbackDefinition(data.slice(0, 10).toLowerCase(), contractAddress);
+  const abiFunction = override?.abi || buildAbiFromRuntimeSignature(selectorInfo);
+  if (!abiFunction) return null;
+
+  const iface = new SimpleInterface([abiFunction]);
+  const decoded = iface.decodeFunctionData(abiFunction.name, data);
+  const rawParams = {};
+  const params = {};
+  const formatted = {};
+  const fieldInfo = override?.fields || {};
+  const inputs = abiFunction.inputs || [];
+
+  for (let i = 0; i < decoded.length && i < inputs.length; i++) {
+    const input = inputs[i];
+    const paramName = input.name || `param${i}`;
+    const value = decoded[i];
+    rawParams[paramName] = value;
+    const rawValue = stringifyDecodedValue(value);
+    const fieldDef = fieldInfo[paramName];
+    const displayValue = await formatRuntimeFallbackValue(rawValue, value, fieldDef, rawParams, chainId, contractAddress);
+    params[paramName] = rawValue;
+    formatted[paramName] = {
+      label: fieldDef?.label || toTitleCase(paramName),
+      value: displayValue,
+      rawValue,
+      format: fieldDef?.format || 'raw',
+      params: fieldDef?.params || {}
+    };
+  }
+
+  for (const [fieldPath, fieldDef] of Object.entries(fieldInfo)) {
+    if (rawParams[fieldPath] !== undefined) continue;
+    const resolvedValue = resolveFieldPath(fieldPath, rawParams);
+    if (resolvedValue === undefined) continue;
+    const rawValue = stringifyDecodedValue(resolvedValue);
+    const displayValue = await formatRuntimeFallbackValue(rawValue, resolvedValue, fieldDef, rawParams, chainId, contractAddress);
+    params[fieldPath] = rawValue;
+    formatted[fieldPath] = {
+      label: fieldDef.label || fieldPath,
+      value: displayValue,
+      rawValue,
+      format: fieldDef.format || 'raw',
+      params: fieldDef.params || {}
+    };
+  }
+
+  return {
+    functionName: abiFunction.name,
+    function: selectorInfo.signature,
+    params,
+    formatted
+  };
+}
+
+async function buildRuntimeRegistryFallbackResult(data, contractAddress, chainId, contractName = '', metadata = null, errorMessage = '') {
+  const selector = data?.slice(0, 10)?.toLowerCase() || '0x';
+  const selectorInfo = window.registryLoader?.getSelectorInfo?.(selector);
+  if (!selectorInfo?.intent) return null;
+
+  const contractLabel = contractName || shortenHex(contractAddress);
+  const override = getRuntimeFallbackDefinition(selector, contractAddress);
+  const title = override?.title
+    ? override.title(contractLabel)
+    : `${selectorInfo.intent} on ${contractLabel}`;
+  const unknownSummary = await buildUnknownCalldataSummary(data, chainId, title);
+
+  let decodedFallback = null;
+  try {
+    decodedFallback = await decodeRuntimeFallback(selectorInfo, data, contractAddress, chainId);
+  } catch (error) {
+    KAISIGN_DEBUG && console.warn('[Decode] Runtime fallback param decode failed:', error?.message || error);
+  }
+
+  return {
+    success: false,
+    selector,
+    contractName,
+    metadata,
+    functionName: decodedFallback?.functionName || selectorInfo.name,
+    function: decodedFallback?.function || selectorInfo.signature,
+    params: decodedFallback?.params || {},
+    formatted: decodedFallback?.formatted || {},
+    intent: title,
+    unknownSummary,
+    error: errorMessage || 'Function not found in metadata ABI'
+  };
+}
+
 // Enhanced ABI decoder - supports all Solidity types including bytes, bytes[], arrays
 // NO HARDCODED SELECTORS - all type handling is generic
 class SimpleInterface {
@@ -630,6 +1023,15 @@ async function decodeCalldata(data, contractAddress, chainId) {
     // If no metadata from subgraph, return failure
     if (!metadata) {
       KAISIGN_DEBUG && console.log('[Decode] No metadata found, returning Contract interaction');
+      const runtimeFallback = await buildRuntimeRegistryFallbackResult(
+        data,
+        contractAddress,
+        chainId,
+        '',
+        null,
+        'No metadata found in subgraph'
+      );
+      if (runtimeFallback) return runtimeFallback;
       const unknownSummary = await buildUnknownCalldataSummary(data, chainId);
       return {
         success: false,
@@ -672,12 +1074,16 @@ async function decodeCalldata(data, contractAddress, chainId) {
     if (!functionSignature && !functionName) {
       const contractName = metadata.context?.contract?.name || '';
       KAISIGN_DEBUG && console.log('[Decode] Function not found in metadata ABI:', { selector, contractName, abiLength: metadata.context?.contract?.abi?.length });
-      // Try the runtime selector registry for a human signature even when metadata's ABI is missing the function
-      const selectorIntent = window.registryLoader?.getSelectorInfo?.(selector)?.intent;
-      const fallbackTitle = contractName
-        ? (selectorIntent ? `${selectorIntent} on ${contractName}` : `Unknown function on ${contractName}`)
-        : (selectorIntent ? `${selectorIntent} (${selector})` : `Unknown call ${selector}`);
-      const unknownSummary = await buildUnknownCalldataSummary(data, chainId, fallbackTitle);
+      const runtimeFallback = await buildRuntimeRegistryFallbackResult(
+        data,
+        contractAddress,
+        chainId,
+        contractName,
+        metadata,
+        'Function not found in metadata ABI'
+      );
+      if (runtimeFallback) return runtimeFallback;
+      const unknownSummary = await buildUnknownCalldataSummary(data, chainId, `Unknown function on ${contractName}`);
       return {
         success: false,
         selector,
@@ -900,8 +1306,8 @@ async function decodeCalldata(data, contractAddress, chainId) {
                 if (decimals !== undefined && decimals !== null) {
                   displayValue = formatTokenAmount(rawValue, decimals, symbol);
                 } else {
-                  // No decimals from metadata, keep raw value
-                  displayValue = rawValue;
+                  // Preserve MAX_UINT256 sentinel handling even without token metadata.
+                  displayValue = formatTokenAmount(rawValue, 0, '');
                 }
               } else {
                 // No metadata service available, keep raw value
@@ -971,8 +1377,8 @@ async function decodeCalldata(data, contractAddress, chainId) {
                 if (decimals !== undefined && decimals !== null) {
                   displayValue = formatTokenAmount(rawValue, decimals, symbol);
                 } else {
-                  // No decimals from metadata, keep raw value
-                  displayValue = rawValue;
+                  // Preserve MAX_UINT256 sentinel handling even without token metadata.
+                  displayValue = formatTokenAmount(rawValue, 0, '');
                 }
               } else {
                 // No metadata service available, keep raw value
