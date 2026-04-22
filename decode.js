@@ -632,13 +632,12 @@ async function decodeCalldata(data, contractAddress, chainId) {
     if (!functionSignature && !functionName) {
       const contractName = metadata.context?.contract?.name || '';
       KAISIGN_DEBUG && console.log('[Decode] Function not found in metadata ABI:', { selector, contractName, abiLength: metadata.context?.contract?.abi?.length });
-      const unknownSummary = await buildUnknownCalldataSummary(
-        data,
-        chainId,
-        contractName
-          ? `Unknown function on ${contractName}`
-          : `Unknown call ${selector}`
-      );
+      // Try the runtime selector registry for a human signature even when metadata's ABI is missing the function
+      const selectorIntent = window.registryLoader?.getSelectorInfo?.(selector)?.intent;
+      const fallbackTitle = contractName
+        ? (selectorIntent ? `${selectorIntent} on ${contractName}` : `Unknown function on ${contractName}`)
+        : (selectorIntent ? `${selectorIntent} (${selector})` : `Unknown call ${selector}`);
+      const unknownSummary = await buildUnknownCalldataSummary(data, chainId, fallbackTitle);
       return {
         success: false,
         selector,
@@ -944,9 +943,12 @@ async function decodeCalldata(data, contractAddress, chainId) {
               displayValue = rawValue;
             }
           }
-        } else if (fieldDef.format === 'addressName') {
-          // Keep raw address, wallet resolves names
-          displayValue = rawValue;
+        } else if (fieldDef.format === 'addressName' || fieldDef.format === 'addressOrName') {
+          try {
+            displayValue = await applyFieldFormat(rawValue, fieldDef, rawParams, chainId);
+          } catch (e) {
+            displayValue = rawValue;
+          }
         }
 
         // Use the field path as key (avoiding conflicts with ABI param names)
@@ -1190,6 +1192,22 @@ function formatTokenAmount(rawValue, decimals, symbol) {
 
     const value = BigInt(rawValue);
     KAISIGN_DEBUG && console.log('[formatTokenAmount] value as BigInt:', value.toString());
+
+    // Sentinel: uint256.max (and shave-off-a-few variants) means "unlimited" / "all"
+    // canonical for ERC-20 approve(spender, MAX) and aave withdraw(MAX) etc.
+    const MAX_UINT256 = (1n << 256n) - 1n;
+    if (value > MAX_UINT256 - 1000n) {
+      return symbol ? `unlimited ${symbol}` : 'unlimited';
+    }
+
+    // Defensive cap: anything above 2^200 cannot be a real token amount and is almost
+    // certainly a mis-tagged packed bitfield (e.g. 1inch v6 partnerAndFee). Refuse to
+    // pretty-print as a token amount; show raw hex so the user notices.
+    if (value > (1n << 200n)) {
+      console.warn('[formatTokenAmount] value exceeds 2^200, refusing to format as token amount:', value.toString());
+      return `0x${value.toString(16)}`;
+    }
+
     const divisor = BigInt(10) ** BigInt(dec);
     KAISIGN_DEBUG && console.log('[formatTokenAmount] divisor:', divisor.toString());
     const integerPart = value / divisor;
@@ -1802,6 +1820,22 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
 
   KAISIGN_DEBUG && console.log(`[applyFieldFormat] format="${format}", value=`, value, 'params=', params);
 
+  // amount format - inline decimals + symbol from metadata params (no API lookup)
+  // Used by ERC-20 approve metadata: {"format":"amount","params":{"decimals":18,"symbol":"wstETH"}}
+  if (format === 'amount') {
+    let valueStr;
+    if (value && typeof value === 'object') {
+      if (value._isBigNumber && value._value !== undefined) valueStr = value._value;
+      else if (value._isBigNumber && value._hex) valueStr = BigInt(value._hex).toString();
+      else valueStr = String(value);
+    } else {
+      valueStr = String(value);
+    }
+    const decimals = params.decimals !== undefined ? Number(params.decimals) : 18;
+    const symbol = params.symbol || '';
+    return formatTokenAmount(valueStr, decimals, symbol);
+  }
+
   // tokenAmount format - fetch token metadata from Railway API
   if (format === 'tokenAmount') {
     const tokenPath = params.tokenPath;
@@ -1901,21 +1935,27 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
     return formatTokenAmount(valueStr, 18, 'ETH');
   }
 
-  // addressName or addressOrName format - try to resolve to token symbol or ENS
+  // addressName or addressOrName format - try to resolve to a human name
+  // Order: ERC-20 symbol (WETH, wstETH) → contract name (ParaSwap Augustus V6) → shortened addr
   if (format === 'addressName' || format === 'addressOrName') {
     const addr = String(value).toLowerCase();
-    // Try to get token name from metadata service
+    const isShortenedFallback = (s) => typeof s === 'string' && /^0x[0-9a-f]{4}\.\.\.[0-9a-f]{4}$/i.test(s);
     if (window.metadataService && addr.startsWith('0x') && addr.length === 42) {
       try {
         const tokenInfo = await window.metadataService.getTokenMetadata(addr, chainId);
-        if (tokenInfo && tokenInfo.symbol) {
+        // Real ERC-20 symbol: not the address-shortened fallback the service returns when symbol() reverts
+        if (tokenInfo && tokenInfo.symbol && !isShortenedFallback(tokenInfo.symbol)) {
           return tokenInfo.symbol;
         }
+        // Non-token contract: prefer the metadata name (e.g. "ParaSwap Augustus V6", "1inch Router V6")
+        if (tokenInfo && tokenInfo.name && tokenInfo.name !== 'Unknown Token') {
+          return tokenInfo.name;
+        }
       } catch (e) {
-        KAISIGN_DEBUG && console.log('[applyFieldFormat] Token lookup failed:', e.message);
+        KAISIGN_DEBUG && console.log('[applyFieldFormat] Address name lookup failed:', e.message);
       }
     }
-    // Fallback: return shortened address
+    // Fallback: shortened address
     if (addr.length === 42) {
       return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
     }

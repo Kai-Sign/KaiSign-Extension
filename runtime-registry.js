@@ -136,6 +136,33 @@ class RuntimeRegistry {
         intent: 'Check Batch Balances',
         category: 'query',
         standard: 'ERC-1155'
+      },
+
+      // Common DeFi router/gateway selectors observed in real captures.
+      // Used as a "Unknown call 0x..." fallback so the title at least names the action.
+      '0xbcc3c255': {
+        name: 'repayETH',
+        signature: 'repayETH(address,uint256,address)',
+        intent: 'Repay ETH loan',
+        category: 'lending'
+      },
+      '0xf4e8cd69': {
+        name: 'depositToLyra',
+        signature: 'depositToLyra(address,address,bool,uint256,uint256,address)',
+        intent: 'Deposit to Lyra',
+        category: 'bridge'
+      },
+      '0x876a02f6': {
+        name: 'swapExactAmountInOnUniswapV3',
+        signature: 'swapExactAmountInOnUniswapV3((address,address,uint256,uint256,uint256,bytes32,address,bytes),uint256,bytes)',
+        intent: 'Swap exact amount in on UniswapV3',
+        category: 'swap'
+      },
+      '0x1fff991f': {
+        name: 'execute',
+        signature: 'execute((address,address,uint256),bytes[],bytes32)',
+        intent: 'Execute',
+        category: 'execute'
       }
     };
 

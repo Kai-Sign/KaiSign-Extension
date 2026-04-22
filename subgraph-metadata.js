@@ -354,16 +354,16 @@ class SubgraphMetadataService {
             KAISIGN_DEBUG && console.warn('[KaiSign API] Cached verification failed:', err.message);
           }
         } else {
-          // Fallback to on-chain verification (async)
-          window.onChainVerifier.verifyMetadata(metadata, verifyAddress, verifyChainId)
-            .then(verification => {
-              metadata._verification = verification;
-              KAISIGN_DEBUG && console.log('[KaiSign API] On-chain verification result:', verification.source, verification.verified);
-            })
-            .catch(err => {
-              metadata._verification = { verified: false, source: 'error', details: err.message };
-              KAISIGN_DEBUG && console.warn('[KaiSign API] On-chain verification failed:', err.message);
-            });
+          // Fallback to on-chain verification — await so _verification is
+          // populated before the metadata gets cached and returned.
+          try {
+            const verification = await window.onChainVerifier.verifyMetadata(metadata, verifyAddress, verifyChainId);
+            metadata._verification = verification;
+            KAISIGN_DEBUG && console.log('[KaiSign API] On-chain verification result:', verification.source, verification.verified);
+          } catch (err) {
+            metadata._verification = { verified: false, source: 'error', details: err.message };
+            KAISIGN_DEBUG && console.warn('[KaiSign API] On-chain verification failed:', err.message);
+          }
         }
       }
 

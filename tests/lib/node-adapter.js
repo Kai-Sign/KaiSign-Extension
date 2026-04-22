@@ -56,6 +56,16 @@ const mockWindow = {
 // Set global window
 globalThis.window = mockWindow;
 
+// Minimal document stub so runtime-registry.js can run
+// (it checks document.readyState and registers listeners)
+if (!globalThis.document) {
+  globalThis.document = {
+    readyState: 'complete',
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  };
+}
+
 /**
  * Loads and adapts browser-based decoder modules for Node.js
  * @param {Object} metadataService - The metadata service to use
@@ -70,6 +80,12 @@ export async function loadDecoderModules(metadataService) {
     metadataService.getContractMetadata(address, chainId, selector);
   mockWindow.getEIP712Metadata = (contract, primaryType) =>
     metadataService.getEIP712Metadata(contract, primaryType);
+
+  // Load runtime-registry.js (provides window.registryLoader with embedded ERC selectors)
+  // Must load before decode.js so the unknown-function fallback can consult it
+  const registryCode = fs.readFileSync(path.join(extensionPath, 'runtime-registry.js'), 'utf8');
+  const adaptedRegistryCode = adaptBrowserCode(registryCode, 'runtime-registry.js');
+  eval(adaptedRegistryCode);
 
   // Load decode.js
   const decodeCode = fs.readFileSync(path.join(extensionPath, 'decode.js'), 'utf8');
