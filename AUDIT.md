@@ -4,8 +4,8 @@ Pointers to the security-critical code in this extension. The goal is for an
 external reviewer to find each hot spot in under ten seconds via Ctrl-F. For
 disclosure policy, see `SECURITY.md`. For per-file rationale, see the
 top-of-file headers in `decode.js`, `subgraph-metadata.js`,
-`runtime-registry.js`, `recursive-decoder.js`, `advanced-decoder.js`, and
-`onchain-verifier.js`.
+`runtime-registry.js`, `recursive-decoder.js`, `advanced-decoder.js`,
+`onchain-verifier.js`, and `merkle-tree.js`.
 
 ## 1. Trust boundaries
 
@@ -23,6 +23,12 @@ The MAIN world is contaminated by definition (it shares globals with the page).
 Treat anything coming out of MAIN as untrusted. The bridge and the service
 worker are the trust gates.
 
+`merkle-tree.js` makes RPC calls (`eth_getLogs`, `eth_blockNumber`, `eth_call`)
+through the same bridge → service-worker pipeline as `onchain-verifier.js`,
+so the same host whitelist gates its traffic. The RPC method itself is not
+allow-listed (any JSON-RPC method goes through), but every call still has to
+land at a whitelisted host.
+
 ## 2. RPC host whitelist
 
 All outbound RPC traffic is gated by an allow-list in `background.js`.
@@ -39,28 +45,76 @@ here means the extension would happily exfiltrate transaction-context data
 to any URL the page chose. Reviewers: confirm no other code path performs
 `fetch()` to user-influenced URLs.
 
-## 3. On-chain verification (leaf hash math)
+## 3. On-chain verification (two-leaf merkle proof, v1.0.0)
 
-`onchain-verifier.js` computes a metadata leaf hash locally and compares it
-to the value the registry contract reports. If they match, the metadata
-blob is exactly what was attested on-chain.
+`onchain-verifier.js` computes two leaf hashes locally (availability +
+revocation) and proves each one's membership in the registry's `merkleRoot()`
+using a locally-replayed merkle tree (`merkle-tree.js`). If availability is
+in the tree and revocation is not, the metadata is verified.
 
-| Item                                  | Location                            |
-| ------------------------------------- | ----------------------------------- |
-| Registry contract address (Sepolia)   | `onchain-verifier.js:26`            |
-| `LEAF_TYPEHASH` derivation            | `onchain-verifier.js:56-58`         |
-| Local leaf computation (encode + hash)| `onchain-verifier.js:351-365`       |
-| On-chain leaf fetch                   | `onchain-verifier.js:397-405`       |
-| Attestation struct parsing            | `onchain-verifier.js:469-501`       |
-| End-to-end verify flow                | `onchain-verifier.js:547-603`       |
+| Item                                                     | Location                          |
+| -------------------------------------------------------- | --------------------------------- |
+| Registry contract address (Sepolia)                      | `onchain-verifier.js:39`          |
+| New 4-field `LEAF_TYPEHASH` derivation                   | `onchain-verifier.js:72-74`       |
+| Local leaf computation (encode + hash)                   | `onchain-verifier.js:376-390`     |
+| `merkleRoot()` view-call fetch                           | `onchain-verifier.js:425-436`     |
+| Two-leaf verification flow (`verifyMetadataAgainstRoot`) | `onchain-verifier.js:501-613`     |
+| Off-chain `verifyMerkleProof` port                       | `onchain-verifier.js:630-642`     |
+| Registry-scoped merkle root cache                        | `onchain-verifier.js:669-725`     |
 
-**Critical invariant — word ordering in the attestation struct:**
-- `word[3]` = blobHash (EIP-4844 blob hash, NOT used in leaf — `onchain-verifier.js:496`)
-- `word[4]` = metadataHash (`onchain-verifier.js:497`, used in leaf)
+**Critical invariants:**
+- **4-field leaf** (no `idx`): `keccak256(abi.encode(LEAF_TYPEHASH, chainId,
+  extcodehash, metadataHash, revoked))`. Mismatching field order or count
+  produces a leaf that will never appear in the tree → silent "unattested"
+  even when the metadata is, in fact, attested.
+- **Two leaves per metadata**: one with `revoked=false` (availability), one
+  with `revoked=true` (revocation). Both contracts and verifier must agree
+  on this — see `KaiSignRegistry.sol:383-389` and `:505-511`.
+- **`metadataHash = keccak256(canonical(metadata))`** with sorted-key JSON.
+  Backend MUST use the same canonicalization or every verification fails.
 
-Swapping these two is a silent failure: verification "succeeds" against a
-wrong hash. Reviewers: confirm the slice indices match this mapping
-(`hex.slice(256, 320)` for word[4] = metadataHash).
+The pre-v1.0.0 model (single per-uid leaf fetched via `getAttestation` +
+`computeAttestationLeaf`) is gone. There is no struct-parsing path anymore;
+nothing in the verifier slices the `getAttestation` return for leaf
+construction. The `word[3]/word[4]` warning from earlier audits no longer
+applies to the verification path. (`merkle-tree.js` does parse the struct
+when reading `metadataHash` for leaf reconstruction during indexing — see §3a
+for the trust analysis.)
+
+## 3a. Local merkle tree (proof generation)
+
+`merkle-tree.js` indexes registry events and replays the on-chain incremental
+merkle tree client-side so it can generate proofs without a backend
+dependency. The contract's `filledSubtrees` cache is sufficient for the
+contract to compute the next root, but NOT for arbitrary historical proofs —
+hence the local replay.
+
+| Item                                                  | Location                         |
+| ----------------------------------------------------- | -------------------------------- |
+| Storage shape (per-registry leaf log)                 | `merkle-tree.js` (`_storageKey`, `state`) |
+| `treeDepth()` fetched once per load                   | `merkle-tree.js` (`_ensureTreeDepth`) |
+| `zeroHashes` precompute (matches contract :144-148)   | `merkle-tree.js` (`_buildZeroHashes`) |
+| Tree replay (`_buildTree`)                            | `merkle-tree.js` (`_buildTree`)  |
+| Proof generation                                      | `merkle-tree.js` (`proveLeaf`)   |
+| Root-mismatch self-heal (wipe + re-index)             | `merkle-tree.js` (`ensureRootMatches`) |
+| Event indexing (`SpecIndexed`, `RevokeFinalized`)     | `merkle-tree.js` (`_fetchInsertionEvents`) |
+
+**Critical invariants:**
+- **Insertion order = `(blockNumber, logIndex)`** lexicographically across
+  BOTH event types. Reordering equals tree corruption (different positions →
+  different proofs → root mismatch).
+- **`RevokeFinalized` filtering**: only `revoked=true` events insert leaves
+  (`KaiSignRegistry.sol:500-520`). Including `revoked=false` events would
+  insert leaves that don't exist on-chain → root mismatch.
+- **Self-healing on mismatch**: if the locally-computed root doesn't equal
+  `merkleRoot()` after a catch-up, state is dropped and re-indexed from the
+  deploy block. `proveLeaf` is never called against an unverified tree;
+  `verifyMetadataAgainstRoot` requires `ensureRootMatches(root) === true`
+  before consulting `proveLeaf`.
+
+A reviewer can verify the tree implementation against the contract by
+comparing `_buildTree` to `KaiSignRegistry._insertLeaf` (:576-590) — same
+swap-on-odd-position logic, same `zeroHashes` padding for missing siblings.
 
 ## 4. Calldata bounds checking
 
@@ -87,19 +141,21 @@ is verified against the registry before it lands in the cache.
 
 | Item                                   | Location                          |
 | -------------------------------------- | --------------------------------- |
-| `_verification` set from on-chain path | `subgraph-metadata.js:360-361`    |
-| Failure path (still sets `_verification`) | `subgraph-metadata.js:364`     |
-| Cache write (after `await`)            | `subgraph-metadata.js:371`        |
+| `verifyMetadataAgainstRoot` call site  | `subgraph-metadata.js:376-381`    |
+| `_verification` set on success/error   | `subgraph-metadata.js:381,384`    |
+| Cache write (after `await`)            | `subgraph-metadata.js:390`        |
 | Popup badge (verified / unverified)    | `content-script.js:3078-3122`     |
 
 **Critical invariant — verification is awaited before cache write.** A
 fire-and-forget `.then()` here freezes `_verification` as `undefined` in the
 cached entry; subsequent lookups will display unverified metadata as if it
-had been verified. The `await` at `subgraph-metadata.js:360` is load-bearing.
+had been verified. The `await` at `subgraph-metadata.js:376` is load-bearing.
 
 The popup surfaces the result via `updateVerificationBadge` at
 `content-script.js:3112`. Unverified metadata must show the unverified
-state — never silently render as verified.
+state — never silently render as verified. The verifier returns one of four
+`source` values (`merkle-verified`, `revoked`, `unattested`, `root-unavailable`);
+the badge code must distinguish `verified=true` from any other case.
 
 ## 6. Last-resort selector fallback
 

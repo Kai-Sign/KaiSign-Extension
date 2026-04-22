@@ -333,9 +333,9 @@ class SubgraphMetadataService {
 
       const metadata = response.metadata;
 
-      // Extract verification data from API response (for offline verification)
-      const leafComponents = response.leaf_components || null;
-      const merkleRoot = response.merkle_root || null;
+      // v1.0.0: backend serves only (chainId, extcodehash, metadata). Leaf
+      // hashes and merkle proofs are computed client-side against the cached
+      // registry merkleRoot — see onchain-verifier.js + merkle-tree.js.
 
       // Check if the metadata has the format for this selector
       // If not, and it's a Diamond proxy, try fetching facet metadata
@@ -368,39 +368,21 @@ class SubgraphMetadataService {
         }
       }
 
-      // Run verification (preferring cached/offline verification when available)
+      // Run verification — await so _verification is populated before the
+      // metadata gets cached. Single path post-v1.0.0: two-leaf merkle proof
+      // against the cached registry root.
       if (typeof window !== 'undefined' && window.onChainVerifier) {
-        const verifyAddress = normalizedAddress;
-        const verifyChainId = normalizedChainId;
-
-        // Use cached verification if API provides leaf_components and merkle_root
-        if (leafComponents && merkleRoot) {
-          try {
-            const verification = window.onChainVerifier.verifyWithCache(
-              verifyAddress,
-              verifyChainId,
-              leafComponents,
-              merkleRoot
-            );
-            // Attach leaf components for potential re-verification on update
-            verification.leafComponents = leafComponents;
-            metadata._verification = verification;
-            KAISIGN_DEBUG && console.log('[KaiSign API] Cached verification result:', verification.source, verification.verified);
-          } catch (err) {
-            metadata._verification = { verified: false, source: 'error', details: err.message };
-            KAISIGN_DEBUG && console.warn('[KaiSign API] Cached verification failed:', err.message);
-          }
-        } else {
-          // Fallback to on-chain verification — await so _verification is
-          // populated before the metadata gets cached and returned.
-          try {
-            const verification = await window.onChainVerifier.verifyMetadata(metadata, verifyAddress, verifyChainId);
-            metadata._verification = verification;
-            KAISIGN_DEBUG && console.log('[KaiSign API] On-chain verification result:', verification.source, verification.verified);
-          } catch (err) {
-            metadata._verification = { verified: false, source: 'error', details: err.message };
-            KAISIGN_DEBUG && console.warn('[KaiSign API] On-chain verification failed:', err.message);
-          }
+        try {
+          const verification = await window.onChainVerifier.verifyMetadataAgainstRoot(
+            metadata,
+            normalizedAddress,
+            normalizedChainId
+          );
+          metadata._verification = verification;
+          KAISIGN_DEBUG && console.log('[KaiSign API] Verification result:', verification.source, verification.verified);
+        } catch (err) {
+          metadata._verification = { verified: false, source: 'error', details: err.message };
+          KAISIGN_DEBUG && console.warn('[KaiSign API] Verification failed:', err.message);
         }
       }
 

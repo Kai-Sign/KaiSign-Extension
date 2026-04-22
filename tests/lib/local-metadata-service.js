@@ -16,7 +16,8 @@ export class LocalMetadataService {
   constructor(fixturesPath) {
     this.fixturesPath = fixturesPath || path.resolve(__dirname, '../fixtures');
     this.metadataCache = new Map(); // address -> metadata
-    this.addressToFilePath = new Map(); // address -> file path
+    this.addressToFilePath = new Map(); // address-chainId -> file path
+    this.addressFallbackToFilePath = new Map(); // address -> file path (legacy fallback)
     this.tokenCache = new Map(); // address -> token info
     // Diamond facet index: diamondAddress -> selector -> metadata file path
     this.diamondFacetIndex = new Map();
@@ -59,14 +60,17 @@ export class LocalMetadataService {
           const content = fs.readFileSync(fullPath, 'utf8');
           const metadata = JSON.parse(content);
 
-          // Extract contract address from metadata
+          // Extract contract address and chainId from metadata
           let address = null;
+          let chainId = null;
 
           // Try different paths in ERC-7730 format
           if (metadata.context?.contract?.address) {
             address = metadata.context.contract.address.toLowerCase();
+            chainId = Number(metadata.context.contract.chainId) || null;
           } else if (metadata.context?.eip712?.verifyingContract) {
             address = metadata.context.eip712.verifyingContract.toLowerCase();
+            chainId = Number(metadata.context.eip712.chainId) || null;
           } else if (metadata.address) {
             address = metadata.address.toLowerCase();
           }
@@ -94,13 +98,13 @@ export class LocalMetadataService {
             if (Array.isArray(deployments)) {
               for (const dep of deployments) {
                 if (dep.address) {
-                  this.addressToFilePath.set(dep.address.toLowerCase(), fullPath);
+                  this.setFilePathForAddress(dep.address, dep.chainId, fullPath);
                 }
               }
             } else if (deployments && typeof deployments === 'object') {
               for (const dep of Object.values(deployments)) {
                 if (dep.address) {
-                  this.addressToFilePath.set(dep.address.toLowerCase(), fullPath);
+                  this.setFilePathForAddress(dep.address, dep.chainId, fullPath);
                 }
               }
             }
@@ -112,14 +116,14 @@ export class LocalMetadataService {
             if (Array.isArray(deployments)) {
               for (const dep of deployments) {
                 if (dep.address) {
-                  this.addressToFilePath.set(dep.address.toLowerCase(), fullPath);
+                  this.setFilePathForAddress(dep.address, dep.chainId, fullPath);
                 }
               }
             }
           }
 
           if (address) {
-            this.addressToFilePath.set(address, fullPath);
+            this.setFilePathForAddress(address, chainId, fullPath);
           }
         } catch (e) {
           console.warn(`[LocalMetadataService] Failed to parse ${fullPath}:`, e.message);
@@ -193,8 +197,10 @@ export class LocalMetadataService {
       }
     }
 
-    // Look up file path by address
-    const filePath = this.addressToFilePath.get(normalizedAddress);
+    // Look up file path by address+chainId first, then fall back to address-only.
+    const filePath =
+      this.addressToFilePath.get(`${normalizedAddress}-${chainId}`) ||
+      this.addressFallbackToFilePath.get(normalizedAddress);
 
     if (!filePath) {
       console.log(`[LocalMetadataService] No metadata found for ${normalizedAddress} in addressToFilePath map`);
@@ -347,6 +353,17 @@ export class LocalMetadataService {
   clearCache() {
     this.metadataCache.clear();
     this.tokenCache.clear();
+  }
+
+  setFilePathForAddress(address, chainId, filePath) {
+    const normalizedAddress = address.toLowerCase();
+    const numericChainId = Number(chainId);
+    if (Number.isFinite(numericChainId) && numericChainId > 0) {
+      this.addressToFilePath.set(`${normalizedAddress}-${numericChainId}`, filePath);
+    }
+    if (!this.addressFallbackToFilePath.has(normalizedAddress)) {
+      this.addressFallbackToFilePath.set(normalizedAddress, filePath);
+    }
   }
 
   /**

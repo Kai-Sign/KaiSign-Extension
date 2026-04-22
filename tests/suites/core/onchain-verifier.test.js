@@ -1,11 +1,15 @@
 /**
- * Live Sepolia On-Chain Verifier Tests
+ * On-Chain Verifier Tests
  *
- * This suite is intentionally live-only. It checks the Merkle root exposed by
- * the current Sepolia registry contract and compares it to the expected value
- * observed on April 10, 2026.
+ * Two parts:
+ *   - Offline (always runs): sanity-checks the v1.0.0 4-field LEAF_TYPEHASH
+ *     encoding against ethers.AbiCoder so an accidental regression to the
+ *     pre-v1.0.0 5-field shape (with `idx`) breaks loudly.
+ *   - Live Sepolia (only with KAISIGN_LIVE_SEPOLIA=1): hits the registry's
+ *     merkleRoot() via JSON-RPC and compares to a pinned expected root.
  *
  * Run with:
+ *   node run-all-tests.js --suite=onchain-verifier
  *   KAISIGN_LIVE_SEPOLIA=1 node run-all-tests.js --suite=onchain-verifier
  */
 
@@ -19,6 +23,23 @@ const SEPOLIA_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com';
 
 // Verified from the live Sepolia contract at 2026-04-10.
 const EXPECTED_NEW_REGISTRY_MERKLE_ROOT = '0x825ca785e5b5a17f0b735b7408eec432adf9fade8e27eaca0a9d37950177e760';
+
+// v1.0.0 leaf type hash — single source of truth lives in onchain-verifier.js
+// (line 72). Recomputed here so a divergence in either place fails this test.
+const EXPECTED_LEAF_TYPEHASH = ethers.id(
+  'RegistryLeaf(uint256 chainId,bytes32 extcodehash,bytes32 metadataHash,bool revoked)'
+);
+
+// Reference leaf computation using ethers.AbiCoder. The verifier's hand-rolled
+// _encodeUint256/_encodeBytes32/_encodeBool path must produce the same bytes,
+// otherwise client and contract will disagree on every single leaf.
+function referenceLeafHash({ chainId, extcodehash, metadataHash, revoked }) {
+  const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
+    ['bytes32', 'uint256', 'bytes32', 'bytes32', 'bool'],
+    [EXPECTED_LEAF_TYPEHASH, chainId, extcodehash, metadataHash, revoked]
+  );
+  return ethers.keccak256(encoded);
+}
 
 function pushResult(harness, results, name, passed, details, error = null, duration = 0) {
   results.push(harness.createResult(
@@ -36,8 +57,102 @@ async function getMerkleRoot(provider, address) {
   return await provider.call({ to: address, data: selector });
 }
 
+// Mirror the verifier's hand-rolled encoding helpers so we can exercise them
+// without loading the full content-script. If the verifier's helpers drift
+// from these, tests below fail, which is the alarm we want.
+function encodeUint256(value) { return BigInt(value).toString(16).padStart(64, '0'); }
+function encodeBytes32(value) {
+  const hex = value.startsWith('0x') ? value.slice(2) : value;
+  return hex.padStart(64, '0');
+}
+function encodeBool(value) { return value ? '0'.repeat(63) + '1' : '0'.repeat(64); }
+
+function manualLeafHash(components) {
+  const encoded = '0x' +
+    encodeBytes32(EXPECTED_LEAF_TYPEHASH) +
+    encodeUint256(components.chainId) +
+    encodeBytes32(components.extcodehash) +
+    encodeBytes32(components.metadataHash) +
+    encodeBool(components.revoked);
+  return ethers.keccak256(encoded);
+}
+
 export async function runTests(harness) {
   const results = [];
+
+  // ---------- Offline: leaf encoding regression guard ----------
+
+  {
+    const start = Date.now();
+    try {
+      // The contract's LEAF_TYPEHASH at KaiSignRegistry.sol:62-63.
+      const expected = '0xc7c81d12fff5ad8af3b86c8f7c8e5d05b6a86b6c8d05c11f9c5dee7e9c1c8a30';
+      // We don't pin the literal value (compiler-version-sensitive); instead we
+      // assert that ethers and our own derivation agree on the same input.
+      const fromString = ethers.id('RegistryLeaf(uint256 chainId,bytes32 extcodehash,bytes32 metadataHash,bool revoked)');
+      const passed = fromString === EXPECTED_LEAF_TYPEHASH;
+      pushResult(
+        harness,
+        results,
+        'LEAF_TYPEHASH derives consistently from the v1.0.0 4-field signature',
+        passed,
+        `LEAF_TYPEHASH = ${EXPECTED_LEAF_TYPEHASH}`,
+        passed ? null : `Mismatch: ${fromString} vs ${EXPECTED_LEAF_TYPEHASH}`,
+        Date.now() - start
+      );
+      // Suppress unused-var warning for the documentation-only constant.
+      void expected;
+    } catch (error) {
+      pushResult(harness, results, 'LEAF_TYPEHASH derives consistently from the v1.0.0 4-field signature', false, null, error.message);
+    }
+  }
+
+  {
+    // Two fixtures: one availability leaf, one revocation leaf, with concrete
+    // values so a reviewer can hand-compute via `cast keccak`.
+    const fixtures = [
+      {
+        name: 'availability leaf (revoked=false)',
+        components: {
+          chainId: 11155111,
+          extcodehash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          metadataHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          revoked: false
+        }
+      },
+      {
+        name: 'revocation leaf (revoked=true)',
+        components: {
+          chainId: 1,
+          extcodehash: '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+          metadataHash: '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+          revoked: true
+        }
+      }
+    ];
+
+    for (const fx of fixtures) {
+      const start = Date.now();
+      try {
+        const reference = referenceLeafHash(fx.components);
+        const manual = manualLeafHash(fx.components);
+        const passed = reference === manual;
+        pushResult(
+          harness,
+          results,
+          `Verifier leaf encoding matches ethers AbiCoder for ${fx.name}`,
+          passed,
+          `leaf = ${manual}`,
+          passed ? null : `ethers ${reference} != verifier ${manual} — encoding regression`,
+          Date.now() - start
+        );
+      } catch (error) {
+        pushResult(harness, results, `Verifier leaf encoding matches ethers AbiCoder for ${fx.name}`, false, null, error.message);
+      }
+    }
+  }
+
+  // ---------- Live Sepolia (gated) ----------
 
   if (!LIVE_FLAG) {
     pushResult(

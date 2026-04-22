@@ -1,16 +1,29 @@
 /**
  * On-Chain Metadata Verifier
  *
- * Verifies fetched ERC-7730 metadata against on-chain leaf hashes stored in the
- * KaiSignRegistry contract on Sepolia.
+ * Verifies fetched ERC-7730 metadata against the KaiSignRegistry merkle root
+ * on Sepolia using the v1.0.0 two-leaf model.
  *
- * Verification flow (v1-core leaf hash):
- * 1. Get extcodehash of the contract via eth_getCode + keccak256
- * 2. Query registry: getLatestSpecForBytecode(chainId, extcodehash) → UID
- * 3. Query registry: getAttestation(uid) → parse Attestation struct → leaf components
- * 4. Compute leaf hash locally: keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, idx, revoked))
- * 5. Query registry: computeAttestationLeaf(uid) → on-chain leaf hash
- * 6. Compare localLeaf === onChainLeaf
+ * Trust boundary
+ *   The contract's `merkleRoot()` is the only authority. The backend serves
+ *   only `(chainId, extcodehash, metadata)` and is NEVER trusted for leaf
+ *   hashes or proofs — those are computed locally so a compromised backend
+ *   cannot forge attestations.
+ *
+ * Verification flow (v1.0.0 — 4-field leaf, two leaves per metadata)
+ * 1. Compute extcodehash via eth_getCode + keccak256
+ * 2. Compute metadataHash = keccak256(canonical(metadata))
+ * 3. Build availabilityLeaf = keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, false))
+ *    Build revocationLeaf   = keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, true))
+ * 4. Generate proofs locally via merkle-tree.js (mirrors KaiSignRegistry._insertLeaf)
+ * 5. Run verifyMerkleProof(leaf, proof, index, root) off-chain against the cached
+ *    merkleRoot — same algorithm as KaiSignRegistry.sol:546-568
+ *
+ * Result mapping:
+ *   availability ∈ tree && revocation ∉ tree  →  verified
+ *   both ∈ tree                                →  revoked
+ *   availability ∉ tree                        →  unattested
+ *   no cached/fetched root                     →  root-unavailable
  */
 
 // Guard against duplicate loading (MAIN world scripts can run multiple times)
@@ -45,16 +58,19 @@ class OnChainVerifier {
   /**
    * Compute function selectors for registry calls
    * Uses keccak256Simple from decode.js (loaded before this file)
+   *
+   * Note: `computeAttestationLeaf` was REMOVED in v1.0.0 — the verifier no
+   * longer fetches a single per-uid leaf from the chain. The merkle root is
+   * the authority, and proofs are generated locally by merkle-tree.js.
    */
   _initSelectors() {
     try {
       if (typeof keccak256Simple === 'function') {
         this.selectors.getLatestSpecForBytecode = keccak256Simple('getLatestSpecForBytecode(uint256,bytes32)').slice(0, 10);
         this.selectors.getAttestation = keccak256Simple('getAttestation(bytes32)').slice(0, 10);
-        this.selectors.computeAttestationLeaf = keccak256Simple('computeAttestationLeaf(bytes32)').slice(0, 10);
-        this.selectors.verifyAttestationInclusion = keccak256Simple('verifyAttestationInclusion(bytes32,bytes32[])').slice(0, 10);
+        this.selectors.merkleRoot = keccak256Simple('merkleRoot()').slice(0, 10);
         this.LEAF_TYPEHASH = keccak256Simple(
-          'RegistryLeaf(uint256 chainId,bytes32 extcodehash,bytes32 metadataHash,uint256 idx,bool revoked)'
+          'RegistryLeaf(uint256 chainId,bytes32 extcodehash,bytes32 metadataHash,bool revoked)'
         );
         KAISIGN_DEBUG && console.log('[OnChainVerifier] Selectors computed:', this.selectors);
       } else {
@@ -348,8 +364,13 @@ class OnChainVerifier {
 
   /**
    * Compute leaf hash from leaf components (mirrors Solidity struct hashing)
-   * leafHash = keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, idx, revoked))
-   * @param {Object} components - { chainId, extcodehash, metadataHash, idx, revoked }
+   * leafHash = keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, revoked))
+   *
+   * v1.0.0: `idx` is no longer part of the leaf. Two leaves are derived per
+   * metadata — one with revoked=false (availability) and one with revoked=true
+   * (revocation). See verifyMetadataAgainstRoot for the two-leaf check.
+   *
+   * @param {Object} components - { chainId, extcodehash, metadataHash, revoked }
    * @returns {string} keccak256 hash with 0x prefix
    */
   computeLeafHash(components) {
@@ -363,60 +384,9 @@ class OnChainVerifier {
       this._encodeUint256(components.chainId) +
       this._encodeBytes32(components.extcodehash) +
       this._encodeBytes32(components.metadataHash) +
-      this._encodeUint256(components.idx) +
       this._encodeBool(components.revoked);
 
     return this.keccak256Bytes(encoded);
-  }
-
-  /**
-   * Fetch leaf data from KaiSign API by leaf hash
-   * @param {string} leafHash - Leaf hash from on-chain registry
-   * @returns {Promise<Object|null>} { uid, leaf_hash, leaf_components } or null
-   */
-  async fetchLeafData(leafHash) {
-    try {
-      const hash = leafHash.startsWith('0x') ? leafHash : '0x' + leafHash;
-      let apiBase = 'https://kai-sign-production.up.railway.app';
-      try { apiBase = localStorage.getItem('kaisign_local_api') || apiBase; } catch { /* no localStorage */ }
-      const url = `${apiBase}/api/py/metadata/hash/${hash}`;
-      const response = await this.fetchViaBackground(url);
-      const data = JSON.parse(response);
-      if (!data || !data.uid || !data.leaf_hash) {
-        KAISIGN_DEBUG && console.warn('[OnChainVerifier] API returned incomplete leaf data');
-        return null;
-      }
-      return data;
-    } catch (e) {
-      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to fetch leaf data:', e.message);
-      return null;
-    }
-  }
-
-  /**
-   * Call computeAttestationLeaf(uid) on the registry contract
-   * @param {string} uid - Attestation UID (bytes32)
-   * @returns {Promise<string|null>} bytes32 leaf hash or null
-   */
-  async getOnChainLeaf(uid) {
-    try {
-      const selector = this.selectors.computeAttestationLeaf;
-      if (!selector || selector.length !== 10 || !selector.startsWith('0x')) {
-        throw new Error('computeAttestationLeaf selector not computed');
-      }
-
-      const calldata = selector + this._encodeBytes32(uid);
-      const result = await this.ethCallSepolia(this.registryAddress, calldata);
-
-      if (!result || result === '0x' || result.length < 66) {
-        return null;
-      }
-
-      return '0x' + result.slice(2, 66);
-    } catch (e) {
-      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to get on-chain leaf:', e.message);
-      return null;
-    }
   }
 
   /**
@@ -449,60 +419,20 @@ class OnChainVerifier {
   }
 
   /**
-   * Get attestation leaf components from the registry by calling getAttestation(uid)
-   * Parses the KaiSign Attestation struct directly from the on-chain response.
-   *
-   * KaiSign Attestation struct layout:
-   *   word[0]: uid (bytes32)
-   *   word[1]: chainId (uint256)
-   *   word[2]: extcodehash (bytes32)
-   *   word[3]: blobHash (bytes32) — EIP-4844 blob hash, NOT used in leaf
-   *   word[4]: metadataHash (bytes32) — keccak256(canonical(metadata))
-   *   word[5]: attester (address)
-   *   word[6]: timestamp (uint64)
-   *   word[7]: idx (uint64)
-   *   word[8]: revoked (bool)
-   *   word[9]: finalizedAt (uint64)
-   *   word[10]: revokeProposedAt (uint64)
-   *
-   * @param {string} uid - Attestation UID (bytes32)
-   * @returns {Promise<Object|null>} { chainId, extcodehash, metadataHash, idx, revoked } or null
+   * Fetch the current merkleRoot() from the registry contract.
+   * @returns {Promise<string|null>} bytes32 merkle root, or null on RPC failure
    */
-  async getAttestationComponents(uid) {
-    const selector = this.selectors.getAttestation;
+  async fetchMerkleRoot() {
+    const selector = this.selectors.merkleRoot;
     if (!selector || selector.length !== 10 || !selector.startsWith('0x')) {
-      throw new Error('Selector not computed');
+      throw new Error('merkleRoot selector not computed');
     }
 
-    const calldata = selector + this._encodeBytes32(uid);
-    const result = await this.ethCallSepolia(this.registryAddress, calldata);
-
+    const result = await this.ethCallSepolia(this.registryAddress, selector);
     if (!result || result === '0x' || result.length < 66) {
       return null;
     }
-
-    try {
-      const hex = result.slice(2); // remove 0x
-
-      // Need at least 11 words (704 hex chars) for the full struct
-      if (hex.length < 704) {
-        KAISIGN_DEBUG && console.warn('[OnChainVerifier] Response too short for Attestation struct');
-        return null;
-      }
-
-      // Parse the struct fields used in leaf computation
-      const chainId = Number(BigInt('0x' + hex.slice(64, 128)));
-      const extcodehash = '0x' + hex.slice(128, 192);
-      // word[3] is blobHash (skip)
-      const metadataHash = '0x' + hex.slice(256, 320);
-      const idx = Number(BigInt('0x' + hex.slice(448, 512)));
-      const revoked = BigInt('0x' + hex.slice(512, 576)) !== 0n;
-
-      return { chainId, extcodehash, metadataHash, idx, revoked };
-    } catch (e) {
-      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to decode attestation struct:', e.message);
-      return null;
-    }
+    return '0x' + result.slice(2, 66);
   }
 
   /**
@@ -539,23 +469,38 @@ class OnChainVerifier {
   }
 
   /**
-   * Full verification flow using on-chain attestation struct
-   * 1. Get extcodehash of the contract on the target chain
-   * 2. Query registry: getLatestSpecForBytecode(chainId, extcodehash) → UID
-   * 3. Query registry: getAttestation(uid) → parse Attestation struct → leaf components
-   * 4. Compute leaf hash locally from the parsed components
-   * 5. Query registry: computeAttestationLeaf(uid) → on-chain leaf hash
-   * 6. Compare: local leaf hash must equal on-chain leaf hash
+   * Verify metadata via the v1.0.0 two-leaf merkle-proof flow.
    *
-   * @param {Object} metadata - Fetched ERC-7730 metadata (unused in new flow, kept for interface compat)
+   * Steps:
+   *   1. Compute extcodehash for the target contract
+   *   2. Compute metadataHash = keccak256(canonical(metadata))
+   *   3. Build availabilityLeaf (revoked=false) and revocationLeaf (revoked=true)
+   *      from the new 4-field LEAF_TYPEHASH
+   *   4. Resolve a current merkleRoot — load from cache if present, else fetch
+   *      from `merkleRoot()` on the registry. The merkle-tree indexer keeps the
+   *      cache fresh on its own TTL; this step is just the look-up.
+   *   5. Ask the local merkle-tree indexer (window.kaisignMerkleTree) to prove
+   *      each leaf's membership against the cached leaf set, and verify each
+   *      proof off-chain via the same algorithm as KaiSignRegistry.verifyMerkleProof
+   *
+   * Result `source`:
+   *   - 'merkle-verified'  : availability ∈ tree && revocation ∉ tree
+   *   - 'revoked'          : both leaves ∈ tree
+   *   - 'unattested'       : availability ∉ tree
+   *   - 'root-unavailable' : couldn't fetch a root and nothing cached — UI should
+   *                          surface a "click to refresh" affordance
+   *
+   * The cache key + result shape match the old `verifyMetadata` so the popup
+   * badge code in content-script.js doesn't need to know about the model change.
+   *
+   * @param {Object} metadata - Fetched ERC-7730 metadata (must be the canonical blob the backend served)
    * @param {string} contractAddress - Contract address being verified
    * @param {number} chainId - Chain ID
    * @returns {Promise<Object>} Verification result
    */
-  async verifyMetadata(metadata, contractAddress, chainId) {
+  async verifyMetadataAgainstRoot(metadata, contractAddress, chainId) {
     const cacheKey = `${contractAddress.toLowerCase()}-${chainId}`;
 
-    // Check cache
     const cached = this.verificationCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
       return cached.result;
@@ -563,14 +508,15 @@ class OnChainVerifier {
 
     const result = {
       verified: false,
-      source: 'api-only',
+      source: 'root-unavailable',
       details: null,
-      hash: null,
-      onChainHash: null
+      availabilityLeaf: null,
+      revocationLeaf: null,
+      merkleRoot: null
     };
 
     try {
-      // Step 1: Get extcodehash of the contract on the target chain
+      // Step 1: extcodehash on the target chain
       const extcodehash = await this.getExtcodehash(contractAddress, chainId);
       if (!extcodehash) {
         result.details = 'Could not get contract bytecode hash';
@@ -578,49 +524,84 @@ class OnChainVerifier {
         return result;
       }
 
-      // Step 2: Query registry for latest attestation UID
-      KAISIGN_DEBUG && console.log('[OnChainVerifier] extcodehash:', extcodehash);
-      const spec = await this.getLatestSpec(chainId, extcodehash);
-      KAISIGN_DEBUG && console.log('[OnChainVerifier] Registry UID:', spec.uid, 'valid:', spec.valid);
-      if (!spec.valid || !spec.uid) {
-        result.details = 'No attestation found on-chain for this contract';
+      // Step 2: canonical metadata hash
+      if (!metadata || typeof metadata !== 'object') {
+        result.details = 'No metadata provided to verifier';
+        this._cacheResult(cacheKey, result);
+        return result;
+      }
+      const metadataHash = this.computeMetadataHash(metadata);
+
+      // Step 3: build the two leaves
+      const availabilityLeaf = this.computeLeafHash({
+        chainId, extcodehash, metadataHash, revoked: false
+      });
+      const revocationLeaf = this.computeLeafHash({
+        chainId, extcodehash, metadataHash, revoked: true
+      });
+      result.availabilityLeaf = availabilityLeaf;
+      result.revocationLeaf = revocationLeaf;
+
+      // Step 4: resolve a current merkleRoot.
+      // Cache key is registry-scoped (not per-contract) — the registry holds one
+      // global root, and storing it per-contract would just duplicate it.
+      let root = this._loadRegistryMerkleRoot();
+      if (!root) {
+        try {
+          root = await this.fetchMerkleRoot();
+          if (root) this._saveRegistryMerkleRoot(root);
+        } catch (rpcErr) {
+          KAISIGN_DEBUG && console.warn('[OnChainVerifier] merkleRoot fetch failed:', rpcErr.message);
+        }
+      }
+      if (!root) {
+        result.details = 'Could not fetch merkle root from registry and none cached';
+        this._cacheResult(cacheKey, result);
+        return result;
+      }
+      result.merkleRoot = root;
+
+      // Step 5: ask the local indexer to prove each leaf
+      const tree = (typeof window !== 'undefined') ? window.kaisignMerkleTree : null;
+      if (!tree || typeof tree.proveLeaf !== 'function') {
+        result.details = 'Merkle-tree indexer not loaded';
         this._cacheResult(cacheKey, result);
         return result;
       }
 
-      // Step 3: Get attestation struct and parse leaf components
-      const components = await this.getAttestationComponents(spec.uid);
-      if (!components) {
-        result.details = 'Could not parse attestation struct';
+      // Make sure the local leaf set is canonical against `root` before trusting
+      // any membership answer it gives. The indexer is responsible for keeping
+      // its own state fresh; here we just confirm.
+      const treeOk = await tree.ensureRootMatches(root);
+      if (!treeOk) {
+        result.source = 'root-unavailable';
+        result.details = 'Local merkle tree out of sync with on-chain root';
         this._cacheResult(cacheKey, result);
         return result;
       }
 
-      // Step 4: Compute leaf hash locally from parsed components
-      const recomputedLeaf = this.computeLeafHash(components);
-      result.hash = recomputedLeaf;
+      const availabilityProof = tree.proveLeaf(availabilityLeaf);
+      const revocationProof = tree.proveLeaf(revocationLeaf);
 
-      // Step 5: Get on-chain leaf hash from computeAttestationLeaf(uid)
-      const onChainLeaf = await this.getOnChainLeaf(spec.uid);
-      if (!onChainLeaf) {
-        result.details = 'Could not compute on-chain leaf hash';
-        this._cacheResult(cacheKey, result);
-        return result;
-      }
-      result.onChainHash = onChainLeaf;
-      KAISIGN_DEBUG && console.log('[OnChainVerifier] On-chain leaf:', onChainLeaf.slice(0, 18), 'Recomputed:', recomputedLeaf.slice(0, 18));
+      const availabilityIn = availabilityProof
+        ? this._verifyMerkleProofOffChain(availabilityLeaf, availabilityProof.proof, availabilityProof.index, root)
+        : false;
+      const revocationIn = revocationProof
+        ? this._verifyMerkleProofOffChain(revocationLeaf, revocationProof.proof, revocationProof.index, root)
+        : false;
 
-      // Step 6: Compare recomputed vs on-chain
-      if (recomputedLeaf.toLowerCase() === onChainLeaf.toLowerCase()) {
+      if (availabilityIn && !revocationIn) {
         result.verified = true;
-        result.source = 'leaf-verified';
-        result.details = 'Leaf hash verified against on-chain registry';
-        console.log('[OnChainVerifier] Leaf VERIFIED');
+        result.source = 'merkle-verified';
+        result.details = 'Availability leaf proved against on-chain merkle root';
+      } else if (availabilityIn && revocationIn) {
+        result.verified = false;
+        result.source = 'revoked';
+        result.details = 'Attestation has been revoked on-chain';
       } else {
         result.verified = false;
-        result.source = 'mismatch';
-        result.details = `Leaf mismatch: recomputed=${recomputedLeaf.slice(0, 10)}... on-chain=${onChainLeaf.slice(0, 10)}...`;
-        console.warn('[OnChainVerifier] Leaf mismatch:', { recomputedLeaf, onChainLeaf });
+        result.source = 'unattested';
+        result.details = 'No attestation for this metadata in the registry merkle tree';
       }
     } catch (e) {
       result.details = `Verification error: ${e.message}`;
@@ -629,6 +610,35 @@ class OnChainVerifier {
 
     this._cacheResult(cacheKey, result);
     return result;
+  }
+
+  /**
+   * Off-chain port of KaiSignRegistry.verifyMerkleProof (KaiSignRegistry.sol:546-568).
+   *
+   *   computedHash = leaf
+   *   for each sibling in proof:
+   *     if index even: computedHash = keccak256(computedHash || sibling)
+   *     else:          computedHash = keccak256(sibling || computedHash)
+   *     index = floor(index / 2)
+   *   return computedHash == root
+   *
+   * @param {string} leaf - bytes32 hex
+   * @param {string[]} proof - array of bytes32 hex sibling hashes from the leaf level upward
+   * @param {number|bigint} index - leaf position in the tree (0-indexed)
+   * @param {string} root - bytes32 hex root to check against
+   */
+  _verifyMerkleProofOffChain(leaf, proof, index, root) {
+    let computed = leaf.toLowerCase();
+    let pos = BigInt(index);
+    for (let i = 0; i < proof.length; i++) {
+      const sib = proof[i].toLowerCase();
+      const concat = (pos % 2n === 0n)
+        ? '0x' + computed.slice(2) + sib.slice(2)
+        : '0x' + sib.slice(2) + computed.slice(2);
+      computed = this.keccak256Bytes(concat);
+      pos /= 2n;
+    }
+    return computed.toLowerCase() === root.toLowerCase();
   }
 
   /**
@@ -649,208 +659,54 @@ class OnChainVerifier {
   }
 
   // ============================================================================
-  // Merkle Root Caching for Offline Verification
+  // Merkle Root Caching (registry-scoped, single global root per registry)
   // ============================================================================
 
   /**
-   * Get localStorage key for merkle root cache
-   * @param {string} address - Contract address
-   * @param {number} chainId - Chain ID
-   * @returns {string} localStorage key
+   * The registry stores ONE global merkleRoot — there is no per-contract or
+   * per-chain root. Cache key reflects that: keyed by registry address only.
    */
-  _getMerkleRootKey(address, chainId) {
-    return `kaisign_root_${address.toLowerCase()}_${chainId}`;
+  _getRegistryMerkleRootKey() {
+    return `kaisign_registry_root_${this.registryAddress.toLowerCase()}`;
   }
 
-  /**
-   * Load cached merkle root from localStorage
-   * @param {string} address - Contract address
-   * @param {number} chainId - Chain ID
-   * @returns {string|null} Cached merkle root or null
-   */
-  _loadMerkleRoot(address, chainId) {
-    const key = this._getMerkleRootKey(address, chainId);
+  _loadRegistryMerkleRoot() {
     try {
-      return localStorage.getItem(key);
+      return localStorage.getItem(this._getRegistryMerkleRootKey());
     } catch {
       return null;
     }
   }
 
-  /**
-   * Save merkle root to localStorage
-   * @param {string} address - Contract address
-   * @param {number} chainId - Chain ID
-   * @param {string} root - Merkle root (bytes32)
-   */
-  _saveMerkleRoot(address, chainId, root) {
-    const key = this._getMerkleRootKey(address, chainId);
+  _saveRegistryMerkleRoot(root) {
     try {
-      localStorage.setItem(key, root);
-      KAISIGN_DEBUG && console.log('[OnChainVerifier] Cached merkle root:', key, root.slice(0, 18));
+      localStorage.setItem(this._getRegistryMerkleRootKey(), root);
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] Cached registry merkleRoot:', root.slice(0, 18));
     } catch (e) {
       console.warn('[OnChainVerifier] Failed to cache merkle root:', e.message);
     }
   }
 
   /**
-   * Compute leaf hash from API-provided leaf_components array
-   * @param {Array} leafComponents - [chainId, extcodehash, metadataHash, idx, revoked]
-   * @returns {string} keccak256 hash with 0x prefix
+   * Drop the cached merkle root and force the next verification to re-fetch.
+   * Useful from the settings UI ("refresh verification data") and from devtools
+   * via window.clearMerkleRootCache().
    */
-  computeLeafFromComponents(leafComponents) {
-    if (!this.LEAF_TYPEHASH) {
-      throw new Error('LEAF_TYPEHASH not initialized');
-    }
-    if (!Array.isArray(leafComponents) || leafComponents.length < 5) {
-      throw new Error('Invalid leaf_components: expected array of 5 elements');
-    }
-
-    const [chainId, extcodehash, metadataHash, idx, revoked] = leafComponents;
-
-    const encoded = '0x' +
-      this._encodeBytes32(this.LEAF_TYPEHASH) +
-      this._encodeUint256(chainId) +
-      this._encodeBytes32(extcodehash) +
-      this._encodeBytes32(metadataHash) +
-      this._encodeUint256(idx) +
-      this._encodeBool(revoked);
-
-    return this.keccak256Bytes(encoded);
-  }
-
-  /**
-   * Verify metadata using cached merkle root for offline verification
-   * Falls back to storing API-provided root on first encounter
-   *
-   * @param {string} address - Contract address
-   * @param {number} chainId - Chain ID
-   * @param {Array} leafComponents - [chainId, extcodehash, metadataHash, idx, revoked]
-   * @param {string} apiMerkleRoot - Merkle root from API response
-   * @returns {Object} Verification result with source indicator
-   */
-  verifyWithCache(address, chainId, leafComponents, apiMerkleRoot) {
+  clearRegistryMerkleRoot() {
     try {
-      // Compute leaf hash from components
-      const leafHash = this.computeLeafFromComponents(leafComponents);
-
-      // Load cached root
-      const cachedRoot = this._loadMerkleRoot(address, chainId);
-
-      if (!cachedRoot) {
-        // First time - store API root and trust it
-        this._saveMerkleRoot(address, chainId, apiMerkleRoot);
-        return {
-          verified: true,
-          source: 'api-verified',
-          leafHash,
-          merkleRoot: apiMerkleRoot,
-          details: 'First verification - cached merkle root from API'
-        };
-      }
-
-      // Normalize for comparison
-      const normalizedCached = cachedRoot.toLowerCase();
-      const normalizedApi = apiMerkleRoot.toLowerCase();
-
-      if (normalizedCached === normalizedApi) {
-        // Root matches - verified offline
-        return {
-          verified: true,
-          source: 'cached',
-          leafHash,
-          merkleRoot: cachedRoot,
-          details: 'Verified against cached merkle root (offline)'
-        };
-      }
-
-      // Root changed - prompt for update
-      return {
-        verified: false,
-        source: 'root-changed',
-        needsUpdate: true,
-        leafHash,
-        cachedRoot,
-        apiRoot: apiMerkleRoot,
-        details: 'Merkle root changed - click to update from on-chain'
-      };
-    } catch (e) {
-      return {
-        verified: false,
-        source: 'error',
-        details: `Verification error: ${e.message}`
-      };
-    }
-  }
-
-  /**
-   * Update merkle root from on-chain registry
-   * Called when API root differs from cached root
-   *
-   * @param {string} address - Contract address
-   * @param {number} chainId - Chain ID
-   * @returns {Promise<string|null>} New merkle root or null on failure
-   */
-  async updateMerkleRoot(address, chainId) {
-    try {
-      // Get extcodehash of the contract
-      const extcodehash = await this.getExtcodehash(address, chainId);
-      if (!extcodehash) {
-        throw new Error('Could not get contract bytecode hash');
-      }
-
-      // Query registry for latest attestation UID
-      const spec = await this.getLatestSpec(chainId, extcodehash);
-      if (!spec.valid || !spec.uid) {
-        throw new Error('No attestation found on-chain');
-      }
-
-      // Get attestation components to compute fresh leaf
-      const components = await this.getAttestationComponents(spec.uid);
-      if (!components) {
-        throw new Error('Could not parse attestation struct');
-      }
-
-      // Compute fresh leaf hash
-      const freshLeaf = this.computeLeafHash(components);
-
-      // Get on-chain leaf for verification
-      const onChainLeaf = await this.getOnChainLeaf(spec.uid);
-
-      if (freshLeaf.toLowerCase() === onChainLeaf?.toLowerCase()) {
-        // For now, we use the leaf hash as the "root" since we don't have merkle proof
-        // In a full implementation, you'd fetch the actual merkle root from the registry
-        this._saveMerkleRoot(address, chainId, freshLeaf);
-        console.log('[OnChainVerifier] Updated merkle root from on-chain');
-        return freshLeaf;
-      } else {
-        throw new Error('On-chain leaf mismatch');
-      }
-    } catch (e) {
-      console.error('[OnChainVerifier] Failed to update merkle root:', e.message);
-      return null;
-    }
-  }
-
-  /**
-   * Clear cached merkle root for a specific contract
-   * @param {string} address - Contract address
-   * @param {number} chainId - Chain ID
-   */
-  clearMerkleRoot(address, chainId) {
-    const key = this._getMerkleRootKey(address, chainId);
-    try {
-      localStorage.removeItem(key);
-      KAISIGN_DEBUG && console.log('[OnChainVerifier] Cleared merkle root cache:', key);
+      localStorage.removeItem(this._getRegistryMerkleRootKey());
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] Cleared registry merkleRoot cache');
     } catch {
       // Ignore localStorage errors
     }
   }
 
   /**
-   * Clear all cached merkle roots
+   * Clear the cached registry merkleRoot AND any legacy per-contract roots
+   * left over from pre-v1.0.0 builds (key prefix: 'kaisign_root_').
    */
   clearAllMerkleRoots() {
+    this.clearRegistryMerkleRoot();
     try {
       const keysToRemove = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -860,9 +716,11 @@ class OnChainVerifier {
         }
       }
       keysToRemove.forEach(key => localStorage.removeItem(key));
-      console.log('[OnChainVerifier] Cleared', keysToRemove.length, 'cached merkle roots');
+      if (keysToRemove.length) {
+        console.log('[OnChainVerifier] Cleared', keysToRemove.length, 'legacy per-contract merkle roots');
+      }
     } catch (e) {
-      console.warn('[OnChainVerifier] Failed to clear merkle roots:', e.message);
+      console.warn('[OnChainVerifier] Failed to clear legacy merkle roots:', e.message);
     }
   }
 }

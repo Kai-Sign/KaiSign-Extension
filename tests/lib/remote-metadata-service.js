@@ -100,14 +100,21 @@ export class RemoteMetadataService {
 
       const metadata = data.metadata;
 
-      // Attach verification data from API response
-      if (data.leaf_components && data.merkle_root) {
-        metadata._verification = { verified: true, source: 'api', details: 'On-chain attestation found' };
-        metadata._leafComponents = data.leaf_components;
-        metadata._merkleRoot = data.merkle_root;
-      } else {
-        metadata._verification = { verified: false, source: 'none', details: 'No on-chain attestation' };
-      }
+      // v1.0.0 backend response: { success, metadata, metadata_hash, target_contract,
+      // chain_id, extcodehash, revoked }. Real merkle-proof verification belongs in
+      // the extension (merkle-tree.js); the test harness has no chain access here,
+      // so we treat a successful API response as 'api'-sourced and let the caller
+      // decide whether that's enough for the test fixture.
+      metadata._verification = {
+        verified: !data.revoked,
+        source: data.revoked ? 'revoked' : 'api',
+        details: data.revoked
+          ? 'Backend reports attestation revoked'
+          : 'Metadata served by backend (no merkle proof verification in test harness)',
+        metadataHash: data.metadata_hash || null,
+        extcodehash: data.extcodehash || null,
+        chainId: data.chain_id || null
+      };
 
       return metadata;
     }

@@ -60,6 +60,22 @@ function detectContractName(title) {
   return m ? m[1] : null;
 }
 
+function normalizeChainId(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  if (typeof value === 'string') {
+    if (value.startsWith('0x') || value.startsWith('0X')) {
+      const parsed = Number.parseInt(value, 16);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
 function aggregateBacklog(txs, replayResults) {
   // replayResults[i] = { title, ok }
   const gaps = new Map();
@@ -71,7 +87,8 @@ function aggregateBacklog(txs, replayResults) {
     if (!isUnknownTitle(replayedTitle)) continue;
 
     const address = tx.to.toLowerCase();
-    const chainId = Number(tx.chainId) || 1;
+    const chainId = normalizeChainId(tx.chainId);
+    if (chainId == null) continue;
     const key = `${address}-${chainId}`;
     const selector = (tx.data && tx.data.length >= 10) ? tx.data.slice(0, 10).toLowerCase() : null;
 
@@ -224,7 +241,7 @@ async function main() {
     const tx = txs[i];
     const data = tx.data;
     const to = tx.to;
-    const chainId = Number(tx.chainId) || 1;
+    const chainId = normalizeChainId(tx.chainId);
     const capturedTitle = tx.decodedResult?.aggregatedIntent || tx.decodedResult?.intent || '';
 
     const beforeBucket = classifyTitle(capturedTitle);
@@ -232,12 +249,16 @@ async function main() {
 
     let replayedTitle = '';
     let replayOk = false;
-    try {
-      const result = await harness.decoders.decodeCalldata(data, to, chainId);
-      replayedTitle = result?.aggregatedIntent || result?.intent || '';
-      replayOk = true;
-    } catch (e) {
-      replayedTitle = `<decode error: ${e.message}>`;
+    if (chainId == null) {
+      replayedTitle = '<skipped: missing chainId>';
+    } else {
+      try {
+        const result = await harness.decoders.decodeCalldata(data, to, chainId);
+        replayedTitle = result?.aggregatedIntent || result?.intent || '';
+        replayOk = true;
+      } catch (e) {
+        replayedTitle = `<decode error: ${e.message}>`;
+      }
     }
     replayResults[i] = { title: replayedTitle, ok: replayOk };
     const afterBucket = classifyTitle(replayedTitle);

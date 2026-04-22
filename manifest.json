@@ -52,12 +52,13 @@
       "matches": ["<all_urls>"],
       "js": [
         "name-resolution-service.js",
+        "decode.js",
         "subgraph-metadata.js",
         "onchain-verifier.js",
+        "merkle-tree.js",
         "runtime-registry.js",
         "metadata.js",
         "eip712-decoder.js",
-        "decode.js",
         "recursive-decoder.js",
         "advanced-decoder.js",
         "content-script.js"
@@ -70,12 +71,13 @@
     {
       "resources": [
         "name-resolution-service.js",
+        "decode.js",
         "subgraph-metadata.js",
         "onchain-verifier.js",
+        "merkle-tree.js",
         "runtime-registry.js",
         "metadata.js",
         "eip712-decoder.js",
-        "decode.js",
         "recursive-decoder.js",
         "advanced-decoder.js",
         "content-script.js"
