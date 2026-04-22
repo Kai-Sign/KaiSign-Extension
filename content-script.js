@@ -2329,6 +2329,36 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
   if (!provider.request) return;
 
   const originalRequest = provider.request.bind(provider);
+  let lastObservedChainId = null;
+
+  const normalizeChainId = (value) => {
+    if (value == null || value === '') return null;
+    if (typeof value === 'number') {
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+    if (typeof value === 'string') {
+      const parsed = value.startsWith('0x') || value.startsWith('0X')
+        ? parseInt(value, 16)
+        : parseInt(value, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    return null;
+  };
+
+  const resolveProviderChainId = async () => {
+    if (lastObservedChainId != null) return lastObservedChainId;
+    try {
+      const reported = await originalRequest({ method: 'eth_chainId' });
+      const normalized = normalizeChainId(reported);
+      if (normalized != null) {
+        lastObservedChainId = normalized;
+      }
+      return normalized;
+    } catch (error) {
+      KAISIGN_DEBUG && console.warn('[KaiSign] Failed to resolve provider chainId:', error?.message || error);
+      return null;
+    }
+  };
 
   provider.request = async function(args) {
 
@@ -2393,7 +2423,13 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
           handleEIP5792Batch(calls, batchParams.from, chainId, walletName);
         } else {
           // Handle regular transactions (eth_sendTransaction, eth_signTransaction)
-          const tx = args.params?.[0] || {};
+          const tx = { ...(args.params?.[0] || {}) };
+          const observedChainId = await resolveProviderChainId();
+          if (observedChainId != null) {
+            tx.chainId = observedChainId;
+          } else if (tx.chainId !== undefined) {
+            tx.chainId = normalizeChainId(tx.chainId);
+          }
           getIntentAndShow(tx, args.method, walletName, null);
         }
       } else {
@@ -2417,6 +2453,7 @@ function hookWalletProvider(provider, walletKey, walletName = walletKey) {
     });
 
     provider.on('chainChanged', (chainId) => {
+      lastObservedChainId = normalizeChainId(chainId);
       KAISIGN_DEBUG && console.log('[KaiSign] WalletConnect chain changed to:', chainId);
     });
 
@@ -2629,68 +2666,83 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
   if (tx.data && tx.data.length >= 10) {
     KAISIGN_DEBUG && console.log('[KaiSign] Transaction detected - selector:', selector);
-    updateLoadingStatus('Fetching metadata...');
+    const chainId = context?.chainId ?? tx.chainId ?? null;
 
-    try {
-      // Determine chainId - use mainnet (1) as default
-      const chainId = context?.chainId || tx.chainId || 1;
+    if (chainId == null) {
+      decodedResult = {
+        success: false,
+        selector,
+        error: 'Chain ID unavailable',
+        statusTitle: 'Chain ID unavailable',
+        statusDetail: 'Provider did not report a chain ID for this transaction'
+      };
+      intent = 'Transaction captured without chain ID';
+      updateLoadingStatus('Chain ID unavailable');
+    } else {
+      updateLoadingStatus('Fetching metadata...');
 
-      // GENERIC: Use ERC-7730 metadata to parse ANY transaction
-      // Try recursive decoder first for full nested intent resolution
-      let decoded;
-      updateLoadingStatus('Decoding transaction...');
-      if (window.decodeCalldataRecursive) {
-        KAISIGN_DEBUG && console.log('[KaiSign] Using recursive calldata decoder');
-        decoded = await window.decodeCalldataRecursive(tx.data, tx.to, chainId);
-      } else if (window.decodeCalldata) {
-        // Fallback to non-recursive decoder
-        decoded = await window.decodeCalldata(tx.data, tx.to, chainId);
-      }
-
-      if (decoded && decoded.success) {
-        updateLoadingStatus('Parsing intents...');
-        // Use aggregated intent if available (includes nested intents)
-        intent = decoded.aggregatedIntent || decoded.intent || 'Contract interaction';
-        decodedResult = {
-          success: true,
-          functionName: decoded.functionName || 'Contract Call',
-          selector: selector,
-          intent: intent,
-          nestedIntents: decoded.nestedIntents || [],
-          ...decoded
-        };
-
-        // Convert nested decodes to extractedBytecodes format for UI display
-        if (decoded.nestedDecodes && decoded.nestedDecodes.length > 0) {
-          KAISIGN_DEBUG && console.log('[KaiSign] RAW nestedDecodes from recursive decoder:', JSON.stringify(decoded.nestedDecodes, null, 2));
-          extractedBytecodes = flattenNestedDecodesToBytecodes(decoded.nestedDecodes, 1);
-          KAISIGN_DEBUG && console.log('[KaiSign] Flattened to extractedBytecodes:', extractedBytecodes.length, 'entries');
+      try {
+        // GENERIC: Use ERC-7730 metadata to parse ANY transaction
+        // Try recursive decoder first for full nested intent resolution
+        let decoded;
+        updateLoadingStatus('Decoding transaction...');
+        if (window.decodeCalldataRecursive) {
+          KAISIGN_DEBUG && console.log('[KaiSign] Using recursive calldata decoder');
+          decoded = await window.decodeCalldataRecursive(tx.data, tx.to, chainId);
+        } else if (window.decodeCalldata) {
+          // Fallback to non-recursive decoder
+          decoded = await window.decodeCalldata(tx.data, tx.to, chainId);
         }
 
-        KAISIGN_DEBUG && console.log(`[KaiSign] Decoded transaction: ${intent}`);
-      } else if (decoded && !decoded.success && decoded.intent) {
-        // Metadata was found but function selector wasn't matched — use the informative intent
-        const missingMetadata = (decoded.error || '').toLowerCase().includes('no metadata');
-        intent = decoded.intent;
-        decodedResult = {
-          success: false,
-          selector: selector,
-          contractName: decoded.contractName || '',
-          metadata: decoded.metadata,
-          unknownSummary: decoded.unknownSummary || null,
-          intent: intent,
-          error: decoded.error || 'Function not found in metadata',
-          statusTitle: missingMetadata ? 'Metadata not found' : 'Function not recognized',
-          statusDetail: missingMetadata
-            ? (decoded.unknownSummary?.lines?.[0] || 'No matching metadata for this contract')
-            : decoded.contractName
-            ? `Selector ${selector} not found in ${decoded.contractName} metadata`
-            : decoded.error || 'Function not found in metadata'
-        };
-        KAISIGN_DEBUG && console.log(`[KaiSign] Partial decode - known contract, unknown function: ${intent}`);
+        if (decoded && decoded.success) {
+          updateLoadingStatus('Parsing intents...');
+          // Use aggregated intent if available (includes nested intents)
+          intent = decoded.aggregatedIntent || decoded.intent || 'Contract interaction';
+          decodedResult = {
+            success: true,
+            functionName: decoded.functionName || 'Contract Call',
+            selector: selector,
+            intent: intent,
+            nestedIntents: decoded.nestedIntents || [],
+            ...decoded
+          };
+
+          // Convert nested decodes to extractedBytecodes format for UI display
+          if (decoded.nestedDecodes && decoded.nestedDecodes.length > 0) {
+            KAISIGN_DEBUG && console.log('[KaiSign] RAW nestedDecodes from recursive decoder:', JSON.stringify(decoded.nestedDecodes, null, 2));
+            extractedBytecodes = flattenNestedDecodesToBytecodes(decoded.nestedDecodes, 1);
+            KAISIGN_DEBUG && console.log('[KaiSign] Flattened to extractedBytecodes:', extractedBytecodes.length, 'entries');
+          }
+
+          KAISIGN_DEBUG && console.log(`[KaiSign] Decoded transaction: ${intent}`);
+        } else if (decoded && !decoded.success && decoded.intent) {
+          // Metadata was found but function selector wasn't matched — use the informative intent
+          const missingMetadata = (decoded.error || '').toLowerCase().includes('no metadata');
+          intent = decoded.intent;
+          decodedResult = {
+            success: false,
+            selector: selector,
+            contractName: decoded.contractName || '',
+            metadata: decoded.metadata,
+            unknownSummary: decoded.unknownSummary || null,
+            params: decoded.params,
+            formatted: decoded.formatted,
+            functionName: decoded.functionName,
+            function: decoded.function,
+            intent: intent,
+            error: decoded.error || 'Function not found in metadata',
+            statusTitle: missingMetadata ? 'Metadata not found' : 'Function not recognized',
+            statusDetail: missingMetadata
+              ? (decoded.unknownSummary?.lines?.[0] || 'No matching metadata for this contract')
+              : decoded.contractName
+              ? `Selector ${selector} not found in ${decoded.contractName} metadata`
+              : decoded.error || 'Function not found in metadata'
+          };
+          KAISIGN_DEBUG && console.log(`[KaiSign] Partial decode - known contract, unknown function: ${intent}`);
+        }
+      } catch (decodeError) {
+        console.error('[KaiSign] Transaction decoding error:', decodeError);
       }
-    } catch (decodeError) {
-      console.error('[KaiSign] Transaction decoding error:', decodeError);
     }
   }
 
@@ -2701,11 +2753,13 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
     if (window.AdvancedTransactionDecoder) {
       try {
         const decoder = new window.AdvancedTransactionDecoder();
-        const chainId = context?.chainId || tx.chainId || 1;
-        const advancedResult = await decoder.decodeTransaction(tx, tx.to, chainId);
-        if (advancedResult?.extractedBytecodes?.length > 0) {
-          extractedBytecodes = advancedResult.extractedBytecodes;
-          updateLoadingStatus(`Found ${extractedBytecodes.length} nested call(s)`);
+        const chainId = context?.chainId ?? tx.chainId ?? null;
+        if (chainId != null) {
+          const advancedResult = await decoder.decodeTransaction(tx, tx.to, chainId);
+          if (advancedResult?.extractedBytecodes?.length > 0) {
+            extractedBytecodes = advancedResult.extractedBytecodes;
+            updateLoadingStatus(`Found ${extractedBytecodes.length} nested call(s)`);
+          }
         }
       } catch (e) {
         // Try generic parser as fallback
@@ -2802,7 +2856,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     maxFeePerGas: tx.maxFeePerGas,
     maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
     nonce: tx.nonce,
-    chainId: tx.chainId,
+    chainId: tx.chainId ?? context?.chainId ?? null,
     // EIP-7702 and EIP-2930 fields
     type: tx.type,                           // Transaction type (0, 1, 2, or 4)
     authorizationList: tx.authorizationList, // EIP-7702 authorization tuples
@@ -2829,7 +2883,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   popup.className = 'kaisign-popup theme-dark';
 
   // Extract chainId for name resolution
-  const chainId = tx.chainId || context?.chainId || 1;
+  const chainId = tx.chainId ?? context?.chainId ?? null;
 
   // Helper to escape HTML
   const escapeHtml = (str) => {
