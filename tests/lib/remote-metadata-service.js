@@ -217,6 +217,11 @@ export class RemoteMetadataService {
     }
   }
 
+  addTokenMetadata(address, tokenInfo, chainId = 1) {
+    const cacheKey = `${address.toLowerCase()}-${chainId}`;
+    this.tokenCache.set(cacheKey, tokenInfo);
+  }
+
   /**
    * Clear all caches
    */

@@ -31,6 +31,7 @@ const useRemoteApi = args.includes('--remote');
 const TEST_SUITES = [
   // Core decoder tests
   { name: 'core/decode.test.js', path: './suites/core/decode.test.js' },
+  { name: 'core/unknown-function-fallback.test.js', path: './suites/core/unknown-function-fallback.test.js' },
   { name: 'core/recursive.test.js', path: './suites/core/recursive.test.js' },
   { name: 'core/advanced.test.js', path: './suites/core/advanced.test.js' },
   { name: 'core/types-advanced.test.js', path: './suites/core/types-advanced.test.js' },
@@ -65,7 +66,10 @@ const TEST_SUITES = [
   // Account abstraction tests
   { name: 'aa/safe.test.js', path: './suites/aa/safe.test.js' },
   { name: 'aa/erc4337.test.js', path: './suites/aa/erc4337.test.js' },
-  { name: 'aa/eip7702.test.js', path: './suites/aa/eip7702.test.js' }
+  { name: 'aa/eip7702.test.js', path: './suites/aa/eip7702.test.js' },
+
+  // Coverage audit (verified ABIs from Sourcify)
+  { name: 'coverage/verified-abi-coverage.test.js', path: './suites/coverage/verified-abi-coverage.test.js' }
 ];
 
 /**

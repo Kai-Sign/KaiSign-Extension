@@ -347,6 +347,11 @@ export class LocalMetadataService {
     console.log(`[LocalMetadataService] addMetadata completed. Current cache size: ${this.metadataCache.size}`);
   }
 
+  addTokenMetadata(address, tokenInfo, chainId = 1) {
+    const cacheKey = `${address.toLowerCase()}-${chainId}`;
+    this.tokenCache.set(cacheKey, tokenInfo);
+  }
+
   /**
    * Clear all caches
    */

@@ -482,6 +482,10 @@ export class TestHarness {
     this.metadataService.addMetadata(address, metadata, chainId);
   }
 
+  addTokenMetadata(address, tokenInfo, chainId = 1) {
+    this.metadataService.addTokenMetadata(address, tokenInfo, chainId);
+  }
+
   /**
    * Run EIP-712 typed data signature test
    * @param {Object} testConfig - Test configuration
