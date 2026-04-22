@@ -26,22 +26,29 @@ function parseArgs(argv) {
   const args = {
     exportPath: null,
     backendPath: path.resolve(__dirname, '../../kaisign-backend/backend'),
-    backlogPath: null
+    backlogPath: null,
+    overridesPath: null
   };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === '--backend') args.backendPath = path.resolve(rest[++i]);
     else if (rest[i] === '--backlog') args.backlogPath = path.resolve(rest[++i]);
+    else if (rest[i] === '--overrides') args.overridesPath = path.resolve(rest[++i]);
     else if (!args.exportPath) args.exportPath = path.resolve(rest[i]);
   }
   if (!args.exportPath) {
-    console.error('Usage: node tests/replay-export.js <export.json> [--backend <path>] [--backlog <path>]');
+    console.error('Usage: node tests/replay-export.js <export.json> [--backend <path>] [--backlog <path>] [--overrides <path>]');
     process.exit(2);
   }
   if (!args.backlogPath) {
     args.backlogPath = path.join(args.backendPath, 'metadata/_backlog/from-extension-exports.json');
   }
   return args;
+}
+
+function loadOverrides(overridesPath) {
+  if (!overridesPath) return {};
+  return JSON.parse(fs.readFileSync(overridesPath, 'utf8'));
 }
 
 function isUnknownTitle(title) {
@@ -87,7 +94,7 @@ function aggregateBacklog(txs, replayResults) {
     if (!isUnknownTitle(replayedTitle)) continue;
 
     const address = tx.to.toLowerCase();
-    const chainId = normalizeChainId(tx.chainId);
+    const chainId = normalizeChainId(replayResults[i]?.chainId);
     if (chainId == null) continue;
     const key = `${address}-${chainId}`;
     const selector = (tx.data && tx.data.length >= 10) ? tx.data.slice(0, 10).toLowerCase() : null;
@@ -214,6 +221,7 @@ function printBacklogSummary(backlogPath, newGaps, newCount, mergedCount) {
 
 function classifyTitle(intent) {
   if (typeof intent !== 'string' || intent === '') return 'missing';
+  if (intent === '<skipped: missing chainId>') return 'skipped-no-chain';
   if (/^Unknown call 0x[0-9a-f]{8}$/i.test(intent)) return 'unknown-bare';
   if (/^Unknown function on /.test(intent)) return 'unknown-on-named';
   if (/\b\d{18,}\b/.test(intent)) return 'raw-wei';
@@ -223,11 +231,15 @@ function classifyTitle(intent) {
 }
 
 async function main() {
-  const { exportPath, backendPath, backlogPath } = parseArgs(process.argv);
+  const { exportPath, backendPath, backlogPath, overridesPath } = parseArgs(process.argv);
   const exportData = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
   const txs = exportData.transactions || [];
+  const overrides = loadOverrides(overridesPath);
   console.log(`[replay] Loaded ${txs.length} transactions from ${exportPath}`);
   console.log(`[replay] Using backend metadata at ${backendPath}`);
+  if (overridesPath) {
+    console.log(`[replay] Using chain overrides from ${overridesPath}`);
+  }
 
   const harness = new TestHarness({ fixturesPath: backendPath, defaultChainId: 1 });
   await harness.initialize();
@@ -241,7 +253,8 @@ async function main() {
     const tx = txs[i];
     const data = tx.data;
     const to = tx.to;
-    const chainId = normalizeChainId(tx.chainId);
+    const overrideChainId = normalizeChainId(overrides[String(tx.id)]);
+    const chainId = overrideChainId ?? normalizeChainId(tx.chainId);
     const capturedTitle = tx.decodedResult?.aggregatedIntent || tx.decodedResult?.intent || '';
 
     const beforeBucket = classifyTitle(capturedTitle);
@@ -261,6 +274,7 @@ async function main() {
       }
     }
     replayResults[i] = { title: replayedTitle, ok: replayOk };
+    replayResults[i].chainId = chainId;
     const afterBucket = classifyTitle(replayedTitle);
     after[afterBucket] = (after[afterBucket] || 0) + 1;
 
