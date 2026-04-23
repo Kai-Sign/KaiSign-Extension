@@ -100,20 +100,21 @@ export class RemoteMetadataService {
 
       const metadata = data.metadata;
 
-      // v1.0.0 backend response: { success, metadata, metadata_hash, target_contract,
-      // chain_id, extcodehash, revoked }. Real merkle-proof verification belongs in
-      // the extension (merkle-tree.js); the test harness has no chain access here,
-      // so we treat a successful API response as 'api'-sourced and let the caller
-      // decide whether that's enough for the test fixture.
+      // v1.0.0 backend response envelope (single shape across all paths in
+      // kaisign-backend/backend/api/index.py): { success, blob_hash, metadata,
+      // error, source }. The leaf inputs (chainId, extcodehash, metadataHash,
+      // revoked) are NOT shipped by the backend — they're derived client-side
+      // by the extension (eth_getCode, canonical metadata hash, two-leaf
+      // merkle proof against the cached registry root). The test harness has
+      // no chain access, so it can't verify; mark accordingly instead of
+      // fabricating null leaf fields and an always-true `verified` flag.
       metadata._verification = {
-        verified: !data.revoked,
-        source: data.revoked ? 'revoked' : 'api',
-        details: data.revoked
-          ? 'Backend reports attestation revoked'
-          : 'Metadata served by backend (no merkle proof verification in test harness)',
-        metadataHash: data.metadata_hash || null,
-        extcodehash: data.extcodehash || null,
-        chainId: data.chain_id || null
+        verified: false,
+        source: 'api-no-verify',
+        details: 'Metadata served by backend; merkle-proof verification ' +
+          'requires chain access (not available in test harness)',
+        blobHash: data.blob_hash || null,
+        backendSource: data.source || null
       };
 
       return metadata;
