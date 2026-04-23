@@ -59,29 +59,16 @@ const KAISIGN_DEBUG = getKaiSignDebugFlag();
 
 class SubgraphMetadataService {
   constructor(config) {
-    this.subgraphUrl = config.subgraphUrl;
-    this.blobscanBaseUrl = config.blobscanBaseUrl || 'https://api.blobscan.com';
     this.cacheTTL = config.cacheTTL || 300000; // 5 minutes default
 
-    // Note: Local API override is read dynamically via getLocalApiBase() to support runtime changes
-
-    // Chain-specific Blobscan URLs
-    this.blobscanUrls = {
-      1: 'https://api.blobscan.com', // Mainnet
-      11155111: 'https://api.sepolia.blobscan.com', // Sepolia
-      17000: 'https://api.holesky.blobscan.com', // Holesky
-      10: 'https://api.blobscan.com', // Optimism (uses mainnet)
-      8453: 'https://api.blobscan.com' // Base (uses mainnet)
-    };
+    // Note: API base URL is read dynamically via getLocalApiBase() to support runtime changes
 
     // Caches
     this.metadataCache = new Map(); // address+chainId -> metadata
-    this.blobCache = new Map(); // blobHash -> metadata
+    this.blobCache = new Map(); // unused; kept for clearCache()/getCacheStats() back-compat
     this.tokenCache = new Map(); // address -> token info
 
     KAISIGN_DEBUG && console.log('[Subgraph] Service initialized:', {
-      subgraph: this.subgraphUrl,
-      blobscanBaseUrl: this.blobscanBaseUrl,
       cacheTTL: this.cacheTTL
     });
   }
@@ -747,8 +734,6 @@ class SubgraphMetadataService {
 
 // Initialize global instance
 const metadataService = new SubgraphMetadataService({
-  subgraphUrl: 'https://api.studio.thegraph.com/query/117022/kaisign-subgraph/version/latest',
-  blobscanBaseUrl: 'https://api.blobscan.com', // Mainnet default, chain-specific URLs in constructor
   cacheTTL: 60 * 1000 // 1 minute cache - shorter to get fresh metadata faster
 });
 

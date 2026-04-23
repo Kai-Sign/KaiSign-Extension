@@ -19,10 +19,6 @@
     "open_in_tab": true
   },
   "host_permissions": [
-    "https://api.studio.thegraph.com/*",
-    "https://api.sepolia.blobscan.com/*",
-    "https://api.gateway.ethswarm.org/*",
-    "https://storage.googleapis.com/*",
     "https://kai-sign-production.up.railway.app/*",
     "https://eth.llamarpc.com/*",
     "https://rpc.ankr.com/*",

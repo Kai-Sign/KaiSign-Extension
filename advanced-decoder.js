@@ -10,19 +10,15 @@
  * Trust boundary
  *   The RPC request shape comes from the page (untrusted) by way of the
  *   wallet provider; routing decisions must not be influenced by the page's
- *   identity. The Subgraph and Blobscan endpoints below are display-only data
- *   sources - their responses are never used as a trust signal for whether
- *   to render or what to render.
+ *   identity.
  *
  * Security-critical invariants
  *   - Routing is derived from metadata.context.contract shape and method
  *     name only, never from window.location, document.title, or wallet
  *     identity. A malicious page must not be able to coerce a different
  *     classification.
- *   - The KAISIGN_SUBGRAPH_URL and BLOBSCAN_API_BASE constants are read-only
- *     display data sources. A failure to fetch from either must degrade the
- *     display, never short-circuit the verification gate in
- *     subgraph-metadata.js.
+ *   - Metadata fetching lives in subgraph-metadata.js; this file consumes
+ *     window.metadataService and never reaches the network on its own.
  *   - EIP-712 typed-data hashing must remain pure - struct hash computation
  *     does not consult any external state.
  *
@@ -44,10 +40,6 @@ if (window.advancedTransactionDecoder) {
 
 console.log('[KaiSign] Loading enhanced advanced transaction decoder...');
 const KAISIGN_DEBUG = false;
-
-// KaiSign subgraph and storage configuration
-const KAISIGN_SUBGRAPH_URL = 'https://api.studio.thegraph.com/query/117022/kaisign-subgraph/version/latest';
-const BLOBSCAN_API_BASE = 'https://api.sepolia.blobscan.com';
 
 // Transaction type constants
 const TX_TYPES = {
@@ -1483,7 +1475,6 @@ class AdvancedTransactionDecoder {
       return this.metadataCache[cacheKey];
     }
     
-    // Try existing service first
     if (window.metadataService) {
       const metadata = await window.metadataService.getContractMetadata(contractAddress, chainId);
       if (metadata) {
@@ -1491,189 +1482,8 @@ class AdvancedTransactionDecoder {
         return metadata;
       }
     }
-    
-    // Fallback to dynamic fetching
-    const dynamicMetadata = await this.fetchDynamicMetadata(contractAddress, chainId);
-    if (dynamicMetadata) {
-      this.metadataCache[cacheKey] = dynamicMetadata;
-      this.processFunctionSignatures(dynamicMetadata);
-    }
-    
-    return dynamicMetadata;
-  }
 
-  /**
-   * Fetch metadata dynamically via KaiSign subgraph and blob storage
-   */
-  async fetchDynamicMetadata(contractAddress, chainId) {
-    try {
-      KAISIGN_DEBUG && console.log(`[AdvDecoder] Fetching dynamic metadata for ${contractAddress}`);
-      
-      // Step 1: Query KaiSign subgraph for blob hash
-      const blobHash = await this.getBlobHashForContract(contractAddress, chainId);
-      if (!blobHash) {
-        return null;
-      }
-      
-      // Step 2: Get storage URLs from Blobscan
-      const { swarmUrl, googleUrl } = await this.getStorageUrlsForBlob(blobHash);
-      
-      // Step 3: Fetch and decode metadata
-      const metadataUrl = swarmUrl || googleUrl;
-      if (!metadataUrl) {
-        KAISIGN_DEBUG && console.warn(`[AdvDecoder] No storage URLs found for blob ${blobHash}`);
-        return null;
-      }
-
-      const metadata = await this.fetchAndDecodeMetadata(metadataUrl);
-      KAISIGN_DEBUG && console.log(`[AdvDecoder] Successfully fetched metadata for ${contractAddress}`);
-
-
-      return metadata;
-    } catch (error) {
-      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Failed to fetch dynamic metadata:`, error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Query KaiSign subgraph for blob hash
-   */
-  async getBlobHashForContract(contractAddress, chainId) {
-    try {
-      const normalizedAddress = contractAddress.toLowerCase();
-      const query = {
-        query: `{ 
-          specs(where: {targetContract: "${normalizedAddress}"}) { 
-            blobHash 
-            targetContract 
-            status 
-          } 
-        }`
-      };
-      
-      const response = await fetch(KAISIGN_SUBGRAPH_URL, {
-        method: 'POST',
-        mode: 'cors',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(query)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Subgraph HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      const specs = data?.data?.specs || [];
-      
-      // Only use FINALIZED specs
-      const finalizedSpec = specs.find(spec => spec.status === 'FINALIZED');
-
-      return finalizedSpec?.blobHash || null;
-    } catch (error) {
-      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Subgraph query failed:`, error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Get storage URLs for a blob hash from Blobscan
-   */
-  async getStorageUrlsForBlob(blobHash) {
-    try {
-      const response = await fetch(`${BLOBSCAN_API_BASE}/blobs/${blobHash}`, {
-        method: 'GET',
-        mode: 'cors',
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Blobscan HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      const refs = data?.dataStorageReferences || [];
-      
-      const swarmRef = refs.find(ref => ref.storage === 'swarm');
-      const googleRef = refs.find(ref => ref.storage === 'google');
-      
-      return {
-        swarmUrl: swarmRef?.url,
-        googleUrl: googleRef?.url
-      };
-    } catch (error) {
-      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Blobscan query failed:`, error.message);
-      return {};
-    }
-  }
-
-  /**
-   * Fetch and decode metadata from storage URL
-   */
-  async fetchAndDecodeMetadata(url) {
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Storage fetch HTTP ${response.status}`);
-      }
-      
-      const rawData = await response.text();
-      
-      // Handle hex-encoded blob data
-      let jsonString = '';
-      if (rawData.startsWith('"0x') || rawData.startsWith('0x')) {
-        // Hex-encoded blob data
-        const hexData = rawData.replace(/^"/, '').replace(/"$/, '').replace(/^0x/, '');
-        const decodedString = this.hexToUtf8(hexData);
-        const jsonStart = decodedString.indexOf('{');
-        jsonString = jsonStart >= 0 ? decodedString.substring(jsonStart) : decodedString;
-      } else {
-        // Regular JSON response
-        const jsonStart = rawData.indexOf('{');
-        jsonString = jsonStart >= 0 ? rawData.substring(jsonStart) : rawData;
-      }
-      
-      // Clean and parse JSON
-      const cleanJsonString = jsonString.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
-      return JSON.parse(cleanJsonString);
-    } catch (error) {
-      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Metadata parsing failed:`, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Convert hex string to UTF-8 with proper error handling
-   */
-  hexToUtf8(hexString) {
-    try {
-      // Remove any remaining 0x prefix and ensure even length
-      const cleanHex = hexString.replace(/^0x/, '');
-      const evenHex = cleanHex.length % 2 === 0 ? cleanHex : '0' + cleanHex;
-      
-      // Convert hex to bytes
-      const bytes = [];
-      for (let i = 0; i < evenHex.length; i += 2) {
-        bytes.push(parseInt(evenHex.substr(i, 2), 16));
-      }
-      
-      // Convert bytes to UTF-8 string and remove null bytes
-      const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
-      const uint8Array = new Uint8Array(bytes);
-      return decoder.decode(uint8Array).replace(/\0/g, '');
-    } catch (error) {
-      KAISIGN_DEBUG && console.warn(`[AdvDecoder] Hex decoding failed:`, error.message);
-      throw error;
-    }
+    return null;
   }
 
   /**
