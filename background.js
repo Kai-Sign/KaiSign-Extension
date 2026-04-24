@@ -264,6 +264,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case 'FETCH_BLOB':
           try {
+            const ALLOWED_BLOB_HOSTS = ['kai-sign-production.up.railway.app'];
+            let isAllowedBlob = false;
+            try {
+              const parsed = new URL(message.url);
+              isAllowedBlob = parsed.protocol === 'https:' && ALLOWED_BLOB_HOSTS.includes(parsed.hostname);
+            } catch { /* invalid URL */ }
+
+            if (!isAllowedBlob) {
+              sendResponse({ error: 'URL not in whitelist' });
+              return;
+            }
+
             console.log('[KaiSign BG] FETCH_BLOB:', message.url);
             const response = await fetch(message.url);
             console.log('[KaiSign BG] FETCH_BLOB status:', response.status, response.statusText);

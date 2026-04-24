@@ -335,9 +335,17 @@ class KaiSignMerkleTree {
    * Called by onchain-verifier.js before serving a proof. Idempotent and
    * mutex'd against concurrent calls. Returns true iff the local tree's
    * computed root equals `expectedRoot`.
+   *
+   * @param {string} expectedRoot - On-chain merkle root to match against
+   * @param {Object} [options]
+   * @param {boolean} [options.skipCatchUp] - If true, only the cheap path runs:
+   *   the local tree is checked against expectedRoot without any RPC work, and
+   *   a mismatch returns false instead of triggering eth_getLogs. Used by the
+   *   verifier's manual mode to suppress online indexer activity.
    */
-  async ensureRootMatches(expectedRoot) {
+  async ensureRootMatches(expectedRoot, options = {}) {
     if (!expectedRoot) return false;
+    const { skipCatchUp = false } = options;
 
     // Mutex: serialize indexer runs across simultaneous verification calls.
     if (this.indexing) {
@@ -355,6 +363,15 @@ class KaiSignMerkleTree {
       }
     } catch (e) {
       MERKLE_DEBUG && console.warn('[MerkleTree] depth/root precheck failed:', e.message);
+    }
+
+    // Manual mode bails here — the cheap path couldn't confirm a match and the
+    // caller has asked us not to go online to reconcile. Verification will
+    // surface as "root-unavailable" until the user reloads the page or
+    // switches to automatic mode.
+    if (skipCatchUp) {
+      MERKLE_DEBUG && console.log('[MerkleTree] skipCatchUp=true, bailing without RPC');
+      return false;
     }
 
     // Backoff: don't hammer RPC if a recent attempt failed.

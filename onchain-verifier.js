@@ -47,12 +47,53 @@ class OnChainVerifier {
     this.verificationCache = new Map(); // address-chainId -> verification result
     this.cacheTTL = config.cacheTTL || 300000; // 5 minutes
 
+    // Verification mode: 'manual' (default) fetches the registry root once per
+    // session and never polls; 'automatic' re-fetches the root and catches up
+    // the leaf log on every verifyMetadataAgainstRoot call. Manual is the
+    // privacy-default — every transaction decode in automatic mode leaks the
+    // contract address being decoded to the configured RPC node.
+    this.verificationMode = config.verificationMode || 'manual';
+    this._rootFetchedThisSession = false;
+    this._extcodehashCache = new Map(); // `${addr}-${chainId}` -> bytes32
+
     // Function selectors (computed from keccak256 of signatures)
     // getLatestSpecForBytecode(uint256,bytes32) -> first 4 bytes of keccak256
     // getAttestation(bytes32) -> first 4 bytes of keccak256
     // We'll compute these on init
     this.selectors = {};
     this._initSelectors();
+    this._initSettings();
+  }
+
+  /**
+   * Subscribe to settings: ask the bridge for current settings, then listen for
+   * KAISIGN_SETTINGS_UPDATED broadcasts when the user changes them in the
+   * options page. Falls back to the constructor default if the bridge is
+   * unreachable (e.g. in the test harness).
+   */
+  _initSettings() {
+    if (typeof window === 'undefined') return;
+
+    const applySettings = (settings) => {
+      if (!settings || typeof settings !== 'object') return;
+      const next = settings.verificationMode === 'automatic' ? 'automatic' : 'manual';
+      if (next !== this.verificationMode) {
+        KAISIGN_DEBUG && console.log('[OnChainVerifier] verificationMode changed:', this.verificationMode, '->', next);
+        this.verificationMode = next;
+      }
+    };
+
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+      const t = event.data?.type;
+      if (t === 'KAISIGN_SETTINGS_RESPONSE' || t === 'KAISIGN_SETTINGS_UPDATED') {
+        applySettings(event.data.settings);
+      }
+    });
+
+    try {
+      window.postMessage({ type: 'KAISIGN_GET_SETTINGS' }, '*');
+    } catch { /* bridge may not be present in test harness */ }
   }
 
   /**
@@ -154,47 +195,6 @@ class OnChainVerifier {
   }
 
   /**
-   * Fetch a URL via the bridge -> background pipeline (CORS bypass)
-   * @param {string} url - URL to fetch
-   * @returns {Promise<string>} Response text
-   */
-  async fetchViaBackground(url) {
-    return new Promise((resolve, reject) => {
-      const messageId = 'verifier-fetch-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-      let settled = false;
-
-      const timeoutId = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        window.removeEventListener('message', handler);
-        reject(new Error('Fetch timeout'));
-      }, 15000);
-
-      const handler = (event) => {
-        if (event.data.type === 'KAISIGN_BLOB_RESPONSE' && event.data.messageId === messageId) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeoutId);
-          window.removeEventListener('message', handler);
-          if (event.data.error) {
-            reject(new Error(event.data.error));
-          } else {
-            resolve(event.data.data);
-          }
-        }
-      };
-
-      window.addEventListener('message', handler);
-
-      window.postMessage({
-        type: 'KAISIGN_FETCH_BLOB',
-        messageId,
-        url
-      }, '*');
-    });
-  }
-
-  /**
    * Make an eth_call to a contract on Sepolia
    * @param {string} to - Contract address
    * @param {string} data - Encoded calldata
@@ -218,6 +218,11 @@ class OnChainVerifier {
    * @returns {Promise<string>} extcodehash (bytes32 hex string)
    */
   async getExtcodehash(address, chainId) {
+    const cacheKey = `${address.toLowerCase()}-${chainId}`;
+    if (this._extcodehashCache.has(cacheKey)) {
+      return this._extcodehashCache.get(cacheKey);
+    }
+
     // Use the dapp's own RPC (via window.ethereum) to get bytecode on the target chain
     try {
       let bytecode;
@@ -231,11 +236,13 @@ class OnChainVerifier {
       }
 
       if (!bytecode || bytecode === '0x') {
+        this._extcodehashCache.set(cacheKey, null);
         return null; // EOA or empty contract
       }
 
-      // Compute keccak256 of the bytecode
-      return this.keccak256Bytes(bytecode);
+      const hash = this.keccak256Bytes(bytecode);
+      this._extcodehashCache.set(cacheKey, hash);
+      return hash;
     } catch (e) {
       KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to get extcodehash:', e.message);
       return null;
@@ -545,11 +552,21 @@ class OnChainVerifier {
       // Step 4: resolve a current merkleRoot.
       // Cache key is registry-scoped (not per-contract) — the registry holds one
       // global root, and storing it per-contract would just duplicate it.
+      //
+      // Manual mode: fetch from chain at most once per session (and only if the
+      // localStorage cache is also empty). Automatic mode: always refetch so
+      // the root is fresh for every verification.
       let root = this._loadRegistryMerkleRoot();
-      if (!root) {
+      const canFetchRoot = this.verificationMode === 'automatic'
+        || (this.verificationMode === 'manual' && !root && !this._rootFetchedThisSession);
+      if (canFetchRoot) {
         try {
-          root = await this.fetchMerkleRoot();
-          if (root) this._saveRegistryMerkleRoot(root);
+          const fresh = await this.fetchMerkleRoot();
+          if (fresh) {
+            root = fresh;
+            this._saveRegistryMerkleRoot(fresh);
+          }
+          this._rootFetchedThisSession = true;
         } catch (rpcErr) {
           KAISIGN_DEBUG && console.warn('[OnChainVerifier] merkleRoot fetch failed:', rpcErr.message);
         }
@@ -570,9 +587,13 @@ class OnChainVerifier {
       }
 
       // Make sure the local leaf set is canonical against `root` before trusting
-      // any membership answer it gives. The indexer is responsible for keeping
-      // its own state fresh; here we just confirm.
-      const treeOk = await tree.ensureRootMatches(root);
+      // any membership answer it gives. In manual mode we suppress the indexer's
+      // catch-up RPC path — verification uses whatever leaves are already cached,
+      // and a root mismatch falls through to the "unattested" branch without a
+      // fresh eth_getLogs scan.
+      const treeOk = await tree.ensureRootMatches(root, {
+        skipCatchUp: this.verificationMode === 'manual'
+      });
       if (!treeOk) {
         result.source = 'root-unavailable';
         result.details = 'Local merkle tree out of sync with on-chain root';
@@ -656,6 +677,8 @@ class OnChainVerifier {
    */
   clearCache() {
     this.verificationCache.clear();
+    this._extcodehashCache.clear();
+    this._rootFetchedThisSession = false;
   }
 
   // ============================================================================

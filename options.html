@@ -111,6 +111,39 @@
       </div>
     </section>
 
+    <!-- On-Chain Verification -->
+    <section class="settings-section">
+      <div class="section-header">
+        <div class="section-icon">
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <path d="M5.338 1.59a61.44 61.44 0 0 0-2.837.856.481.481 0 0 0-.328.39c-.554 4.157.726 7.19 2.253 9.188a10.725 10.725 0 0 0 2.287 2.233c.346.244.652.42.893.533.12.057.218.095.293.118a.55.55 0 0 0 .101.025.615.615 0 0 0 .1-.025c.076-.023.174-.061.294-.118.24-.113.547-.29.893-.533a10.726 10.726 0 0 0 2.287-2.233c1.527-1.997 2.807-5.031 2.253-9.188a.48.48 0 0 0-.328-.39c-.651-.213-1.75-.56-2.837-.856C9.552 1.29 8.531 1.067 8 1.067c-.53 0-1.552.223-2.662.524zM5.072.56C6.157.265 7.31 0 8 0s1.843.265 2.928.56c1.11.3 2.229.655 2.887.87a1.54 1.54 0 0 1 1.044 1.262c.596 4.477-.787 7.795-2.465 9.99a11.775 11.775 0 0 1-2.517 2.453 7.159 7.159 0 0 1-1.048.625c-.28.132-.581.24-.829.24s-.548-.108-.829-.24a7.158 7.158 0 0 1-1.048-.625 11.777 11.777 0 0 1-2.517-2.453C1.928 10.487.545 7.169 1.141 2.692A1.54 1.54 0 0 1 2.185 1.43 62.456 62.456 0 0 1 5.072.56z"/>
+            <path d="M10.854 5.146a.5.5 0 0 1 0 .708l-3.5 3.5a.5.5 0 0 1-.708 0l-2-2a.5.5 0 1 1 .708-.708L7 8.293l3.146-3.147a.5.5 0 0 1 .708 0z"/>
+          </svg>
+        </div>
+        <h2 class="section-title">On-Chain Verification</h2>
+      </div>
+      <div class="section-content">
+        <p class="section-description">Control when the extension contacts the Ethereum node to verify metadata against the KaiSign registry.</p>
+
+        <div class="form-group">
+          <label>
+            <input type="radio" name="verificationMode" value="manual" id="verificationModeManual" checked>
+            Manual (recommended)
+          </label>
+          <small>Fetches the registry root once per browser session and reuses the cached copy for every transaction decode. No periodic chain polling. Strongest privacy — contract addresses you decode are not sent to the RPC node on every lookup. Verification may be stale if the registry has been updated since your last session.</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input type="radio" name="verificationMode" value="automatic" id="verificationModeAutomatic">
+            Automatic
+          </label>
+          <small><strong>Privacy cost:</strong> every transaction decode triggers RPC requests (registry root refetch + revocation-log catch-up), which leak the contract address you are decoding to the configured Ethereum node. Choose this if you need immediate visibility into revocations published after your session started.</small>
+        </div>
+
+      </div>
+    </section>
+
     <!-- RPC Settings -->
     <section class="settings-section">
       <div class="section-header">

@@ -18,6 +18,10 @@ function initElements() {
     // Name Resolution
     enableNameResolution: document.getElementById('enableNameResolution'),
 
+    // On-Chain Verification
+    verificationModeManual: document.getElementById('verificationModeManual'),
+    verificationModeAutomatic: document.getElementById('verificationModeAutomatic'),
+
     // RPC Settings (dynamic)
     rpcEndpointsList: document.getElementById('rpcEndpointsList'),
     addRpcBtn: document.getElementById('addRpcBtn'),
@@ -77,6 +81,11 @@ function loadSettings() {
     if (elements.enableNameResolution) {
       elements.enableNameResolution.checked = settings.enableNameResolution !== false;
     }
+
+    // Verification mode — default to manual when unset (existing users included)
+    const mode = settings.verificationMode === 'automatic' ? 'automatic' : 'manual';
+    if (elements.verificationModeManual) elements.verificationModeManual.checked = mode === 'manual';
+    if (elements.verificationModeAutomatic) elements.verificationModeAutomatic.checked = mode === 'automatic';
 
     // RPC settings - load into state and render
     const rpcEndpoints = settings.rpcEndpoints || {};
@@ -349,6 +358,7 @@ function saveSettings() {
     theme: elements.theme?.value || 'dark',
     notifications: elements.notifications?.checked !== false,
     enableNameResolution: elements.enableNameResolution?.checked !== false,
+    verificationMode: elements.verificationModeAutomatic?.checked ? 'automatic' : 'manual',
     rpcEndpoints: rpcEndpoints,
     backendApiUrl: elements.backendApiUrl?.value?.trim() || ''
   };
