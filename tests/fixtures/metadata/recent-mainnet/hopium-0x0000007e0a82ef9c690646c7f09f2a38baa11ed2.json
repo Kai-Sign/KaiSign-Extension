@@ -1,0 +1,73 @@
+{
+  "context": {
+    "contract": {
+      "address": "0x0000007e0a82ef9c690646c7f09f2a38baa11ed2",
+      "chainId": 1,
+      "name": "Hopium",
+      "symbol": "HOPE",
+      "decimals": 18,
+      "abi": [
+        {
+          "type": "function",
+          "name": "approve",
+          "selector": "0x095ea7b3",
+          "inputs": [
+            {
+              "name": "spender",
+              "type": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "approve(address,uint256)": {
+        "intent": "Approve {amount} HOPE",
+        "fields": [
+          {
+            "path": "spender",
+            "label": "Spender",
+            "format": "address"
+          },
+          {
+            "path": "amount",
+            "label": "Amount",
+            "format": "amount",
+            "params": {
+              "decimals": 18,
+              "symbol": "HOPE"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "_generatedFromSample": {
+    "sourceFile": ".cache/recent-mainnet-purpose-sample-5.json",
+    "generatedAt": "2026-04-24T02:34:00.621Z",
+    "samples": [
+      {
+        "purposeKey": "1:0x0000007e0a82ef9c690646c7f09f2a38baa11ed2:0x095ea7b3",
+        "txHash": "0x01b36e2ab3d152c5498e46ed746084a98033bd88864d1ecff491ea37871c03de",
+        "selector": "0x095ea7b3",
+        "functionSignature": "approve(address,uint256)",
+        "blockNumber": 24946616,
+        "blockTimestamp": "2026-04-24T01:44:47.000Z"
+      }
+    ]
+  }
+}

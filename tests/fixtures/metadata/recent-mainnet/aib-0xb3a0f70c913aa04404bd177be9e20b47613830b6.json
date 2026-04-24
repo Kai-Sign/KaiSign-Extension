@@ -1,0 +1,73 @@
+{
+  "context": {
+    "contract": {
+      "address": "0xb3a0f70c913aa04404bd177be9e20b47613830b6",
+      "chainId": 1,
+      "name": "AIB",
+      "symbol": "AIB",
+      "decimals": 9,
+      "abi": [
+        {
+          "type": "function",
+          "name": "approve",
+          "selector": "0x095ea7b3",
+          "inputs": [
+            {
+              "name": "spender",
+              "type": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "approve(address,uint256)": {
+        "intent": "Approve {amount} AIB",
+        "fields": [
+          {
+            "path": "spender",
+            "label": "Spender",
+            "format": "address"
+          },
+          {
+            "path": "amount",
+            "label": "Amount",
+            "format": "amount",
+            "params": {
+              "decimals": 9,
+              "symbol": "AIB"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "_generatedFromSample": {
+    "sourceFile": ".cache/recent-mainnet-purpose-sample-5.json",
+    "generatedAt": "2026-04-24T02:34:00.633Z",
+    "samples": [
+      {
+        "purposeKey": "1:0xb3a0f70c913aa04404bd177be9e20b47613830b6:0x095ea7b3",
+        "txHash": "0xbda1834e9ca6e5bcbb44db8b441dfc61aa32d235dadf6b840216d78bd9951d2e",
+        "selector": "0x095ea7b3",
+        "functionSignature": "approve(address,uint256)",
+        "blockNumber": 24946616,
+        "blockTimestamp": "2026-04-24T01:44:47.000Z"
+      }
+    ]
+  }
+}

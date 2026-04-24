@@ -7,6 +7,9 @@
   "scripts": {
     "test": "node run-all-tests.js",
     "test:live-sepolia": "KAISIGN_LIVE_SEPOLIA=1 node run-all-tests.js --suite=onchain-verifier",
+    "sweep:verified-abi": "node scripts/sweep-verified-abi.js",
+    "sample:recent-mainnet": "node scripts/sample-recent-mainnet.js",
+    "generate:sample-metadata": "node scripts/generate-metadata-from-sample.js",
     "fetch-metadata": "node scripts/fetch-metadata.js",
     "fetch-transactions": "node scripts/fetch-transactions.js",
     "local-server": "node local-server.js",

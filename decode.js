@@ -1218,7 +1218,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
         } else if (typeof value === 'object' && value !== null) {
           rawValue = JSON.stringify(value);
         } else {
-          rawValue = String(value || '');
+          rawValue = String(value ?? '');
         }
 
         // Apply formatting based on field definition
@@ -1346,7 +1346,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
         if (resolvedValue && typeof resolvedValue === 'object' && '_isBigNumber' in resolvedValue) {
           rawValue = resolvedValue._value !== undefined ? resolvedValue._value : String(resolvedValue);
         } else {
-          rawValue = String(resolvedValue || '');
+          rawValue = String(resolvedValue ?? '');
         }
 
         let displayValue = rawValue;

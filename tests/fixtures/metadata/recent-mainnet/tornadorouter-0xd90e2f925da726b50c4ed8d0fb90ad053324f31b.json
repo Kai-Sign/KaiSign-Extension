@@ -1,0 +1,70 @@
+{
+  "context": {
+    "contract": {
+      "address": "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b",
+      "chainId": 1,
+      "name": "TornadoRouter",
+      "abi": [
+        {
+          "type": "function",
+          "name": "deposit",
+          "selector": "0x13d98d13",
+          "inputs": [
+            {
+              "name": "_tornado",
+              "type": "address"
+            },
+            {
+              "name": "_commitment",
+              "type": "bytes32"
+            },
+            {
+              "name": "_encryptedNote",
+              "type": "bytes"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "payable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "deposit(address,bytes32,bytes)": {
+        "intent": "Deposit",
+        "fields": [
+          {
+            "path": "_tornado",
+            "label": "Tornado",
+            "format": "address"
+          },
+          {
+            "path": "_commitment",
+            "label": "Commitment",
+            "format": "hex"
+          },
+          {
+            "path": "_encryptedNote",
+            "label": "Encrypted Note",
+            "format": "hex"
+          }
+        ]
+      }
+    }
+  },
+  "_generatedFromSample": {
+    "sourceFile": ".cache/recent-mainnet-purpose-sample-5.json",
+    "generatedAt": "2026-04-24T02:34:00.631Z",
+    "samples": [
+      {
+        "purposeKey": "1:0xd90e2f925da726b50c4ed8d0fb90ad053324f31b:0x13d98d13",
+        "txHash": "0x5555d72dba0d10290c42f5c5d430793b5dbf3507838685dfe99458882e2eea4e",
+        "selector": "0x13d98d13",
+        "functionSignature": "deposit(address,bytes32,bytes)",
+        "blockNumber": 24946616,
+        "blockTimestamp": "2026-04-24T01:44:47.000Z"
+      }
+    ]
+  }
+}

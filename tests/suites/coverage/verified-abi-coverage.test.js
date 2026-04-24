@@ -22,6 +22,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { ethers } from 'ethers';
 import { fetchSourcifyAbi } from '../../lib/sourcify-client.js';
+import { validateDecodedResultForAbiStructure } from '../../lib/clear-sign-readiness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -255,8 +256,9 @@ export async function runTests(harness) {
       const allInputsPresent = inputNames.every(n => paramKeys.includes(n));
       const intentClean = !isBadIntent(intent);
       const structuralPass = decoded?.success === true || (fnNameMatches && allInputsPresent);
+      const structuralReadiness = validateDecodedResultForAbiStructure(decoded, abiFn);
 
-      const passed = structuralPass && intentClean;
+      const passed = structuralPass && intentClean && structuralReadiness.ok;
 
       if (passed) {
         selectorsClean++;
@@ -279,7 +281,9 @@ export async function runTests(harness) {
           ? 'no intent'
           : !intentClean
             ? `bad intent: ${intent}`
-            : !fnNameMatches
+            : !structuralReadiness.ok
+              ? `abi-structured decode failed: ${structuralReadiness.issues.join('; ')}`
+              : !fnNameMatches
               ? `functionName mismatch (got ${decoded?.functionName})`
               : `missing params: ${inputNames.filter(n => !paramKeys.includes(n)).join(',')}`;
         failures.push({ chainId, address, selector, sig, intent: reason });

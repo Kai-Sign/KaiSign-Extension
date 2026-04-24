@@ -1,0 +1,73 @@
+{
+  "context": {
+    "contract": {
+      "address": "0x320623b8e4ff03373931769a31fc52a4e78b5d70",
+      "chainId": 1,
+      "name": "RSR",
+      "symbol": "RSR",
+      "decimals": 18,
+      "abi": [
+        {
+          "type": "function",
+          "name": "transfer",
+          "selector": "0xa9059cbb",
+          "inputs": [
+            {
+              "name": "recipient",
+              "type": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "transfer(address,uint256)": {
+        "intent": "Transfer {amount} RSR to {recipient}",
+        "fields": [
+          {
+            "path": "recipient",
+            "label": "Recipient",
+            "format": "address"
+          },
+          {
+            "path": "amount",
+            "label": "Amount",
+            "format": "amount",
+            "params": {
+              "decimals": 18,
+              "symbol": "RSR"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "_generatedFromSample": {
+    "sourceFile": ".cache/recent-mainnet-purpose-sample-5.json",
+    "generatedAt": "2026-04-24T02:34:00.632Z",
+    "samples": [
+      {
+        "purposeKey": "1:0x320623b8e4ff03373931769a31fc52a4e78b5d70:0xa9059cbb",
+        "txHash": "0xf64a36d6572d8cee7bfd64f31df8197af1ae24e4546deb03f42e512c65f242a8",
+        "selector": "0xa9059cbb",
+        "functionSignature": "transfer(address,uint256)",
+        "blockNumber": 24946616,
+        "blockTimestamp": "2026-04-24T01:44:47.000Z"
+      }
+    ]
+  }
+}

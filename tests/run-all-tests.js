@@ -31,6 +31,7 @@ const useRemoteApi = args.includes('--remote');
 const TEST_SUITES = [
   // Core decoder tests
   { name: 'core/decode.test.js', path: './suites/core/decode.test.js' },
+  { name: 'core/clear-sign-readiness.test.js', path: './suites/core/clear-sign-readiness.test.js' },
   { name: 'core/unknown-function-fallback.test.js', path: './suites/core/unknown-function-fallback.test.js' },
   { name: 'core/recursive.test.js', path: './suites/core/recursive.test.js' },
   { name: 'core/advanced.test.js', path: './suites/core/advanced.test.js' },
@@ -55,6 +56,7 @@ const TEST_SUITES = [
   { name: 'protocols/fluid.test.js', path: './suites/protocols/fluid.test.js' },
   { name: 'protocols/aerodrome.test.js', path: './suites/protocols/aerodrome.test.js' },
   { name: 'protocols/tokens.test.js', path: './suites/protocols/tokens.test.js' },
+  { name: 'protocols/recent-mainnet-generated.test.js', path: './suites/protocols/recent-mainnet-generated.test.js' },
 
   // EIP-712 typed data signature tests
   { name: 'eip712/cow-order.test.js', path: './suites/eip712/cow-order.test.js' },

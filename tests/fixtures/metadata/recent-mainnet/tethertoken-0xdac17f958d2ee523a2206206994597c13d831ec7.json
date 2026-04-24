@@ -1,0 +1,67 @@
+{
+  "context": {
+    "contract": {
+      "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "chainId": 1,
+      "name": "TetherToken",
+      "symbol": "USDT",
+      "decimals": 6,
+      "abi": [
+        {
+          "type": "function",
+          "name": "transfer",
+          "selector": "0xa9059cbb",
+          "inputs": [
+            {
+              "name": "_to",
+              "type": "address"
+            },
+            {
+              "name": "_value",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "transfer(address,uint256)": {
+        "intent": "Transfer {_value} USDT to {_to}",
+        "fields": [
+          {
+            "path": "_to",
+            "label": "To",
+            "format": "address"
+          },
+          {
+            "path": "_value",
+            "label": "Value",
+            "format": "amount",
+            "params": {
+              "decimals": 6,
+              "symbol": "USDT"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "_generatedFromSample": {
+    "sourceFile": ".cache/recent-mainnet-purpose-sample-5.json",
+    "generatedAt": "2026-04-24T02:34:00.632Z",
+    "samples": [
+      {
+        "purposeKey": "1:0xdac17f958d2ee523a2206206994597c13d831ec7:0xa9059cbb",
+        "txHash": "0x3e335527e766accc20c51650136ed20511f14dd6c2821942a22da74ff32fea9e",
+        "selector": "0xa9059cbb",
+        "functionSignature": "transfer(address,uint256)",
+        "blockNumber": 24946616,
+        "blockTimestamp": "2026-04-24T01:44:47.000Z"
+      }
+    ]
+  }
+}

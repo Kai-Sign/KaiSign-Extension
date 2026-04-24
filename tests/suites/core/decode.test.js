@@ -242,6 +242,19 @@ export async function runTests(harness) {
     }
   }));
 
+  results.push(await harness.runTest({
+    name: 'Boolean parameter decoding (false)',
+    calldata: '0xa22cb465000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa960450000000000000000000000000000000000000000000000000000000000000000',
+    contractAddress: '0xtest3333333333333333333333333333333333',
+    expected: {
+      shouldSucceed: true,
+      functionName: 'setApprovalForAll',
+      params: {
+        approved: 'false'
+      }
+    }
+  }));
+
   // ===== Array Decoding Tests =====
 
   harness.addMetadata('0xtest4444444444444444444444444444444444', {
