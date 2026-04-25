@@ -32,6 +32,8 @@ const TEST_SUITES = [
   // Core decoder tests
   { name: 'core/decode.test.js', path: './suites/core/decode.test.js' },
   { name: 'core/clear-sign-readiness.test.js', path: './suites/core/clear-sign-readiness.test.js' },
+  { name: 'core/aggregate-nested-intents.test.js', path: './suites/core/aggregate-nested-intents.test.js' },
+  { name: 'core/no-format-marker.test.js', path: './suites/core/no-format-marker.test.js' },
   { name: 'core/unknown-function-fallback.test.js', path: './suites/core/unknown-function-fallback.test.js' },
   { name: 'core/recursive.test.js', path: './suites/core/recursive.test.js' },
   { name: 'core/advanced.test.js', path: './suites/core/advanced.test.js' },

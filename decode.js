@@ -1193,6 +1193,53 @@ async function decodeCalldata(data, contractAddress, chainId) {
     const rawParams = {}; // Store original decoded values (not stringified)
     const formatted = {};
 
+    // ERC-20 decimals synthesis: when the ABI defines transfer/transferFrom/approve
+    // but no curated ERC-7730 field def exists for the value parameter, look up the
+    // token's decimals/symbol so the inline formatter at "format === 'amount'" can
+    // render "100 USDT" instead of raw wei. The target contract IS the token in
+    // this case. Skip if the format path already provided a fieldDef.
+    if (abiFunction && (functionName === 'transfer' || functionName === 'transferFrom' || functionName === 'approve')) {
+      const inputs = abiFunction.inputs || [];
+      const valueInput = inputs.find(inp =>
+        (inp.type === 'uint256' || inp.type === 'uint') &&
+        (inp.name === '_value' || inp.name === 'value' || inp.name === 'amount' || inp.name === '_amount' || inp.name === 'wad')
+      );
+      if (valueInput && !fieldInfo[valueInput.name]) {
+        try {
+          const tokenInfo = await window.metadataService?.getTokenMetadata?.(contractAddress, chainId);
+          if (tokenInfo && tokenInfo.decimals != null && tokenInfo.symbol && tokenInfo.symbol !== 'UNKNOWN') {
+            fieldInfo[valueInput.name] = {
+              label: toTitleCase(valueInput.name.replace(/^_/, '')),
+              format: 'amount',
+              params: { decimals: tokenInfo.decimals, symbol: tokenInfo.symbol },
+              type: 'raw',
+              calldataTarget: null
+            };
+            // Also synthesize an intent template so the value actually surfaces in the title.
+            // Only when no curated format provided one (intent is still the default).
+            if (intent === 'Contract interaction') {
+              const recipientInput = inputs.find(inp => inp.type === 'address' &&
+                (inp.name === '_to' || inp.name === 'to' || inp.name === 'recipient' || inp.name === 'dst' || inp.name === 'spender'));
+              const valuePh = `{${valueInput.name}}`;
+              if (functionName === 'approve') {
+                intent = recipientInput ? `Approve ${valuePh} to {${recipientInput.name}}` : `Approve ${valuePh}`;
+              } else if (functionName === 'transferFrom') {
+                const fromInput = inputs.find(inp => inp.type === 'address' &&
+                  (inp.name === '_from' || inp.name === 'from' || inp.name === 'src'));
+                intent = fromInput && recipientInput
+                  ? `Transfer ${valuePh} from {${fromInput.name}} to {${recipientInput.name}}`
+                  : `Transfer ${valuePh}`;
+              } else {
+                intent = recipientInput ? `Transfer ${valuePh} to {${recipientInput.name}}` : `Transfer ${valuePh}`;
+              }
+            }
+          }
+        } catch {
+          // Token lookup failed — fall through to raw integer display.
+        }
+      }
+    }
+
     if (abiFunction) {
       // Use ABI from metadata to decode
       const iface = new SimpleInterface([abiFunction]);
@@ -1578,10 +1625,16 @@ async function decodeCalldata(data, contractAddress, chainId) {
       }
     }
 
-    const aggregatedIntent = nestedIntents.length ? nestedIntents.join(' + ') : undefined;
+    const aggregatedIntent = aggregateNestedIntents(nestedIntents);
     if (aggregatedIntent) {
       finalIntent = aggregatedIntent;
     }
+
+    // noFormat: ABI-decoded successfully but no curated ERC-7730 metadata existed
+    // for this selector. UI uses this to render "Function call: <signature>" instead
+    // of generic "Contract interaction", so users distinguish "decoder OK, no
+    // clear-sign template" from "decoder failed entirely" (success: false).
+    const noFormat = finalIntent === 'Contract interaction';
 
     return {
       success: true,
@@ -1595,7 +1648,8 @@ async function decodeCalldata(data, contractAddress, chainId) {
       metadata,
       decodedCommands, // Include decoded commands for display
       nestedIntents,
-      aggregatedIntent
+      aggregatedIntent,
+      noFormat
     };
     
   } catch (error) {
@@ -2420,6 +2474,24 @@ function toTitleCase(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+// Dedup nested intents with run-preserving ×N counts so a 3-leg swap with
+// identical inner intents renders as "Swap exact in ×3" instead of three
+// repeats joined by ' + '. Order preserved by first occurrence.
+function aggregateNestedIntents(nestedIntents) {
+  if (!nestedIntents || !nestedIntents.length) return undefined;
+  const counts = new Map();
+  for (const it of nestedIntents) counts.set(it, (counts.get(it) || 0) + 1);
+  const ordered = [];
+  const seen = new Set();
+  for (const it of nestedIntents) {
+    if (seen.has(it)) continue;
+    seen.add(it);
+    const n = counts.get(it);
+    ordered.push(n > 1 ? `${it} ×${n}` : it);
+  }
+  return ordered.join(' + ');
+}
+
 /**
  * Extract calldata field definitions from ERC-7730 format structure
  * Recursively walks the format array to find all calldata fields
@@ -2524,6 +2596,7 @@ async function getContractMetadata(contractAddress, chainId, selector = null) {
 window.decodeCalldata = decodeCalldata;
 window.formatTokenAmount = formatTokenAmount;
 window.SimpleInterface = SimpleInterface;
+window.aggregateNestedIntents = aggregateNestedIntents;
 
 // Decoder ready
 

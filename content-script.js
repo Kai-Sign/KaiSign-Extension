@@ -2696,8 +2696,15 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
         if (decoded && decoded.success) {
           updateLoadingStatus('Parsing intents...');
-          // Use aggregated intent if available (includes nested intents)
+          // Use aggregated intent if available (includes nested intents).
+          // For noFormat results (ABI-decoded but no curated clear-sign metadata),
+          // surface the function signature so users see "Function call: transfer(address,uint256)"
+          // instead of the ambiguous "Contract interaction" — distinguishes "no metadata"
+          // from "decoder failed" (success: false branch shows generic string).
           intent = decoded.aggregatedIntent || decoded.intent || 'Contract interaction';
+          if (decoded.noFormat && decoded.function) {
+            intent = `Function call: ${decoded.function}`;
+          }
           decodedResult = {
             success: true,
             functionName: decoded.functionName || 'Contract Call',
