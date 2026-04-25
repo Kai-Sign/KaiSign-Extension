@@ -17,12 +17,12 @@ import { ethers } from 'ethers';
 
 const LIVE_FLAG = process.env.KAISIGN_LIVE_SEPOLIA === '1' || process.argv.includes('--live-sepolia');
 
-const NEW_REGISTRY_ADDRESS = '0xb910E44893713b072ABC6949fB4441ad09999bC6';
+const NEW_REGISTRY_ADDRESS = '0x122D1ad78FddA6829F104cb8cBB56E5561E56Ba8';
 const OLD_REGISTRY_ADDRESS = '0xC203e8C22eFCA3C9218a6418f6d4281Cb7744dAa';
 const SEPOLIA_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com';
 
-// Verified from the live Sepolia contract at 2026-04-10.
-const EXPECTED_NEW_REGISTRY_MERKLE_ROOT = '0x825ca785e5b5a17f0b735b7408eec432adf9fade8e27eaca0a9d37950177e760';
+// Verified from the live Sepolia contract at 2026-04-25.
+const EXPECTED_NEW_REGISTRY_MERKLE_ROOT = '0x38a692d68d17210a677152785d91a6d7d4e02dc40da028f83cb1e4aec5e5d1a1';
 
 // v1.0.0 leaf type hash — single source of truth lives in onchain-verifier.js
 // (line 72). Recomputed here so a divergence in either place fails this test.
@@ -174,7 +174,7 @@ export async function runTests(harness) {
         harness,
         results,
         'On-chain verifier uses updated registry address in source',
-        NEW_REGISTRY_ADDRESS.toLowerCase() === '0xb910e44893713b072abc6949fb4441ad09999bc6',
+        NEW_REGISTRY_ADDRESS.toLowerCase() === '0x122d1ad78fdda6829f104cb8cbb56e5561e56ba8',
         `Registry: ${NEW_REGISTRY_ADDRESS}`,
         null,
         Date.now() - start

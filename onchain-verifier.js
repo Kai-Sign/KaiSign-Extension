@@ -36,7 +36,7 @@ const KAISIGN_DEBUG = false;
 
 class OnChainVerifier {
   constructor(config = {}) {
-    this.registryAddress = config.registryAddress || '0xb910E44893713b072ABC6949fB4441ad09999bC6';
+    this.registryAddress = config.registryAddress || '0x122D1ad78FddA6829F104cb8cBB56E5561E56Ba8';
 
     // RPC URLs - local override is checked dynamically in _getRpcUrl()
     this.defaultRpcUrls = config.rpcUrls || [

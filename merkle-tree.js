@@ -69,7 +69,7 @@ class KaiSignMerkleTree {
   constructor(config = {}) {
     // Defaults align with onchain-verifier.js — change them together.
     this.registryAddress = (config.registryAddress
-      || '0xb910E44893713b072ABC6949fB4441ad09999bC6').toLowerCase();
+      || '0x122D1ad78FddA6829F104cb8cBB56E5561E56Ba8').toLowerCase();
 
     // Block to start log scans from on a fresh / wiped index. Operators can
     // override via localStorage['kaisign_registry_deploy_block_<addr>'] when
