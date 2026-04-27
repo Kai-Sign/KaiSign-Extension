@@ -118,6 +118,7 @@ export async function loadDecoderModules(metadataService) {
     advancedTransactionDecoder: mockWindow.advancedTransactionDecoder,
     calculateSelector: mockWindow.calculateSelector,
     SimpleInterface: mockWindow.SimpleInterface,
+    formatTitleAddresses: mockWindow.formatTitleAddresses,
     // EIP-712 decoder functions
     getEIP712Metadata: mockWindow.getEIP712Metadata,
     formatEIP712Display: mockWindow.formatEIP712Display,

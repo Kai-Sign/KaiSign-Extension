@@ -90,6 +90,7 @@ class KaiSignMerkleTree {
     this.indexBackoffMs = 5000; // floor between failed attempts
 
     this._loadFromStorage();
+    this._bootstrapFromSeedIfNeeded();
   }
 
   // ============================================================================
@@ -134,6 +135,75 @@ class KaiSignMerkleTree {
       localStorage.removeItem(this._storageKey());
     } catch { /* localStorage unavailable */ }
     MERKLE_DEBUG && console.log('[MerkleTree] Local state cleared');
+  }
+
+  setRegistryAddress(address) {
+    if (typeof address !== 'string') return this.registryAddress;
+    const normalized = address.trim().toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(normalized) || normalized === this.registryAddress) {
+      return this.registryAddress;
+    }
+
+    this.registryAddress = normalized;
+    this.treeDepth = null;
+    this.zeroHashes = null;
+    this.verifier = null;
+    this.indexing = false;
+    this.lastIndexAttempt = 0;
+    this._loadFromStorage();
+    this._bootstrapFromSeedIfNeeded();
+    MERKLE_DEBUG && console.log('[MerkleTree] registryAddress changed to', normalized);
+    return this.registryAddress;
+  }
+
+  _getBundledSeed() {
+    const seed = typeof window !== 'undefined' ? window.__KAISIGN_MERKLE_SEED : null;
+    if (!seed || typeof seed !== 'object') return null;
+    if (typeof seed.registryAddress !== 'string') return null;
+    if (seed.registryAddress.toLowerCase() !== this.registryAddress) return null;
+    if (!Array.isArray(seed.leaves) || seed.leaves.length === 0) return null;
+    if (!Number.isInteger(seed.treeDepth) || seed.treeDepth <= 0) return null;
+    if (!Number.isInteger(seed.migrationBlock) || seed.migrationBlock <= 0) return null;
+    return seed;
+  }
+
+  _bootstrapFromSeedIfNeeded() {
+    const seed = this._getBundledSeed();
+    if (!seed) return false;
+
+    const localLeafCount = Array.isArray(this.state?.leaves) ? this.state.leaves.length : 0;
+    const localLastBlock = Number.isInteger(this.state?.lastBlock) ? this.state.lastBlock : null;
+    const localTreeDepth = Number.isInteger(this.state?.treeDepth) ? this.state.treeDepth : null;
+
+    const shouldBootstrap =
+      localLeafCount === 0 ||
+      localLeafCount < seed.leaves.length ||
+      localLastBlock === null ||
+      localLastBlock < seed.migrationBlock ||
+      (localTreeDepth !== null && localTreeDepth !== seed.treeDepth);
+
+    if (!shouldBootstrap) {
+      return false;
+    }
+
+    this.state = {
+      lastBlock: seed.migrationBlock,
+      treeDepth: seed.treeDepth,
+      leaves: seed.leaves.map((leaf, index) => ({
+        leaf,
+        kind: 'seed',
+        blockNumber: seed.migrationBlock,
+        logIndex: index
+      }))
+    };
+    this.treeDepth = seed.treeDepth;
+    this._buildZeroHashes();
+    this._saveToStorage();
+    MERKLE_DEBUG && console.log('[MerkleTree] Bootstrapped seeded frontier:', {
+      leaves: seed.leaves.length,
+      migrationBlock: seed.migrationBlock
+    });
+    return true;
   }
 
   stats() {

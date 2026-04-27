@@ -249,27 +249,38 @@ function bindPopupClose(popup) {
 }
 
 function sanitizeForStorage(data) {
-  try {
-    return JSON.parse(JSON.stringify(data, (_, value) => {
-      if (typeof value === 'bigint') return value.toString();
-      if (typeof value === 'function') return undefined;
-      return value;
-    }));
-  } catch {
-    // Fallback: recursively clone without functions
-    const deepClone = (obj) => {
-      if (obj === null || typeof obj !== 'object') return obj;
-      if (Array.isArray(obj)) return obj.map(deepClone);
-      const result = {};
-      for (const key in obj) {
-        if (typeof obj[key] !== 'function') {
-          result[key] = deepClone(obj[key]);
-        }
+  const seen = new WeakSet();
+  const clone = (value) => {
+    if (typeof value === 'bigint') return value.toString();
+    if (typeof value === 'function' || typeof value === 'symbol') return undefined;
+    if (value === null || typeof value !== 'object') return value;
+
+    if (value?._isBigNumber) {
+      if (value._value !== undefined) return value._value;
+      if (value._hex) return value._hex;
+      return String(value);
+    }
+
+    if (seen.has(value)) {
+      return '[Circular]';
+    }
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      return value.map((item) => clone(item));
+    }
+
+    const result = {};
+    for (const [key, nested] of Object.entries(value)) {
+      const sanitized = clone(nested);
+      if (sanitized !== undefined) {
+        result[key] = sanitized;
       }
-      return result;
-    };
-    return deepClone(data);
-  }
+    }
+    return result;
+  };
+
+  return clone(data);
 }
 
 function saveTransactionDirect(transactionData) {
@@ -295,6 +306,34 @@ function saveTransactionViaAllChannels(transactionData) {
     chrome.runtime.sendMessage({ type: 'SAVE_TRANSACTION', data: safeTxData }, () => {});
   }
   window.postMessage({ type: 'KAISIGN_SAVE_TX', data: safeTxData }, '*');
+}
+
+function buildTransactionRecord(tx, method, intent, decodedResult, extractedBytecodes = [], context = null) {
+  return {
+    id: Date.now().toString(),
+    method,
+    time: new Date().toISOString(),
+    to: tx.to,
+    from: tx.from,
+    value: tx.value,
+    data: tx.data,
+    gas: tx.gas,
+    gasPrice: tx.gasPrice,
+    maxFeePerGas: tx.maxFeePerGas,
+    maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+    nonce: tx.nonce,
+    chainId: tx.chainId ?? context?.chainId ?? null,
+    type: tx.type,
+    authorizationList: tx.authorizationList,
+    accessList: tx.accessList,
+    isEIP712: context?.isEIP712 || false,
+    eip712TypedData: tx.eip712TypedData || null,
+    primaryType: context?.primaryType || null,
+    domainName: context?.domainName || null,
+    intent,
+    decodedResult,
+    extractedBytecodes
+  };
 }
 
 function attachSaveButton(popup, transactionData) {
@@ -1392,8 +1431,8 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
           let nestedIntents = [];
           if (window.decodeCalldataRecursive && targetAddress) {
             try {
-              KAISIGN_DEBUG && console.log('[KaiSign] Calling decodeCalldataRecursive with:', typedData.message.data?.slice(0, 20), targetAddress, chainId);
-              const decoded = await window.decodeCalldataRecursive(typedData.message.data, targetAddress, chainId);
+              KAISIGN_DEBUG && console.log('[KaiSign] Decoding typed-data nested calldata with error containment:', typedData.message.data?.slice(0, 20), targetAddress, chainId);
+              const decoded = await decodeWithErrorContainment(typedData.message.data, targetAddress, chainId, 'typed-data nested calldata');
               KAISIGN_DEBUG && console.log('[KaiSign] Recursive decode result:', decoded);
               if (decoded?.success) {
                 // Use aggregatedIntent or collect nested intents
@@ -1592,7 +1631,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
           ${displayData.nestedIntents.map((intent, i) => `
             <div class="kaisign-intent-row">
               <span class="kaisign-intent-num">${i + 1}.</span>
-              <span class="kaisign-intent-text">${intent}</span>
+              <span class="kaisign-intent-text" title="${escapeHtml(intent || '')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(intent || ''))}</span>
             </div>
           `).join('')}
         </div>
@@ -1682,7 +1721,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
 
     <div class="kaisign-intent-section">
       ${displayData.wrapperIntent ? `<div class="kaisign-wrapper-context">${escapeHtml(displayData.wrapperIntent)}</div>` : ''}
-      <div class="kaisign-intent">${escapeHtml(displayData.intent || 'Sign Message')}</div>
+      <div class="kaisign-intent" title="${escapeHtml(displayData.intent || 'Sign Message')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(displayData.intent || 'Sign Message'))}</div>
       <div class="kaisign-details-grid">
         <div class="kaisign-detail-item">
           <span class="kaisign-detail-label">App: </span>
@@ -1836,7 +1875,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
                     ${parsed.details.map((detail, i) => `
                       <div class="kaisign-intent-row">
                         <span class="kaisign-intent-num">${i + 1}.</span>
-                        <span class="kaisign-intent-text">${detail}</span>
+                        <span class="kaisign-intent-text" title="${escapeHtml(detail || '')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(detail || ''))}</span>
                       </div>
                     `).join('')}
                   </div>
@@ -2515,6 +2554,24 @@ function handlePersonalSign(message, address, walletName) {
 let lastBatchHash = null;
 let lastBatchTime = 0;
 
+async function decodeWithErrorContainment(calldata, targetAddress, chainId, contextLabel = 'transaction') {
+  if (!calldata || calldata.length < 10) return null;
+
+  if (window.decodeCalldataRecursive) {
+    try {
+      return await window.decodeCalldataRecursive(calldata, targetAddress, chainId);
+    } catch (recursiveError) {
+      console.warn(`[KaiSign] Recursive decoder failed for ${contextLabel}, falling back to plain decoder:`, recursiveError);
+    }
+  }
+
+  if (window.decodeCalldata) {
+    return await window.decodeCalldata(calldata, targetAddress, chainId);
+  }
+
+  return null;
+}
+
 // Handle EIP-5792 batch calls (Ambire, Safe, etc.) - consolidate into single popup
 async function handleEIP5792Batch(calls, from, chainId, walletName) {
   // Create hash of batch to detect duplicates
@@ -2555,8 +2612,8 @@ async function handleEIP5792Batch(calls, from, chainId, walletName) {
     let decoded = null;
 
     try {
-      if (call.data && call.data.length >= 10 && window.decodeCalldataRecursive) {
-        decoded = await window.decodeCalldataRecursive(call.data, call.to, chainId);
+      if (call.data && call.data.length >= 10) {
+        decoded = await decodeWithErrorContainment(call.data, call.to, chainId, `batch call ${i + 1}`);
         KAISIGN_DEBUG && console.log(`[KaiSign] Batch call ${i + 1} decoded:`, {
           success: decoded?.success,
           functionName: decoded?.functionName,
@@ -2686,13 +2743,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         // Try recursive decoder first for full nested intent resolution
         let decoded;
         updateLoadingStatus('Decoding transaction...');
-        if (window.decodeCalldataRecursive) {
-          KAISIGN_DEBUG && console.log('[KaiSign] Using recursive calldata decoder');
-          decoded = await window.decodeCalldataRecursive(tx.data, tx.to, chainId);
-        } else if (window.decodeCalldata) {
-          // Fallback to non-recursive decoder
-          decoded = await window.decodeCalldata(tx.data, tx.to, chainId);
-        }
+        decoded = await decodeWithErrorContainment(tx.data, tx.to, chainId, 'transaction');
 
         if (decoded && decoded.success) {
           updateLoadingStatus('Parsing intents...');
@@ -2753,8 +2804,11 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
     }
   }
 
-  // ADDITIONAL DECODING: Try advanced decoder for nested bytecodes
-  if (tx.data && tx.data.length > 10) {
+  // ADDITIONAL DECODING: only run heuristic nested-bytecode scans when the
+  // primary decode did not already succeed. Successful top-level decodes have
+  // already gone through recursive-decoder.js, so doing a second heuristic
+  // pass here just adds latency to simple calls like ERC-20 transfers.
+  if (!decodedResult?.success && tx.data && tx.data.length > 10) {
     updateLoadingStatus('Scanning for nested calls...');
 
     if (window.AdvancedTransactionDecoder) {
@@ -2800,7 +2854,9 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   }
 
   // SHOW FINAL RESULT (only once, after all decoding is complete)
-  showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes)
+  showEnhancedTransactionInfo(tx, method, intent, walletName, decodedResult, extractedBytecodes, {
+    ...context
+  })
     .catch(err => console.error('[KaiSign] showEnhancedTransactionInfo error:', err));
 }
 
@@ -2849,35 +2905,12 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   }
 
   try {
-  const transactionData = {
-    id: Date.now().toString(),
-    method: method,
-    time: new Date().toISOString(),
-    // Original transaction data from dApp (unmodified)
-    to: tx.to,
-    from: tx.from,
-    value: tx.value,
-    data: tx.data, // Original raw bytecode from dApp
-    gas: tx.gas,
-    gasPrice: tx.gasPrice,
-    maxFeePerGas: tx.maxFeePerGas,
-    maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
-    nonce: tx.nonce,
-    chainId: tx.chainId ?? context?.chainId ?? null,
-    // EIP-7702 and EIP-2930 fields
-    type: tx.type,                           // Transaction type (0, 1, 2, or 4)
-    authorizationList: tx.authorizationList, // EIP-7702 authorization tuples
-    accessList: tx.accessList,               // EIP-2930 access list
-    // EIP-712 typed data (if applicable)
-    isEIP712: context?.isEIP712 || false,
-    eip712TypedData: tx.eip712TypedData || null,
-    primaryType: context?.primaryType || null,
-    domainName: context?.domainName || null,
-    // Decoded/analyzed data (for display only, not for sending)
-    intent: intent,
-    decodedResult: decodedResult,
-    extractedBytecodes: extractedBytecodes
-  };
+  const transactionData = context?.transactionData
+    || buildTransactionRecord(tx, method, intent, decodedResult, extractedBytecodes, context);
+
+  if (!context?.transactionAlreadySaved) {
+    saveTransactionViaAllChannels(transactionData);
+  }
 
   // Remove old popup if exists
   const old = document.getElementById('kaisign-popup');
@@ -3076,8 +3109,8 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   const isSelfCall = tx.from && tx.to && tx.from.toLowerCase() === tx.to.toLowerCase();
   const isEIP7702 = tx.type === '0x04' || tx.type === 4 || (tx.authorizationList && tx.authorizationList.length > 0);
 
-  // Resolve addresses in intent before displaying
-  const resolvedIntent = await resolveIntentAddresses(intent);
+  const rawIntent = intent || 'Analyzing transaction...';
+  const formattedIntent = (window.formatTitleAddresses || ((s) => s))(rawIntent);
 
   popup.innerHTML = `
     <div class="kaisign-warning">
@@ -3102,7 +3135,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       ${isEIP7702 ? `
         <div class="kaisign-wrapper-context" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">EIP-7702 Delegated Transaction${isSelfCall ? ' (Self-call)' : ''}</div>
       ` : ''}
-      <div class="kaisign-intent">${escapeHtml(resolvedIntent || 'Analyzing transaction...')}</div>
+      <div id="kaisign-intent-text" class="kaisign-intent" title="${escapeHtml(rawIntent)}">${escapeHtml(formattedIntent)}</div>
       <div class="kaisign-details-grid">
         <div class="kaisign-detail-item">
           <span class="kaisign-detail-label">${isSelfCall && isEIP7702 ? 'Self: ' : 'To: '}</span>
@@ -3133,7 +3166,18 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   document.body.appendChild(popup);
   bindPopupClose(popup);
   attachPopupDrag(popup);
-  saveTransactionViaAllChannels(transactionData);
+
+  if (/0x[a-fA-F0-9]{40}\b/.test(rawIntent) && window.nameResolutionService && chainId) {
+    resolveIntentAddresses(rawIntent).then((resolvedIntent) => {
+      if (!resolvedIntent || resolvedIntent === rawIntent) return;
+      const intentEl = document.getElementById('kaisign-intent-text');
+      if (!intentEl) return;
+      intentEl.title = resolvedIntent;
+      intentEl.textContent = (window.formatTitleAddresses || ((s) => s))(resolvedIntent);
+    }).catch((err) => {
+      console.debug('[ContentScript] Failed to resolve intent addresses:', err);
+    });
+  }
 
   // Update verification badge asynchronously
   if (decodedResult?._verification || (typeof window !== 'undefined' && window.onChainVerifier)) {
@@ -3208,7 +3252,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         <button class="kaisign-close-btn" onclick="this.closest('.kaisign-popup').remove()">&#x2715;</button>
       </div>
       <div class="kaisign-intent-section">
-        <div class="kaisign-intent">${escapeHtml(intent || 'Unknown transaction')}</div>
+        <div class="kaisign-intent" title="${escapeHtml(intent || 'Unknown transaction')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(intent || 'Unknown transaction'))}</div>
         <div class="kaisign-details-grid">
           <div class="kaisign-detail-item">
             <span class="kaisign-detail-label">To: </span>

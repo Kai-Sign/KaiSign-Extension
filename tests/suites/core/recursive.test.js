@@ -7,6 +7,7 @@
  * - Intent aggregation from nested calls
  */
 
+import { readFile } from 'node:fs/promises';
 import { ethers } from 'ethers';
 import { CONTRACTS } from '../../config.js';
 import { loadMetadata } from '../../lib/metadata-loader.js';
@@ -133,6 +134,33 @@ export async function runTests(harness) {
       nestedIntentContains: ['Approve Unlimited USDC', 'Approve WETH spending']
     }
   }));
+
+  {
+    const start = Date.now();
+    try {
+      const source = await readFile(new URL('../../../recursive-decoder.js', import.meta.url), 'utf8');
+      const passed = source.includes('let metadata = decoded.metadata || null;')
+        && source.includes("console.log('[RecursiveDecoder] Reusing metadata from initial decode')");
+
+      results.push(harness.createResult(
+        'Recursive decoder reuses metadata from initial decode before refetching',
+        passed,
+        { success: passed, intent: 'Avoids duplicate metadata fetches for non-recursive calls' },
+        {},
+        passed ? null : 'recursive-decoder.js still refetches metadata unconditionally',
+        Date.now() - start
+      ));
+    } catch (error) {
+      results.push(harness.createResult(
+        'Recursive decoder reuses metadata from initial decode before refetching',
+        false,
+        { success: false, intent: null },
+        {},
+        error.message,
+        0
+      ));
+    }
+  }
 
   return results;
 }

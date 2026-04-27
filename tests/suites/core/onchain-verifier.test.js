@@ -13,6 +13,7 @@
  *   KAISIGN_LIVE_SEPOLIA=1 node run-all-tests.js --suite=onchain-verifier
  */
 
+import { readFile } from 'node:fs/promises';
 import { ethers } from 'ethers';
 
 const LIVE_FLAG = process.env.KAISIGN_LIVE_SEPOLIA === '1' || process.argv.includes('--live-sepolia');
@@ -149,6 +150,54 @@ export async function runTests(harness) {
       } catch (error) {
         pushResult(harness, results, `Verifier leaf encoding matches ethers AbiCoder for ${fx.name}`, false, null, error.message);
       }
+    }
+  }
+
+  {
+    const start = Date.now();
+    try {
+      const [verifierSource, metadataSource] = await Promise.all([
+        readFile(new URL('../../../onchain-verifier.js', import.meta.url), 'utf8'),
+        readFile(new URL('../../../subgraph-metadata.js', import.meta.url), 'utf8')
+      ]);
+      const passed = verifierSource.includes('setRegistryAddress(address)')
+        && verifierSource.includes('registryAddress: this.registryAddress')
+        && metadataSource.includes('metadata._registryAddress = registryAddress');
+
+      pushResult(
+        harness,
+        results,
+        'Registry address is persisted through metadata fetch and verification',
+        passed,
+        'Verifier supports registry overrides and verification results retain the active registry address',
+        passed ? null : 'Missing registry-address persistence in verifier or metadata service',
+        Date.now() - start
+      );
+    } catch (error) {
+      pushResult(harness, results, 'Registry address is persisted through metadata fetch and verification', false, null, error.message);
+    }
+  }
+
+  {
+    const start = Date.now();
+    try {
+      const verifierSource = await readFile(new URL('../../../onchain-verifier.js', import.meta.url), 'utf8');
+      const manualModeStillBuildsProofs = verifierSource.includes('const treeOk = await tree.ensureRootMatches(root);')
+        && !verifierSource.includes("skipCatchUp: this.verificationMode === 'manual'");
+      const transientRootFailuresNotCached = verifierSource.includes("if (result?.source === 'root-unavailable') {");
+
+      const passed = manualModeStillBuildsProofs && transientRootFailuresNotCached;
+      pushResult(
+        harness,
+        results,
+        'Manual verification mode still syncs the registry tree and does not cache transient root failures',
+        passed,
+        'Manual mode allows proof-building catch-up and root-unavailable results stay transient',
+        passed ? null : 'Manual mode is still suppressing tree catch-up or caching root-unavailable results',
+        Date.now() - start
+      );
+    } catch (error) {
+      pushResult(harness, results, 'Manual verification mode still syncs the registry tree and does not cache transient root failures', false, null, error.message);
     }
   }
 

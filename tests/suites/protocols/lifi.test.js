@@ -48,7 +48,7 @@ export async function runTests(harness) {
   // Test swapTokensSingleV3ERC20ToERC20 - minimal calldata
   results.push(await harness.runTest({
     name: 'LiFi swapTokensSingleV3ERC20ToERC20 (selector match)',
-    calldata: '0x54e97ec9' +
+    calldata: '0x4666fc80' +
       // _transactionId
       'b482dfda03721a978ea9a5e8e3ea827a463f0a10529d1365061e99e14b01767b' +
       // offsets and receiver
@@ -73,7 +73,7 @@ export async function runTests(harness) {
     contractAddress: lifiAddress,
     expected: {
       shouldSucceed: true,
-      selector: '0x54e97ec9',
+      selector: '0x4666fc80',
       functionName: 'swapTokensSingleV3ERC20ToERC20',
       intentContains: 'Swap'
     }
@@ -125,7 +125,42 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x2c57e884',
       functionName: 'swapTokensMultipleV3ERC20ToNative',
-      intentContains: 'Swap'
+      intentContains: 'Swap',
+      intentDoesNotContain: 'Approve Unlimited USDC'
+    }
+  }));
+
+  const lifiSingleIface = new ethers.Interface([
+    'function swapTokensSingleV3ERC20ToERC20(bytes32 _transactionId, string _integrator, string _referrer, address _receiver, uint256 _minAmountOut, tuple(address callTo, address approveTo, address sendingAssetId, address receivingAssetId, uint256 fromAmount, bytes callData, bool requiresDeposit) _swapData)'
+  ]);
+
+  const lifiSingleCalldata = lifiSingleIface.encodeFunctionData('swapTokensSingleV3ERC20ToERC20', [
+    '0xa482dfda03721a978ea9a5e8e3ea827a463f0a10529d1365061e99e14b01767a',
+    'kaisign-smoke',
+    'smoke',
+    '0xa10235ea549daa39a108bc26d63bd8daa68e4a22',
+    ethers.parseUnits('1', 15),
+    {
+      callTo: usdcAddress,
+      approveTo: usdcAddress,
+      sendingAssetId: usdcAddress,
+      receivingAssetId: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+      fromAmount: ethers.parseUnits('100', 6),
+      callData: approveCalldata,
+      requiresDeposit: false
+    }
+  ]);
+
+  results.push(await harness.runRecursiveTest({
+    name: 'LiFi single ERC20 swap keeps wrapper title with nested approval',
+    calldata: lifiSingleCalldata,
+    contractAddress: lifiAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x4666fc80',
+      functionName: 'swapTokensSingleV3ERC20ToERC20',
+      intentContains: 'Swap',
+      intentDoesNotContain: 'Approve Unlimited USDC'
     }
   }));
 

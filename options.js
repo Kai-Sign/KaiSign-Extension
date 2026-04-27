@@ -3,6 +3,15 @@ console.log('[KaiSign] Options page loading...');
 
 // DOM Elements - wait for DOM to be ready
 let elements = {};
+const VERIFICATION_STATUS_KEY = 'kaisign-verification-status';
+const DEFAULT_VERIFICATION_STATUS = {
+  registryAddress: '0x122d1ad78fdda6829f104cb8cbb56e5561e56ba8',
+  merkleRoot: null,
+  verificationMode: 'manual',
+  lastUpdated: null,
+  lastError: null,
+  source: 'uninitialized'
+};
 
 // Current RPC endpoints state (chainId -> url)
 let rpcEndpointsState = {};
@@ -21,6 +30,12 @@ function initElements() {
     // On-Chain Verification
     verificationModeManual: document.getElementById('verificationModeManual'),
     verificationModeAutomatic: document.getElementById('verificationModeAutomatic'),
+    verificationRegistryAddress: document.getElementById('verificationRegistryAddress'),
+    verificationMerkleRoot: document.getElementById('verificationMerkleRoot'),
+    verificationLastUpdated: document.getElementById('verificationLastUpdated'),
+    verificationLastError: document.getElementById('verificationLastError'),
+    verificationModeStatus: document.getElementById('verificationModeStatus'),
+    refreshVerificationBtn: document.getElementById('refreshVerificationBtn'),
 
     // RPC Settings (dynamic)
     rpcEndpointsList: document.getElementById('rpcEndpointsList'),
@@ -58,8 +73,10 @@ document.addEventListener('DOMContentLoaded', init);
 async function init() {
   initElements();
   loadSettings();
+  loadVerificationStatus();
   loadStorageInfo();
   setupEventListeners();
+  setupStorageListeners();
   loadVersion();
 }
 
@@ -108,6 +125,37 @@ function loadSettings() {
     }
 
     console.log('[KaiSign] Settings loaded successfully');
+  });
+}
+
+function formatTimestamp(value) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Never' : date.toLocaleString();
+}
+
+function renderVerificationStatus(status = {}) {
+  if (elements.verificationRegistryAddress) {
+    elements.verificationRegistryAddress.textContent = status.registryAddress || 'Unknown';
+  }
+  if (elements.verificationMerkleRoot) {
+    elements.verificationMerkleRoot.textContent = status.merkleRoot || 'Not fetched yet';
+  }
+  if (elements.verificationLastUpdated) {
+    elements.verificationLastUpdated.textContent = formatTimestamp(status.lastUpdated);
+  }
+  if (elements.verificationModeStatus) {
+    elements.verificationModeStatus.textContent = status.verificationMode === 'automatic' ? 'Automatic' : 'Manual';
+  }
+  if (elements.verificationLastError) {
+    elements.verificationLastError.textContent = status.lastError || 'OK';
+    elements.verificationLastError.style.color = status.lastError ? 'var(--accent-orange)' : 'var(--text-primary)';
+  }
+}
+
+function loadVerificationStatus() {
+  chrome.storage.local.get([VERIFICATION_STATUS_KEY], (result) => {
+    renderVerificationStatus({ ...DEFAULT_VERIFICATION_STATUS, ...(result?.[VERIFICATION_STATUS_KEY] || {}) });
   });
 }
 
@@ -329,6 +377,80 @@ function setupEventListeners() {
   if (elements.addRpcBtn) {
     elements.addRpcBtn.addEventListener('click', addRpcEndpoint);
   }
+
+  if (elements.refreshVerificationBtn) {
+    elements.refreshVerificationBtn.addEventListener('click', refreshVerificationStatus);
+  }
+}
+
+function setupStorageListeners() {
+  if (!chrome?.storage?.onChanged) return;
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+    if (changes['kaisign-verification-status']?.newValue) {
+      renderVerificationStatus(changes['kaisign-verification-status'].newValue);
+    }
+  });
+}
+
+function refreshVerificationStatus() {
+  if (!elements.refreshVerificationBtn) return;
+  const button = elements.refreshVerificationBtn;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Refreshing...';
+
+  chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, (settingsResponse) => {
+    const settings = settingsResponse?.settings || {};
+    chrome.storage.local.get([VERIFICATION_STATUS_KEY], (statusResult) => {
+      const currentStatus = {
+        ...DEFAULT_VERIFICATION_STATUS,
+        ...(statusResult?.[VERIFICATION_STATUS_KEY] || {})
+      };
+      const registryAddress = (currentStatus.registryAddress || DEFAULT_VERIFICATION_STATUS.registryAddress || '').toLowerCase();
+      const rpcUrl = settings.rpcEndpoints?.['11155111']
+        || settings.rpcEndpoints?.[11155111]
+        || 'https://ethereum-sepolia-rpc.publicnode.com';
+
+      chrome.runtime.sendMessage({
+        type: 'RPC_CALL',
+        rpcUrl,
+        method: 'eth_call',
+        params: [{ to: registryAddress, data: '0x2eb4a7ab' }, 'latest']
+      }, (response) => {
+        button.disabled = false;
+        button.textContent = originalText;
+
+        if (response?.result && response.result !== '0x' && response.result.length >= 66) {
+          const nextStatus = {
+            ...currentStatus,
+            registryAddress,
+            merkleRoot: `0x${response.result.slice(2, 66).toLowerCase()}`,
+            verificationMode: settings.verificationMode === 'automatic' ? 'automatic' : 'manual',
+            lastUpdated: new Date().toISOString(),
+            lastError: null,
+            source: 'manual-refresh'
+          };
+          chrome.storage.local.set({ [VERIFICATION_STATUS_KEY]: nextStatus }, () => {
+            renderVerificationStatus(nextStatus);
+            showToast('Merkle root refreshed', 'success');
+          });
+          return;
+        }
+
+        const nextStatus = {
+          ...currentStatus,
+          registryAddress,
+          lastError: response?.error || 'Failed to refresh merkle root',
+          source: 'refresh-error'
+        };
+        chrome.storage.local.set({ [VERIFICATION_STATUS_KEY]: nextStatus }, () => {
+          renderVerificationStatus(nextStatus);
+          showToast(nextStatus.lastError, 'error');
+        });
+      });
+    });
+  });
 }
 
 // Save settings
@@ -374,6 +496,7 @@ function saveSettings() {
     if (response?.success) {
       showToast('Settings saved', 'success');
       loadStorageInfo();
+      loadVerificationStatus();
 
       // Update name resolution service with new config
       if (window.nameResolutionService) {

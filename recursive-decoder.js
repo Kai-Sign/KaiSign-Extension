@@ -51,6 +51,16 @@ function getKaiSignDebugFlag() {
 
 const KAISIGN_DEBUG = getKaiSignDebugFlag();
 
+function isGenericWrapperIntent(intent) {
+  if (!intent || typeof intent !== 'string') return true;
+  if (intent === 'Contract interaction' || intent === 'Unknown function') return true;
+  if (intent.startsWith('Unknown call ') || intent.startsWith('Function call: ')) return true;
+  return /^Execute\b/i.test(intent)
+    || /^Aggregate calls$/i.test(intent)
+    || /multicall/i.test(intent)
+    || /^Batch /i.test(intent);
+}
+
 /**
  * RecursiveCalldataDecoder - Decodes nested calldata using ERC-7730 metadata
  *
@@ -125,10 +135,16 @@ class RecursiveCalldataDecoder {
         return { ...decoded, depth };
       }
 
-      // Get metadata for this contract to check for calldata fields
-      // Pass selector for proxy detection (e.g., Safe proxies)
-      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Requesting metadata: address=${targetAddress}, chainId=${chainId}, selector=${selector}`);
-      const metadata = await this.getMetadata(targetAddress, chainId, selector);
+      // Reuse metadata returned by the top-level decode when available.
+      // Refetching here duplicates the slowest path and creates a second
+      // failure point for simple calls that do not need recursion at all.
+      let metadata = decoded.metadata || null;
+      if (!metadata) {
+        KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Requesting metadata: address=${targetAddress}, chainId=${chainId}, selector=${selector}`);
+        metadata = await this.getMetadata(targetAddress, chainId, selector);
+      } else {
+        KAISIGN_DEBUG && console.log('[RecursiveDecoder] Reusing metadata from initial decode');
+      }
       KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Metadata retrieved: ${metadata ? 'YES' : 'NO'}`);
 
       // Process fields looking for nested calldata
@@ -148,9 +164,10 @@ class RecursiveCalldataDecoder {
 
       // Only show leaf intents in aggregated title (user preference: clean display)
       // Store wrapper intent separately for context
-      const aggregatedIntent = nestedIntents.length > 0
+      const wrapperIntent = decoded.wrapperIntent || decoded.intent;
+      const aggregatedIntent = nestedIntents.length > 0 && isGenericWrapperIntent(wrapperIntent)
         ? nestedIntents.join(' + ')
-        : decoded.intent;
+        : undefined;
 
       return {
         ...decoded,
@@ -158,7 +175,7 @@ class RecursiveCalldataDecoder {
         nestedDecodes: processedResult.nestedDecodes,
         nestedIntents,
         aggregatedIntent,
-        wrapperIntent: decoded.intent, // Store wrapper intent separately for UI context
+        wrapperIntent,
         depth
       };
     } finally {

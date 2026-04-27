@@ -36,7 +36,9 @@ const KAISIGN_DEBUG = false;
 
 class OnChainVerifier {
   constructor(config = {}) {
-    this.registryAddress = config.registryAddress || '0x122D1ad78FddA6829F104cb8cBB56E5561E56Ba8';
+    this.registryAddress = this._normalizeRegistryAddress(
+      config.registryAddress || '0x122D1ad78FddA6829F104cb8cBB56E5561E56Ba8'
+    );
 
     // RPC URLs - local override is checked dynamically in _getRpcUrl()
     this.defaultRpcUrls = config.rpcUrls || [
@@ -65,6 +67,54 @@ class OnChainVerifier {
     this._initSettings();
   }
 
+  _normalizeRegistryAddress(address) {
+    if (typeof address !== 'string') return null;
+    const trimmed = address.trim();
+    return /^0x[a-fA-F0-9]{40}$/.test(trimmed) ? trimmed.toLowerCase() : null;
+  }
+
+  _publishVerificationStatus(patch = {}) {
+    if (typeof window === 'undefined' || typeof window.postMessage !== 'function') return;
+    try {
+      window.postMessage({
+        type: 'KAISIGN_SAVE_VERIFICATION_STATUS',
+        data: {
+          registryAddress: this.registryAddress,
+          verificationMode: this.verificationMode,
+          ...patch
+        }
+      }, '*');
+    } catch {
+      // Ignore bridge errors
+    }
+  }
+
+  getRegistryAddress() {
+    return this.registryAddress;
+  }
+
+  setRegistryAddress(address) {
+    const normalized = this._normalizeRegistryAddress(address);
+    if (!normalized || normalized === this.registryAddress) {
+      return this.registryAddress;
+    }
+
+    this.registryAddress = normalized;
+    this.clearCache();
+
+    if (typeof window !== 'undefined' && window.kaisignMerkleTree?.setRegistryAddress) {
+      window.kaisignMerkleTree.setRegistryAddress(normalized);
+    }
+
+    this._publishVerificationStatus({
+      registryAddress: normalized,
+      source: 'registry-switch',
+      lastError: null
+    });
+    KAISIGN_DEBUG && console.log('[OnChainVerifier] registryAddress changed to', normalized);
+    return this.registryAddress;
+  }
+
   /**
    * Subscribe to settings: ask the bridge for current settings, then listen for
    * KAISIGN_SETTINGS_UPDATED broadcasts when the user changes them in the
@@ -80,6 +130,10 @@ class OnChainVerifier {
       if (next !== this.verificationMode) {
         KAISIGN_DEBUG && console.log('[OnChainVerifier] verificationMode changed:', this.verificationMode, '->', next);
         this.verificationMode = next;
+        this._publishVerificationStatus({
+          verificationMode: next,
+          source: 'settings-update'
+        });
       }
     };
 
@@ -506,6 +560,18 @@ class OnChainVerifier {
    * @returns {Promise<Object>} Verification result
    */
   async verifyMetadataAgainstRoot(metadata, contractAddress, chainId) {
+    const metadataRegistryAddress = this._normalizeRegistryAddress(
+      metadata?._registryAddress
+      || metadata?.registryAddress
+      || metadata?.registry_address
+      || metadata?.context?.contract?.registryAddress
+      || metadata?.context?.contract?.registry_address
+      || metadata?.context?.contract?.registry?.address
+    );
+    if (metadataRegistryAddress && metadataRegistryAddress !== this.registryAddress) {
+      this.setRegistryAddress(metadataRegistryAddress);
+    }
+
     const cacheKey = `${contractAddress.toLowerCase()}-${chainId}`;
 
     const cached = this.verificationCache.get(cacheKey);
@@ -519,7 +585,8 @@ class OnChainVerifier {
       details: null,
       availabilityLeaf: null,
       revocationLeaf: null,
-      merkleRoot: null
+      merkleRoot: null,
+      registryAddress: this.registryAddress
     };
 
     try {
@@ -573,6 +640,11 @@ class OnChainVerifier {
       }
       if (!root) {
         result.details = 'Could not fetch merkle root from registry and none cached';
+        this._publishVerificationStatus({
+          merkleRoot: null,
+          lastError: result.details,
+          source: 'root-unavailable'
+        });
         this._cacheResult(cacheKey, result);
         return result;
       }
@@ -587,13 +659,12 @@ class OnChainVerifier {
       }
 
       // Make sure the local leaf set is canonical against `root` before trusting
-      // any membership answer it gives. In manual mode we suppress the indexer's
-      // catch-up RPC path — verification uses whatever leaves are already cached,
-      // and a root mismatch falls through to the "unattested" branch without a
-      // fresh eth_getLogs scan.
-      const treeOk = await tree.ensureRootMatches(root, {
-        skipCatchUp: this.verificationMode === 'manual'
-      });
+      // any membership answer it gives. Manual mode still allows a registry-log
+      // catch-up here: that traffic is scoped to the registry contract and is
+      // required to build proofs at all. What manual mode suppresses is the
+      // per-decode merkleRoot re-fetch, not the one-time leaf-log sync needed
+      // to make the cached root usable.
+      const treeOk = await tree.ensureRootMatches(root);
       if (!treeOk) {
         result.source = 'root-unavailable';
         result.details = 'Local merkle tree out of sync with on-chain root';
@@ -626,9 +697,20 @@ class OnChainVerifier {
       }
     } catch (e) {
       result.details = `Verification error: ${e.message}`;
+      this._publishVerificationStatus({
+        merkleRoot: result.merkleRoot,
+        lastError: result.details,
+        source: 'verification-error'
+      });
       console.warn('[OnChainVerifier] Verification failed:', e.message);
     }
 
+    this._publishVerificationStatus({
+      merkleRoot: result.merkleRoot,
+      lastUpdated: result.merkleRoot ? new Date().toISOString() : undefined,
+      lastError: result.merkleRoot ? null : result.details,
+      source: result.source
+    });
     this._cacheResult(cacheKey, result);
     return result;
   }
@@ -666,6 +748,13 @@ class OnChainVerifier {
    * Cache a verification result
    */
   _cacheResult(key, result) {
+    // root-unavailable is intentionally not cached: it is a transient transport
+    // / synchronization state, and caching it would keep rendering a contract
+    // unverified even after the user refreshed the root or the local leaf log
+    // caught up later in the same session.
+    if (result?.source === 'root-unavailable') {
+      return;
+    }
     this.verificationCache.set(key, {
       result,
       timestamp: Date.now()
@@ -704,6 +793,12 @@ class OnChainVerifier {
   _saveRegistryMerkleRoot(root) {
     try {
       localStorage.setItem(this._getRegistryMerkleRootKey(), root);
+      this._publishVerificationStatus({
+        merkleRoot: root,
+        lastUpdated: new Date().toISOString(),
+        lastError: null,
+        source: 'cache-write'
+      });
       KAISIGN_DEBUG && console.log('[OnChainVerifier] Cached registry merkleRoot:', root.slice(0, 18));
     } catch (e) {
       console.warn('[OnChainVerifier] Failed to cache merkle root:', e.message);
@@ -718,6 +813,12 @@ class OnChainVerifier {
   clearRegistryMerkleRoot() {
     try {
       localStorage.removeItem(this._getRegistryMerkleRootKey());
+      this._publishVerificationStatus({
+        merkleRoot: null,
+        lastUpdated: null,
+        lastError: null,
+        source: 'cache-cleared'
+      });
       KAISIGN_DEBUG && console.log('[OnChainVerifier] Cleared registry merkleRoot cache');
     } catch {
       // Ignore localStorage errors

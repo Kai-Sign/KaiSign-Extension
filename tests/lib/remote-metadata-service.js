@@ -99,6 +99,10 @@ export class RemoteMetadataService {
       }
 
       const metadata = data.metadata;
+      const registryAddress = this._resolveRegistryAddress(data, metadata);
+      if (registryAddress) {
+        metadata._registryAddress = registryAddress;
+      }
 
       // v1.0.0 backend response envelope (single shape across all paths in
       // kaisign-backend/backend/api/index.py): { success, blob_hash, metadata,
@@ -114,13 +118,35 @@ export class RemoteMetadataService {
         details: 'Metadata served by backend; merkle-proof verification ' +
           'requires chain access (not available in test harness)',
         blobHash: data.blob_hash || null,
-        backendSource: data.source || null
+        backendSource: data.source || null,
+        registryAddress
       };
 
       return metadata;
     }
 
     console.log(`[RemoteMetadataService] Exhausted retries for ${normalizedAddress}`);
+    return null;
+  }
+
+  _resolveRegistryAddress(response, metadata) {
+    const candidates = [
+      response?.registry_address,
+      response?.registryAddress,
+      response?.registry?.address,
+      metadata?._registryAddress,
+      metadata?.registryAddress,
+      metadata?.registry_address,
+      metadata?.context?.contract?.registryAddress,
+      metadata?.context?.contract?.registry_address,
+      metadata?.context?.contract?.registry?.address
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && /^0x[a-fA-F0-9]{40}$/.test(candidate.trim())) {
+        return candidate.trim().toLowerCase();
+      }
+    }
     return null;
   }
 
@@ -219,7 +245,7 @@ export class RemoteMetadataService {
   }
 
   addTokenMetadata(address, tokenInfo, chainId = 1) {
-    const cacheKey = `${address.toLowerCase()}-${chainId}`;
+    const cacheKey = `token-${address.toLowerCase()}-${chainId}`;
     this.tokenCache.set(cacheKey, tokenInfo);
   }
 

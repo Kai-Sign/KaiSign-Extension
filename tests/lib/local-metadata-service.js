@@ -348,7 +348,7 @@ export class LocalMetadataService {
   }
 
   addTokenMetadata(address, tokenInfo, chainId = 1) {
-    const cacheKey = `${address.toLowerCase()}-${chainId}`;
+    const cacheKey = `token-${address.toLowerCase()}-${chainId}`;
     this.tokenCache.set(cacheKey, tokenInfo);
   }
 

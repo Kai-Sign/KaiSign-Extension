@@ -3,7 +3,17 @@
 const STORAGE_KEYS = {
   TRANSACTIONS: 'kaisign-transactions',
   RPC_ACTIVITY: 'kaisign-rpc-activity',
-  SETTINGS: 'kaisign-settings'
+  SETTINGS: 'kaisign-settings',
+  VERIFICATION_STATUS: 'kaisign-verification-status'
+};
+
+const DEFAULT_VERIFICATION_STATUS = {
+  registryAddress: '0x122d1ad78fdda6829f104cb8cbb56e5561e56ba8',
+  merkleRoot: null,
+  verificationMode: 'manual',
+  lastUpdated: null,
+  lastError: null,
+  source: 'uninitialized'
 };
 
 const DEFAULT_SETTINGS = {
@@ -11,14 +21,18 @@ const DEFAULT_SETTINGS = {
   notifications: true,
   rpcTracking: true,
   securityAlerts: true,
-  theme: 'dark'
+  theme: 'dark',
+  verificationMode: 'manual'
 };
 
 async function initializeStorage() {
   try {
-    const result = await chrome.storage.local.get([STORAGE_KEYS.SETTINGS]);
+    const result = await chrome.storage.local.get([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.VERIFICATION_STATUS]);
     if (!result[STORAGE_KEYS.SETTINGS]) {
       await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS });
+    }
+    if (!result[STORAGE_KEYS.VERIFICATION_STATUS]) {
+      await chrome.storage.local.set({ [STORAGE_KEYS.VERIFICATION_STATUS]: DEFAULT_VERIFICATION_STATUS });
     }
   } catch (error) {
     // Silent fail
@@ -121,6 +135,9 @@ async function saveSettings(settings) {
     const currentSettings = await getSettings();
     const newSettings = { ...currentSettings, ...settings };
     await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: newSettings });
+    await saveVerificationStatus({
+      verificationMode: newSettings.verificationMode === 'automatic' ? 'automatic' : 'manual'
+    });
 
     // Broadcast settings to all tabs so content scripts can update localStorage
     try {
@@ -137,6 +154,87 @@ async function saveSettings(settings) {
 
     return { success: true };
   } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+async function getVerificationStatus() {
+  try {
+    const result = await chrome.storage.local.get([STORAGE_KEYS.VERIFICATION_STATUS]);
+    return { ...DEFAULT_VERIFICATION_STATUS, ...(result[STORAGE_KEYS.VERIFICATION_STATUS] || {}) };
+  } catch (error) {
+    return { ...DEFAULT_VERIFICATION_STATUS };
+  }
+}
+
+async function saveVerificationStatus(status) {
+  try {
+    const current = await getVerificationStatus();
+    const next = {
+      ...current,
+      ...status
+    };
+    await chrome.storage.local.set({ [STORAGE_KEYS.VERIFICATION_STATUS]: next });
+    return { success: true, status: next };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+async function refreshVerificationStatus(registryAddress) {
+  try {
+    const settings = await getSettings();
+    const current = await getVerificationStatus();
+    const address = (registryAddress || current.registryAddress || DEFAULT_VERIFICATION_STATUS.registryAddress || '').toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(address)) {
+      return { success: false, error: 'Invalid registry address' };
+    }
+
+    const rpcUrl = settings.rpcEndpoints?.['11155111']
+      || settings.rpcEndpoints?.[11155111]
+      || 'https://ethereum-sepolia-rpc.publicnode.com';
+
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_call',
+        params: [{ to: address, data: '0x2eb4a7ab' }, 'latest'],
+        id: 1
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`RPC request failed with HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    if (payload.error) {
+      throw new Error(payload.error.message || 'RPC error');
+    }
+
+    const rawResult = payload.result;
+    const merkleRoot = rawResult && rawResult !== '0x' && rawResult.length >= 66
+      ? `0x${rawResult.slice(2, 66).toLowerCase()}`
+      : null;
+    if (!merkleRoot) {
+      throw new Error('Registry returned an empty merkle root');
+    }
+
+    return await saveVerificationStatus({
+      registryAddress: address,
+      merkleRoot,
+      verificationMode: settings.verificationMode === 'automatic' ? 'automatic' : 'manual',
+      lastUpdated: new Date().toISOString(),
+      lastError: null,
+      source: 'manual-refresh'
+    });
+  } catch (error) {
+    await saveVerificationStatus({
+      registryAddress: registryAddress || undefined,
+      lastError: error.message,
+      source: 'refresh-error'
+    });
     return { success: false, error: error.message };
   }
 }
@@ -246,6 +344,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case 'SAVE_SETTINGS':
           sendResponse(await saveSettings(message.data));
+          break;
+        case 'GET_VERIFICATION_STATUS':
+          sendResponse({ status: await getVerificationStatus() });
+          break;
+        case 'SAVE_VERIFICATION_STATUS':
+          sendResponse(await saveVerificationStatus(message.data));
+          break;
+        case 'REFRESH_VERIFICATION_STATUS':
+          sendResponse(await refreshVerificationStatus(message.registryAddress));
           break;
         case 'EXPORT_DATA':
           sendResponse(await exportAllData());

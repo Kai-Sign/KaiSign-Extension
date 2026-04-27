@@ -8,12 +8,32 @@ export async function runTests(harness) {
     expected: {
       shouldSucceed: false,
       selector: '0x095ea7b3',
-      intent: 'Approve on 0x123456...345678',
+      intent: 'Approve 0x1111111111111111111111111111111111111111111111111111111111111111 to 0xd8da...6045',
       intentDoesNotContain: 'Unknown',
       params: {
         spender: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
         amount: '7719472615821079694904732333912527190217998977709370935963838933860875309329'
       }
+    }
+  }));
+
+  harness.addTokenMetadata('0x1234567890abcdef1234567890abcdef12345679', {
+    address: '0x1234567890abcdef1234567890abcdef12345679',
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    hasMetadata: true
+  });
+
+  results.push(await harness.runTest({
+    name: 'Known ERC-20 selector without contract metadata still synthesizes transfer intent',
+    calldata: '0xa9059cbb0000000000000000000000009bf81cc31d0f1fa7ade83058509a4db154a182a20000000000000000000000000000000000000000000000000000000005f5e100',
+    contractAddress: '0x1234567890abcdef1234567890abcdef12345679',
+    expected: {
+      shouldSucceed: false,
+      selector: '0xa9059cbb',
+      intentContains: 'Transfer 100.00 USDC',
+      intentDoesNotContain: 'Unknown'
     }
   }));
 

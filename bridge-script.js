@@ -164,6 +164,20 @@ window.addEventListener('message', (event) => {
         }, '*');
       });
       break;
+
+    case 'KAISIGN_SAVE_VERIFICATION_STATUS':
+      safeSendMessage({
+        type: 'SAVE_VERIFICATION_STATUS',
+        data: message.data
+      }, (response) => {
+        window.postMessage({
+          type: 'KAISIGN_SAVE_VERIFICATION_STATUS_RESPONSE',
+          success: response?.success,
+          status: response?.status,
+          error: response?.error
+        }, '*');
+      });
+      break;
   }
 });
 

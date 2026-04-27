@@ -73,6 +73,27 @@ class SubgraphMetadataService {
     });
   }
 
+  resolveRegistryAddress(response, metadata) {
+    const candidates = [
+      response?.registry_address,
+      response?.registryAddress,
+      response?.registry?.address,
+      metadata?._registryAddress,
+      metadata?.registryAddress,
+      metadata?.registry_address,
+      metadata?.context?.contract?.registryAddress,
+      metadata?.context?.contract?.registry_address,
+      metadata?.context?.contract?.registry?.address
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && /^0x[a-fA-F0-9]{40}$/.test(candidate.trim())) {
+        return candidate.trim().toLowerCase();
+      }
+    }
+    return null;
+  }
+
   /**
    * Get API base URL. Uses production by default.
    * Local override only works when developer mode is explicitly enabled.
@@ -319,6 +340,10 @@ class SubgraphMetadataService {
       }
 
       const metadata = response.metadata;
+      const registryAddress = this.resolveRegistryAddress(response, metadata);
+      if (registryAddress) {
+        metadata._registryAddress = registryAddress;
+      }
 
       // v1.0.0: backend serves only (chainId, extcodehash, metadata). Leaf
       // hashes and merkle proofs are computed client-side against the cached
@@ -360,6 +385,9 @@ class SubgraphMetadataService {
       // against the cached registry root.
       if (typeof window !== 'undefined' && window.onChainVerifier) {
         try {
+          if (registryAddress && typeof window.onChainVerifier.setRegistryAddress === 'function') {
+            window.onChainVerifier.setRegistryAddress(registryAddress);
+          }
           const verification = await window.onChainVerifier.verifyMetadataAgainstRoot(
             metadata,
             normalizedAddress,
@@ -399,10 +427,14 @@ class SubgraphMetadataService {
    * @returns {boolean} True if they match
    */
   selectorMatchesSignature(selector, signature) {
-    // This is a simplified check - in production you'd compute keccak256(signature).slice(0,10)
-    // For now, just check if the signature's ABI entry would produce this selector
-    // Return false to be safe - the full selector check happens elsewhere
-    return false;
+    if (!selector || !signature) return false;
+    if (typeof window === 'undefined' || typeof window.calculateSelector !== 'function') return false;
+    try {
+      const computed = window.calculateSelector(signature);
+      return computed && computed.toLowerCase() === selector.toLowerCase();
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -491,7 +523,12 @@ class SubgraphMetadataService {
     }
 
     console.log('[KaiSign API] Direct lookup success for:', normalizedAddress);
-    return response.metadata;
+    const metadata = response.metadata;
+    const registryAddress = this.resolveRegistryAddress(response, metadata);
+    if (registryAddress) {
+      metadata._registryAddress = registryAddress;
+    }
+    return metadata;
   }
 
   /**

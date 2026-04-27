@@ -146,6 +146,31 @@ function calculateSelector(signature) {
   return hash.slice(0, 10);
 }
 
+// Build canonical Solidity type for one ABI input. Tuples with `components`
+// expand to `(t1,t2,...)` (recursively); plain types pass through. Required
+// for canonical-keccak256 selector computation when ABI uses unexpanded
+// tuple/tuple[] entries.
+function canonicalAbiType(input) {
+  if (!input) return '';
+  const t = input.type || '';
+  const components = input.components;
+  if ((t === 'tuple' || t.startsWith('tuple[')) && Array.isArray(components)) {
+    const inner = '(' + components.map(canonicalAbiType).join(',') + ')';
+    // tuple → (...)   |   tuple[] → (...)[]   |   tuple[3] → (...)[3]
+    return t === 'tuple' ? inner : inner + t.slice('tuple'.length);
+  }
+  return t;
+}
+
+// Build the canonical signature ("name(t1,t2,...)") from an ABI function entry,
+// expanding tuples via `components`. Used for canonical-selector recovery when
+// metadata declares a stored selector that disagrees with calldata.
+function canonicalAbiSignature(abiEntry) {
+  if (!abiEntry?.name) return '';
+  const inputs = Array.isArray(abiEntry.inputs) ? abiEntry.inputs : [];
+  return `${abiEntry.name}(${inputs.map(canonicalAbiType).join(',')})`;
+}
+
 function shortenHex(value, prefix = 8, suffix = 6) {
   if (!value || value.length <= prefix + suffix) return value || '';
   return `${value.slice(0, prefix)}...${value.slice(-suffix)}`;
@@ -643,10 +668,9 @@ async function buildRuntimeRegistryFallbackResult(data, contractAddress, chainId
 
   const contractLabel = contractName || shortenHex(contractAddress);
   const override = getRuntimeFallbackDefinition(selector, contractAddress);
-  const title = override?.title
+  const defaultTitle = override?.title
     ? override.title(contractLabel)
     : `${selectorInfo.intent} on ${contractLabel}`;
-  const unknownSummary = await buildUnknownCalldataSummary(data, chainId, title);
 
   let decodedFallback = null;
   try {
@@ -654,6 +678,20 @@ async function buildRuntimeRegistryFallbackResult(data, contractAddress, chainId
   } catch (error) {
     KAISIGN_DEBUG && console.warn('[Decode] Runtime fallback param decode failed:', error?.message || error);
   }
+
+  let title = defaultTitle;
+  if (decodedFallback?.functionName && override?.abi?.inputs && decodedFallback?.formatted) {
+    const synthesizedIntent = buildStandardTokenIntent(
+      decodedFallback.functionName,
+      override.abi.inputs,
+      decodedFallback.formatted
+    );
+    if (synthesizedIntent) {
+      title = synthesizedIntent;
+    }
+  }
+
+  const unknownSummary = await buildUnknownCalldataSummary(data, chainId, title);
 
   return {
     success: false,
@@ -668,6 +706,55 @@ async function buildRuntimeRegistryFallbackResult(data, contractAddress, chainId
     unknownSummary,
     error: errorMessage || 'Function not found in metadata ABI'
   };
+}
+
+function getTokenInfoFromContractMetadata(metadata) {
+  const symbol = metadata?.metadata?.symbol || metadata?.context?.contract?.symbol || '';
+  const rawDecimals = metadata?.metadata?.decimals ?? metadata?.context?.contract?.decimals;
+  const decimals = rawDecimals !== undefined && rawDecimals !== null ? Number(rawDecimals) : null;
+
+  if (!symbol || symbol === 'UNKNOWN' || !Number.isFinite(decimals)) {
+    return null;
+  }
+
+  return {
+    symbol,
+    decimals
+  };
+}
+
+function buildStandardTokenIntent(functionName, abiInputs, formatted) {
+  const valueInput = abiInputs.find(inp =>
+    (inp.type === 'uint256' || inp.type === 'uint') &&
+    (inp.name === '_value' || inp.name === 'value' || inp.name === 'amount' || inp.name === '_amount' || inp.name === 'wad')
+  );
+  if (!valueInput) return null;
+
+  const valueDisplay = formatted?.[valueInput.name]?.value;
+  if (!valueDisplay) return null;
+
+  const addressInput = (candidates) => abiInputs.find(inp =>
+    inp.type === 'address' && candidates.includes(inp.name)
+  );
+
+  if (functionName === 'approve') {
+    const spender = formatted?.[addressInput(['spender', '_spender'])?.name]?.value;
+    return spender ? `Approve ${valueDisplay} to ${spender}` : `Approve ${valueDisplay}`;
+  }
+
+  if (functionName === 'transferFrom') {
+    const from = formatted?.[addressInput(['_from', 'from', 'src'])?.name]?.value;
+    const to = formatted?.[addressInput(['_to', 'to', 'recipient', 'dst'])?.name]?.value;
+    if (from && to) return `Transfer ${valueDisplay} from ${from} to ${to}`;
+    return `Transfer ${valueDisplay}`;
+  }
+
+  if (functionName === 'transfer') {
+    const to = formatted?.[addressInput(['_to', 'to', 'recipient', 'dst'])?.name]?.value;
+    return to ? `Transfer ${valueDisplay} to ${to}` : `Transfer ${valueDisplay}`;
+  }
+
+  return null;
 }
 
 // Enhanced ABI decoder - supports all Solidity types including bytes, bytes[], arrays
@@ -1053,11 +1140,17 @@ async function decodeCalldata(data, contractAddress, chainId) {
           const types = (item.inputs || []).map(input => input.type).join(',');
           const signature = `${item.name}(${types})`;
 
-          // Use stored selector or calculate it
-          const expectedSelector = item.selector || calculateSelector(signature);
-          KAISIGN_DEBUG && console.log('[Decode] Checking function:', signature, 'selector:', expectedSelector, 'vs', selector);
+          // Prefer stored selector but fall back to canonical keccak256 — production
+          // metadata sometimes stores a non-canonical selector (e.g. LiFi swap shows
+          // 0xdd081734 when canonical is 0x5fd9ae2e). Trusting stored selector blindly
+          // makes those entries unfindable even when calldata uses canonical.
+          // Canonical selector must use *expanded* tuple types so it matches Solidity.
+          const storedSelector = item.selector;
+          const canonicalSig = canonicalAbiSignature(item);
+          const canonicalSelector = calculateSelector(canonicalSig);
+          KAISIGN_DEBUG && console.log('[Decode] Checking function:', signature, 'storedSelector:', storedSelector, 'canonicalSig:', canonicalSig, 'canonical:', canonicalSelector, 'vs', selector);
 
-          if (expectedSelector === selector) {
+          if (storedSelector === selector || canonicalSelector === selector) {
             functionSignature = signature;
             functionName = item.name;
             abiFunction = item;
@@ -1205,8 +1298,9 @@ async function decodeCalldata(data, contractAddress, chainId) {
         (inp.name === '_value' || inp.name === 'value' || inp.name === 'amount' || inp.name === '_amount' || inp.name === 'wad')
       );
       if (valueInput && !fieldInfo[valueInput.name]) {
+        const metadataTokenInfo = getTokenInfoFromContractMetadata(metadata);
         try {
-          const tokenInfo = await window.metadataService?.getTokenMetadata?.(contractAddress, chainId);
+          const tokenInfo = metadataTokenInfo || await window.metadataService?.getTokenMetadata?.(contractAddress, chainId);
           if (tokenInfo && tokenInfo.decimals != null && tokenInfo.symbol && tokenInfo.symbol !== 'UNKNOWN') {
             fieldInfo[valueInput.name] = {
               label: toTitleCase(valueInput.name.replace(/^_/, '')),
@@ -1455,6 +1549,13 @@ async function decodeCalldata(data, contractAddress, chainId) {
           params: fieldDef.params || {}
         };
       }
+
+      if (intent === 'Contract interaction' && (functionName === 'transfer' || functionName === 'transferFrom' || functionName === 'approve')) {
+        const synthesizedIntent = buildStandardTokenIntent(functionName, inputs, formatted);
+        if (synthesizedIntent) {
+          intent = synthesizedIntent;
+        }
+      }
     } else {
       // Fallback when we only have function name, no ABI
       params.data = data.slice(10);
@@ -1625,8 +1726,9 @@ async function decodeCalldata(data, contractAddress, chainId) {
       }
     }
 
+    const wrapperIntent = finalIntent;
     const aggregatedIntent = aggregateNestedIntents(nestedIntents);
-    if (aggregatedIntent) {
+    if (aggregatedIntent && isGenericWrapperIntent(wrapperIntent)) {
       finalIntent = aggregatedIntent;
     }
 
@@ -1649,6 +1751,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
       decodedCommands, // Include decoded commands for display
       nestedIntents,
       aggregatedIntent,
+      wrapperIntent,
       noFormat
     };
     
@@ -1984,6 +2087,80 @@ async function decodeCommandArray(commands, inputs, registry, chainId = 1) {
 }
 
 /**
+ * Resolve ERC-7730 ICU `select` blocks against decoded params.
+ *
+ * Subset supported: `{var, select, k1 {arm1} k2 {arm2} ... other {default}}`.
+ * No nesting of select blocks, no plural / choice forms. Inner `{param}`
+ * placeholders inside the chosen arm are NOT resolved here — that's the
+ * caller's job (substituteCommandIntent / substituteInterpolatedIntent).
+ *
+ * Why pre-process: both substitution paths use simple `{name}` regex that
+ * can't cope with the comma + nested braces in ICU. Resolving select first
+ * collapses the template to a flat string the existing regex handles.
+ */
+function resolveIcuSelect(template, params) {
+  if (!template || typeof template !== 'string') return template;
+  let out = '';
+  let i = 0;
+  while (i < template.length) {
+    const open = template.indexOf('{', i);
+    if (open === -1) { out += template.slice(i); break; }
+    // Find matching close brace at top level
+    let depth = 1;
+    let close = open + 1;
+    while (close < template.length && depth > 0) {
+      if (template[close] === '{') depth++;
+      else if (template[close] === '}') depth--;
+      if (depth === 0) break;
+      close++;
+    }
+    if (depth !== 0) { out += template.slice(i); break; }
+    const block = template.slice(open + 1, close);
+    // Detect select form: `var, select, ...`
+    const selectMatch = block.match(/^\s*(\w+)\s*,\s*select\s*,\s*(.+)$/s);
+    if (selectMatch) {
+      const varName = selectMatch[1];
+      const arms = selectMatch[2];
+      const value = params && params[varName] !== undefined ? String(params[varName]) : null;
+      const arm = pickIcuArm(arms, value);
+      out += template.slice(i, open) + arm;
+    } else {
+      // Not a select block — leave braces intact for downstream substitution
+      out += template.slice(i, close + 1);
+    }
+    i = close + 1;
+  }
+  return out;
+}
+
+function pickIcuArm(armsStr, value) {
+  // Parse `key1 {arm1} key2 {arm2} other {default}` with brace counting
+  const arms = {};
+  let i = 0;
+  while (i < armsStr.length) {
+    while (i < armsStr.length && /\s/.test(armsStr[i])) i++;
+    let key = '';
+    while (i < armsStr.length && !/\s|\{/.test(armsStr[i])) { key += armsStr[i]; i++; }
+    while (i < armsStr.length && /\s/.test(armsStr[i])) i++;
+    if (armsStr[i] !== '{') break;
+    let depth = 1;
+    let j = i + 1;
+    while (j < armsStr.length && depth > 0) {
+      if (armsStr[j] === '{') depth++;
+      else if (armsStr[j] === '}') depth--;
+      if (depth === 0) break;
+      j++;
+    }
+    if (depth !== 0) break;
+    arms[key] = armsStr.slice(i + 1, j);
+    i = j + 1;
+  }
+  if (value !== null && arms[value] !== undefined) return arms[value];
+  if (arms.other !== undefined) return arms.other;
+  return '';
+}
+
+/**
  * Substitute template variables in command intent string
  * @param {string} template - Intent template with {variable} placeholders
  * @param {object} params - Decoded parameter values
@@ -1993,7 +2170,8 @@ function substituteCommandIntent(template, params) {
   if (!template || typeof template !== 'string') return template;
   if (!template.includes('{')) return template;
 
-  return template.replace(/\{(\w+)\}/g, (match, paramName) => {
+  const resolved = resolveIcuSelect(template, params);
+  return resolved.replace(/\{(\w+)\}/g, (match, paramName) => {
     if (params && params[paramName] !== undefined) {
       return params[paramName];
     }
@@ -2040,7 +2218,9 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
   // Check if template has any placeholders
   if (!template.includes('{')) return template;
 
-  let result = template;
+  // Collapse ICU `select` blocks first; the regex below can't parse them.
+  // Pass merged params (rawParams takes precedence) so the select var resolves.
+  let result = resolveIcuSelect(template, { ...params, ...rawParams });
 
   // Replace {paramName} or {paramName:format} or {nested.path} or {#.path.[0].field} patterns
   // Support ERC-7730 syntax: #. for parameters, [n] for array indices
@@ -2156,6 +2336,9 @@ function substituteIntentTemplate(template, params, formatted, rawParams = {}) {
 async function substituteInterpolatedIntent(template, rawParams, fields, chainId = 1) {
   if (!template || typeof template !== 'string') return template;
   if (!template.includes('{')) return template;
+
+  // Collapse ICU `select` blocks first; downstream regex can't parse them.
+  template = resolveIcuSelect(template, rawParams);
 
   KAISIGN_DEBUG && console.log('[interpolatedIntent] Template:', template);
   KAISIGN_DEBUG && console.log('[interpolatedIntent] Fields:', fields);
@@ -2474,7 +2657,31 @@ function toTitleCase(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+function isGenericWrapperIntent(intent) {
+  if (!intent || typeof intent !== 'string') return true;
+  if (intent === 'Contract interaction' || intent === 'Unknown function') return true;
+  if (intent.startsWith('Unknown call ') || intent.startsWith('Function call: ')) return true;
+  return /^Execute\b/i.test(intent)
+    || /^Aggregate calls$/i.test(intent)
+    || /multicall/i.test(intent)
+    || /^Batch /i.test(intent);
+}
+
 // Dedup nested intents with run-preserving ×N counts so a 3-leg swap with
+// Truncate any full 0x-address in a title string to short form
+// (`0x1234…5678`). The popup renderer keeps the original in the title=""
+// HTML attribute so hover reveals the full value.
+//
+// Why title-only (not field rows): field rows have their own column-aware
+// formatter; titles are a single line that overflows when ICU select
+// resolves an `{operator}` placeholder to a 42-char address.
+function formatTitleAddresses(title) {
+  if (!title || typeof title !== 'string') return title;
+  return title.replace(/0x[a-fA-F0-9]{40}\b/g, (addr) => {
+    return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+  });
+}
+
 // identical inner intents renders as "Swap exact in ×3" instead of three
 // repeats joined by ' + '. Order preserved by first occurrence.
 function aggregateNestedIntents(nestedIntents) {
@@ -2597,6 +2804,8 @@ window.decodeCalldata = decodeCalldata;
 window.formatTokenAmount = formatTokenAmount;
 window.SimpleInterface = SimpleInterface;
 window.aggregateNestedIntents = aggregateNestedIntents;
+window.formatTitleAddresses = formatTitleAddresses;
+window.calculateSelector = calculateSelector;
 
 // Decoder ready
 
