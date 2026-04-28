@@ -31,14 +31,14 @@
   "display": {
     "formats": {
       "approve(address,uint256)": {
-        "intent": "Approve {amount} USDC",
+        "intent": "Approve {amount} USDC to {spender}",
         "fields": [
           { "path": "spender", "label": "Spender", "format": "address" },
           { "path": "amount", "label": "Amount", "format": "amount", "params": { "decimals": 6, "symbol": "USDC" } }
         ]
       },
       "transfer(address,uint256)": {
-        "intent": "Transfer {amount} USDC",
+        "intent": "Transfer {amount} USDC to {to}",
         "fields": [
           { "path": "to", "label": "Recipient", "format": "address" },
           { "path": "amount", "label": "Amount", "format": "amount", "params": { "decimals": 6, "symbol": "USDC" } }

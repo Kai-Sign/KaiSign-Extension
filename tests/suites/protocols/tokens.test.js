@@ -26,7 +26,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x095ea7b3',
       functionName: 'approve',
-      intentContains: 'USDC'
+      intentContains: 'Approve 100.00 USDC to'
     }
   }));
 
@@ -41,7 +41,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0xa9059cbb',
       functionName: 'transfer',
-      intentContains: 'USDC'
+      intentContains: 'Transfer 4.00 USDC to'
     }
   }));
 

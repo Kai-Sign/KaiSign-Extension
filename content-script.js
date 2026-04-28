@@ -45,11 +45,12 @@ const KAISIGN_DEBUG = getKaiSignDebugFlag();
     .kaisign-warning { padding: 10px 16px; background: rgba(220, 38, 38, 0.08); border-bottom: 1px solid #e6dccf; font-size: 11px; color: #dc2626; text-align: center; }
     .kaisign-intent-section { padding: 16px; background: #f7efe5; border-bottom: 1px solid #e6dccf; }
     .kaisign-wrapper-context { font-size: 11px; color: #7a6f63; margin-bottom: 4px; padding: 4px 8px; background: rgba(15, 159, 154, 0.08); border-radius: 6px; display: inline-block; }
-    .kaisign-intent { font-size: 16px; font-weight: 700; color: #0f9f9a; margin-bottom: 12px; }
-    .kaisign-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .kaisign-detail-item { font-size: 12px; }
+    .kaisign-intent { font-size: 16px; font-weight: 700; color: #0f9f9a; margin-bottom: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .kaisign-details-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+    .kaisign-detail-item { font-size: 12px; min-width: 0; flex: 1 1 180px; }
     .kaisign-detail-label { color: #c2410c; font-weight: 600; }
     .kaisign-detail-value { color: #2b2722; word-break: break-all; font-family: 'SF Mono', Consolas, monospace; }
+    .kaisign-detail-separator { color: #7a6f63; padding: 0 4px; }
     .kaisign-popup-content { padding: 16px; }
     .kaisign-section { margin-bottom: 16px; padding: 12px; background: #ffffff; border-radius: 10px; border: none; box-shadow: 0 8px 16px rgba(43,39,34,0.08); }
     .kaisign-section.success { box-shadow: 0 8px 16px rgba(22,163,74,0.12); }
@@ -3128,7 +3129,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
           return `
             <div style="margin-bottom: 10px; padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px;">
               <div style="font-weight: bold; color: #a78bfa; margin-bottom: 4px;">#${op.index}: ${escapeHtml(op.intent)}</div>
-              <div class="kaisign-decode-detail">To: ${truncateAddress(op.to)}</div>
+              <div class="kaisign-decode-detail">Payload To: ${truncateAddress(op.to)}</div>
               ${op.decoded?.functionName ? `<div class="kaisign-decode-detail">Function: ${escapeHtml(op.decoded.functionName)}</div>` : ''}
               ${formattedParams ? `<div class="kaisign-decode-detail">${escapeHtml(formattedParams)}</div>` : ''}
             </div>
@@ -3163,6 +3164,27 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
 
   const rawIntent = intent || 'Analyzing transaction...';
   const formattedIntent = (window.formatTitleAddresses || ((s) => s))(rawIntent);
+  const contractName = decodedResult?.metadata?.context?.contract?.name || decodedResult?.contractName || '';
+  const hasPayloadValue = (() => {
+    try {
+      return BigInt(tx.value || '0x0') !== 0n;
+    } catch {
+      return false;
+    }
+  })();
+  const titleAlreadyCarriesMeaningfulValue = /\b\d[\d,]*(?:\.\d+)?\s+[A-Z][A-Z0-9.-]*\b/.test(rawIntent);
+  const detailItems = [];
+  if (hasPayloadValue && !titleAlreadyCarriesMeaningfulValue) {
+    detailItems.push(`
+      <div class="kaisign-detail-item">
+        <span class="kaisign-detail-label">Payload Value: </span>
+        <span class="kaisign-detail-value">${escapeHtml(formatEther(tx.value || '0x0'))} ETH</span>
+      </div>
+    `);
+  }
+  const payloadDetailsSection = detailItems.length > 0
+    ? `<div class="kaisign-details-grid">${detailItems.join('')}</div>`
+    : '';
 
   popup.innerHTML = `
     <div class="kaisign-warning">
@@ -3188,16 +3210,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         <div class="kaisign-wrapper-context" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">EIP-7702 Delegated Transaction${isSelfCall ? ' (Self-call)' : ''}</div>
       ` : ''}
       <div id="kaisign-intent-text" class="kaisign-intent" title="${escapeHtml(rawIntent)}">${escapeHtml(formattedIntent)}</div>
-      <div class="kaisign-details-grid">
-        <div class="kaisign-detail-item">
-          <span class="kaisign-detail-label">${isSelfCall && isEIP7702 ? 'Self: ' : 'To: '}</span>
-          <span class="kaisign-detail-value">${truncateAddress(tx.to)}</span>
-        </div>
-        <div class="kaisign-detail-item">
-          <span class="kaisign-detail-label">Value: </span>
-          <span class="kaisign-detail-value">${escapeHtml(formatEther(tx.value || '0x0'))} ETH</span>
-        </div>
-      </div>
+      ${payloadDetailsSection}
     </div>
 
     <div class="kaisign-popup-content">
@@ -3305,16 +3318,20 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       </div>
       <div class="kaisign-intent-section">
         <div class="kaisign-intent" title="${escapeHtml(intent || 'Unknown transaction')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(intent || 'Unknown transaction'))}</div>
-        <div class="kaisign-details-grid">
-          <div class="kaisign-detail-item">
-            <span class="kaisign-detail-label">To: </span>
-            <span class="kaisign-detail-value">${tx.to ? tx.to.slice(0, 8) + '...' + tx.to.slice(-6) : 'N/A'}</span>
+        ${payloadDetailsSection || `
+          <div class="kaisign-details-grid">
+            <div class="kaisign-detail-item">
+              <span class="kaisign-detail-label">Payload To: </span>
+              <span class="kaisign-detail-value">${tx.to ? tx.to.slice(0, 8) + '...' + tx.to.slice(-6) : 'N/A'}</span>
+            </div>
+            ${hasPayloadValue ? `
+              <div class="kaisign-detail-item">
+                <span class="kaisign-detail-label">Payload Value: </span>
+                <span class="kaisign-detail-value">${escapeHtml(formatEther(tx.value || '0x0'))} ETH</span>
+              </div>
+            ` : ''}
           </div>
-          <div class="kaisign-detail-item">
-            <span class="kaisign-detail-label">Value: </span>
-            <span class="kaisign-detail-value">${escapeHtml(formatEther(tx.value || '0x0'))} ETH</span>
-          </div>
-        </div>
+        `}
       </div>
     `;
     document.body.appendChild(popup);

@@ -42,6 +42,46 @@ function renderIntentDiv(intent, formatTitleAddresses) {
   return `<div class="kaisign-intent" title="${escapeHtml(display)}">${escapeHtml(fmt(display))}</div>`;
 }
 
+function renderTransactionIntentSection({ intent, tx, decodedResult }, formatTitleAddresses) {
+  const fmt = formatTitleAddresses || ((s) => s);
+  const rawIntent = intent || 'Analyzing transaction...';
+  const formattedIntent = fmt(rawIntent);
+  const contractName = decodedResult?.metadata?.context?.contract?.name || decodedResult?.contractName || '';
+  const isSelfCall = tx.from && tx.to && tx.from.toLowerCase() === tx.to.toLowerCase();
+  const isEIP7702 = tx.type === '0x04' || tx.type === 4 || (tx.authorizationList && tx.authorizationList.length > 0);
+  const hasPayloadValue = (() => {
+    try {
+      return BigInt(tx.value || '0x0') !== 0n;
+    } catch {
+      return false;
+    }
+  })();
+  const titleAlreadyCarriesMeaningfulValue = /\b\d[\d,]*(?:\.\d+)?\s+[A-Z][A-Z0-9.-]*\b/.test(rawIntent);
+  const shouldShowPayloadTarget = Boolean(
+    tx.to && (
+      decodedResult?.unknownSummary ||
+      !decodedResult?.success ||
+      decodedResult?.batchIntents?.length ||
+      decodedResult?.wrapperIntent ||
+      isEIP7702
+    )
+  );
+  const payloadTargetLabel = isSelfCall && isEIP7702
+    ? 'Delegated Self: '
+    : contractName
+      ? 'Payload Contract: '
+      : 'Payload To: ';
+  const payloadDetails = [];
+  if (shouldShowPayloadTarget) payloadDetails.push(payloadTargetLabel);
+  if (hasPayloadValue && !titleAlreadyCarriesMeaningfulValue) payloadDetails.push('Payload Value: ');
+  return `
+    <div class="kaisign-intent-section">
+      <div class="kaisign-intent" title="${escapeHtml(rawIntent)}">${escapeHtml(formattedIntent)}</div>
+      ${payloadDetails.join(' ')}
+    </div>
+  `;
+}
+
 // Mirror selectorMatchesSignature behavior: with the fix it must use keccak256
 function checkSelectorMatch(selectorMatchesSignature, selector, signature) {
   return selectorMatchesSignature(selector, signature);
@@ -172,6 +212,32 @@ export async function runTests(harness) {
     'popup pipeline: LiFi 0x5fd9ae2e calldata resolves to decoded intent (not "Unknown function")',
     lifiRendered.startsWith('Swap exact in') || (lifiDecoded.aggregatedIntent && lifiDecoded.aggregatedIntent.includes('Swap')),
     `expected "Swap exact in" intent, got intent=${JSON.stringify(lifiDecoded.intent)} success=${lifiDecoded.success} aggregated=${JSON.stringify(lifiDecoded.aggregatedIntent)}`
+  ));
+
+  const usdcRecipient = '0x9bf81cc31d0f1fa7ade83058509a4db154a182a2';
+  const transferHtml = renderTransactionIntentSection({
+    intent: `Transfer 100.00 USDC to ${usdcRecipient}`,
+    tx: {
+      to: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      value: '0x0'
+    },
+    decodedResult: {
+      success: true,
+      metadata: {
+        context: {
+          contract: {
+            name: 'USD Coin'
+          }
+        }
+      }
+    }
+  }, fmt);
+  record(baseResult(
+    'popup pipeline: simple token transfer keeps recipient in title and omits payload To/Value rows',
+    transferHtml.includes('Transfer 100.00 USDC to 0x9bf8…82a2')
+      && !transferHtml.includes('Payload To:')
+      && !transferHtml.includes('Payload Value:'),
+    `expected recipient in title without payload rows, got ${transferHtml}`
   ));
 
   return results;
