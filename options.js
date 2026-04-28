@@ -1,5 +1,12 @@
 // KaiSign Extension - Options Page Script
-console.log('[KaiSign] Options page loading...');
+//
+// Logging policy: gate happy-path logs behind OPTS_DEBUG (default off, flip
+// via DevTools `globalThis.KAISIGN_OPTIONS_DEBUG = true`). console.warn /
+// console.error stay ungated.
+
+const OPTS_DEBUG = (typeof globalThis !== 'undefined' && globalThis.KAISIGN_OPTIONS_DEBUG === true);
+
+OPTS_DEBUG && console.log('[KaiSign] Options page loading...');
 
 // DOM Elements - wait for DOM to be ready
 let elements = {};
@@ -60,7 +67,7 @@ function initElements() {
     toast: document.getElementById('toast')
   };
 
-  console.log('[KaiSign] Elements initialized:', {
+  OPTS_DEBUG && console.log('[KaiSign] Elements initialized:', {
     rpcEndpointsList: !!elements.rpcEndpointsList,
     addRpcBtn: !!elements.addRpcBtn,
     saveBtn: !!elements.saveBtn
@@ -82,10 +89,10 @@ async function init() {
 
 // Load settings from storage
 function loadSettings() {
-  console.log('[KaiSign] Loading settings...');
+  OPTS_DEBUG && console.log('[KaiSign] Loading settings...');
 
   chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, (response) => {
-    console.log('[KaiSign] GET_SETTINGS response:', response);
+    OPTS_DEBUG && console.log('[KaiSign] GET_SETTINGS response:', response);
 
     const settings = response?.settings || {};
 
@@ -106,7 +113,7 @@ function loadSettings() {
 
     // RPC settings - load into state and render
     const rpcEndpoints = settings.rpcEndpoints || {};
-    console.log('[KaiSign] RPC endpoints from settings:', rpcEndpoints);
+    OPTS_DEBUG && console.log('[KaiSign] RPC endpoints from settings:', rpcEndpoints);
 
     // Normalize keys to numbers and store in state
     rpcEndpointsState = {};
@@ -124,7 +131,7 @@ function loadSettings() {
       elements.backendApiUrl.value = settings.backendApiUrl || '';
     }
 
-    console.log('[KaiSign] Settings loaded successfully');
+    OPTS_DEBUG && console.log('[KaiSign] Settings loaded successfully');
   });
 }
 
@@ -485,7 +492,7 @@ function saveSettings() {
     backendApiUrl: elements.backendApiUrl?.value?.trim() || ''
   };
 
-  console.log('[KaiSign] Saving settings:', settings);
+  OPTS_DEBUG && console.log('[KaiSign] Saving settings:', settings);
 
   // Validate max transactions
   if (settings.maxTransactions < 10) settings.maxTransactions = 10;
@@ -621,4 +628,4 @@ function showToast(message, type = 'info') {
   }, 3000);
 }
 
-console.log('[KaiSign] Options page ready');
+OPTS_DEBUG && console.log('[KaiSign] Options page ready');

@@ -3,6 +3,17 @@ if (window.nameResolutionService) {
   // Already initialized, skip
 } else {
 
+// Logging policy: gate happy-path logs behind KAISIGN_DEBUG (toggle with
+// localStorage['kaisign_dev_mode'] = 'true'). Real failures stay ungated.
+function getKaiSignDebugFlag() {
+  try {
+    return typeof window !== 'undefined' && window.localStorage?.getItem('kaisign_dev_mode') === 'true';
+  } catch {
+    return false;
+  }
+}
+const KAISIGN_DEBUG = getKaiSignDebugFlag();
+
 /**
  * Proper keccak256 implementation (from decode.js)
  * Used for computing ENS reverse nodes
@@ -147,7 +158,7 @@ class NameResolutionService {
 
       // Log successful resolution
       if (name) {
-        console.log(`[NameResolution] Resolved ${address} -> ${name} on chain ${chainId}`);
+        KAISIGN_DEBUG && console.log(`[NameResolution] Resolved ${address} -> ${name} on chain ${chainId}`);
       }
 
       // Cache result (even null to avoid repeated failed lookups)
@@ -213,12 +224,12 @@ class NameResolutionService {
           if (rpcData.result && rpcData.result !== '0x' && rpcData.result.length > 2) {
             const ensName = this._decodeENSName(rpcData.result);
             if (ensName && ensName.endsWith('.eth')) {
-              console.log('[NameResolution] ENS resolved via', provider, ':', ensName);
+              KAISIGN_DEBUG && console.log('[NameResolution] ENS resolved via', provider, ':', ensName);
               return ensName;
             }
           }
         } catch (providerError) {
-          console.warn(`[NameResolution] Provider ${provider} failed:`, providerError.message);
+          KAISIGN_DEBUG && console.warn(`[NameResolution] Provider ${provider} failed:`, providerError.message);
           // Try next provider
           continue;
         }
@@ -227,7 +238,7 @@ class NameResolutionService {
       // No ENS name found
       return null;
     } catch (error) {
-      console.warn('[NameResolution] ENS lookup failed:', error.message);
+      KAISIGN_DEBUG && console.warn('[NameResolution] ENS lookup failed:', error.message);
       return null;
     }
   }
@@ -265,7 +276,7 @@ class NameResolutionService {
           if (rpcData.result && rpcData.result !== '0x' && rpcData.result.length > 2) {
             const basename = this._decodeENSName(rpcData.result);
             if (basename && basename.endsWith('.base.eth')) {
-              console.log('[NameResolution] Basename resolved:', basename);
+              KAISIGN_DEBUG && console.log('[NameResolution] Basename resolved:', basename);
               return basename;
             }
           }
@@ -277,7 +288,7 @@ class NameResolutionService {
 
       return null;
     } catch (error) {
-      console.warn('[NameResolution] Basename lookup failed:', error.message);
+      KAISIGN_DEBUG && console.warn('[NameResolution] Basename lookup failed:', error.message);
       return null;
     }
   }
@@ -324,7 +335,7 @@ class NameResolutionService {
       // It will try ethers.js first if available, then fall back to built-in keccak
       return keccak256Simple(data);
     } catch (error) {
-      console.error('[NameResolution] keccak256 failed:', error);
+      console.warn('[NameResolution] keccak256 failed:', error);
       // Return zero hash as last resort
       return '0x' + '0'.repeat(64);
     }
@@ -353,7 +364,7 @@ class NameResolutionService {
 
       return name || null;
     } catch (error) {
-      console.error('[NameResolution] Failed to decode ENS name:', error);
+      console.warn('[NameResolution] Failed to decode ENS name:', error);
       return null;
     }
   }
@@ -363,7 +374,7 @@ class NameResolutionService {
    */
   clearCache() {
     this.cache.clear();
-    console.log('[NameResolution] Cache cleared');
+    KAISIGN_DEBUG && console.log('[NameResolution] Cache cleared');
   }
 
   /**
@@ -373,14 +384,14 @@ class NameResolutionService {
     if (config.hasOwnProperty('enabled')) {
       this.enabled = config.enabled;
     }
-    console.log('[NameResolution] Config updated:', { enabled: this.enabled });
+    KAISIGN_DEBUG && console.log('[NameResolution] Config updated:', { enabled: this.enabled });
   }
 }
 
 // Initialize global instance
 if (typeof window !== 'undefined') {
   window.nameResolutionService = new NameResolutionService();
-  console.log('[NameResolution] Service initialized');
+  KAISIGN_DEBUG && console.log('[NameResolution] Service initialized');
 }
 
 } // End of duplicate-load guard

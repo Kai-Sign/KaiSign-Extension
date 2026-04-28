@@ -4,10 +4,13 @@
  * unknown-title results after replay.
  *
  * Usage: node tests/replay-export.js <path-to-export.json>
- *                                    [--backend <path>] [--backlog <path>]
+ *                                    --backend <path> [--backlog <path>]
+ *
+ * The --backend flag is required (or set KAISIGN_BACKEND_PATH in the
+ * environment). It must point at a checkout of the KaiSign backend repo's
+ * `backend` directory; this tool writes the backlog under that path.
  *
  * Defaults:
- *   --backend ../../kaisign-backend/backend
  *   --backlog <backend>/metadata/_backlog/from-extension-exports.json
  *
  * The backlog is merged across runs (per-(address, chainId) key), so dropping
@@ -23,9 +26,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 function parseArgs(argv) {
+  const envBackend = process.env.KAISIGN_BACKEND_PATH;
   const args = {
     exportPath: null,
-    backendPath: path.resolve(__dirname, '../../kaisign-backend/backend'),
+    backendPath: envBackend ? path.resolve(envBackend) : null,
     backlogPath: null,
     overridesPath: null
   };
@@ -37,7 +41,11 @@ function parseArgs(argv) {
     else if (!args.exportPath) args.exportPath = path.resolve(rest[i]);
   }
   if (!args.exportPath) {
-    console.error('Usage: node tests/replay-export.js <export.json> [--backend <path>] [--backlog <path>] [--overrides <path>]');
+    console.log('Usage: node tests/replay-export.js <export.json> --backend <path> [--backlog <path>] [--overrides <path>]');
+    process.exit(2);
+  }
+  if (!args.backendPath) {
+    console.error('Error: --backend <path> is required (or set KAISIGN_BACKEND_PATH).');
     process.exit(2);
   }
   if (!args.backlogPath) {
@@ -132,7 +140,7 @@ function loadExistingBacklog(backlogPath) {
   try {
     return JSON.parse(fs.readFileSync(backlogPath, 'utf8'));
   } catch (e) {
-    console.warn(`[replay] Could not parse existing backlog at ${backlogPath}: ${e.message} — starting fresh`);
+    console.log(`[replay] Could not parse existing backlog at ${backlogPath}: ${e.message} — starting fresh`);
     return null;
   }
 }
@@ -325,4 +333,4 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => { console.log(e); process.exit(1); });

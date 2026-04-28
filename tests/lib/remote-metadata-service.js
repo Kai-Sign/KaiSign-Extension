@@ -64,7 +64,7 @@ export class RemoteMetadataService {
       this.metadataCache.set(cacheKey, metadata);
       return metadata;
     } catch (e) {
-      console.error(`[RemoteMetadataService] Fetch failed for ${normalizedAddress}:`, e.message);
+      console.log(`[RemoteMetadataService] Fetch failed for ${normalizedAddress}:`, e.message);
       this.metadataCache.set(cacheKey, null);
       return null;
     }
@@ -104,8 +104,8 @@ export class RemoteMetadataService {
         metadata._registryAddress = registryAddress;
       }
 
-      // v1.0.0 backend response envelope (single shape across all paths in
-      // kaisign-backend/backend/api/index.py): { success, blob_hash, metadata,
+      // v1.0.0 KaiSign backend response envelope (single shape across all
+      // /api/py/contract/{address} paths): { success, blob_hash, metadata,
       // error, source }. The leaf inputs (chainId, extcodehash, metadataHash,
       // revoked) are NOT shipped by the backend — they're derived client-side
       // by the extension (eth_getCode, canonical metadata hash, two-leaf

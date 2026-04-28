@@ -31,7 +31,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 - **Recursive Decoding** — Unwraps nested calls (multicall, batch, Diamond proxy facets)
 - **On-Chain Verification** — Verifies metadata against the KaiSign Registry on Sepolia
 - **Account Abstraction** — Supports ERC-4337 UserOperations, Safe multisig, and EIP-7702 delegations
-- **Privacy-First** — All decoding runs locally in the browser; no transaction data leaves your machine
+- **Privacy-First** — All decoding runs locally in the browser; no transaction data leaves your machine. See [PRIVACY.md](PRIVACY.md) for details.
+
+## Screenshots
+
+> Screenshots / demo GIF coming soon — `docs/screenshots/{popup-empty,erc20-approve,safe-multisend}.png` (placeholder).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## Installation
 

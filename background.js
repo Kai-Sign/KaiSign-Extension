@@ -1,4 +1,10 @@
 // KaiSign Extension - Background Service Worker
+//
+// Logging policy: gate happy-path logs behind BG_DEBUG (default off, flip via
+// `globalThis.KAISIGN_BG_DEBUG = true` from the SW DevTools). console.warn /
+// console.error stay ungated — those signal real failures.
+
+const BG_DEBUG = (typeof globalThis !== 'undefined' && globalThis.KAISIGN_BG_DEBUG === true);
 
 const STORAGE_KEYS = {
   TRANSACTIONS: 'kaisign-transactions',
@@ -386,19 +392,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               return;
             }
 
-            console.log('[KaiSign BG] FETCH_BLOB:', message.url);
+            BG_DEBUG && console.log('[KaiSign BG] FETCH_BLOB:', message.url);
             const response = await fetch(message.url);
-            console.log('[KaiSign BG] FETCH_BLOB status:', response.status, response.statusText);
+            BG_DEBUG && console.log('[KaiSign BG] FETCH_BLOB status:', response.status, response.statusText);
             if (!response.ok) {
-              console.error('[KaiSign BG] FETCH_BLOB HTTP error:', response.status);
+              console.warn('[KaiSign BG] FETCH_BLOB HTTP error:', response.status);
               sendResponse({ error: `HTTP ${response.status}: ${response.statusText}` });
               return;
             }
             const text = await response.text();
-            console.log('[KaiSign BG] FETCH_BLOB response length:', text.length, 'preview:', text.substring(0, 150));
+            BG_DEBUG && console.log('[KaiSign BG] FETCH_BLOB response length:', text.length, 'preview:', text.substring(0, 150));
             sendResponse({ success: true, data: text });
           } catch (fetchError) {
-            console.error('[KaiSign BG] FETCH_BLOB error:', fetchError.message);
+            console.warn('[KaiSign BG] FETCH_BLOB error:', fetchError.message);
             sendResponse({ error: fetchError.message });
           }
           break;

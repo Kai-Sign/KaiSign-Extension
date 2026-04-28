@@ -42,10 +42,10 @@
 
 // Guard against duplicate loading (MAIN world scripts can run multiple times)
 if (window.metadataService) {
-  console.log('[KaiSign] Subgraph metadata service already loaded, skipping');
+  // Already loaded — silent (gating happens after KAISIGN_DEBUG is in scope)
 } else {
 
-console.log('[KaiSign] Subgraph metadata service loading...');
+
 function getKaiSignDebugFlag() {
   try {
     return typeof window !== 'undefined' && window.localStorage?.getItem('kaisign_dev_mode') === 'true';
@@ -56,6 +56,7 @@ function getKaiSignDebugFlag() {
 
 const KAISIGN_DEBUG = getKaiSignDebugFlag();
 
+KAISIGN_DEBUG && console.log('[KaiSign] Subgraph metadata service loading...');
 
 class SubgraphMetadataService {
   constructor(config) {
@@ -142,7 +143,7 @@ class SubgraphMetadataService {
           }
         }
       } catch (e) {
-        KAISIGN_DEBUG && console.warn('[KaiSign API] Failed to read slot', slot, e.message);
+        KAISIGN_DEBUG && console.log('[KaiSign API] Failed to read slot', slot, e.message);
       }
     }
     return null;
@@ -279,25 +280,12 @@ class SubgraphMetadataService {
       const apiBase = this.getLocalApiBase();
       const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${normalizedChainId}`;
 
-      const rawData = await this.fetchViaBackground(apiUrl);
-
-      // Debug: Log raw response to identify parsing issues
-      console.log('[KaiSign API] Raw response type:', typeof rawData);
-      console.log('[KaiSign API] Raw response preview:', rawData?.substring?.(0, 300) || rawData);
-
-      let response;
-      try {
-        response = JSON.parse(rawData);
-      } catch (parseError) {
-        console.error('[KaiSign API] JSON parse failed:', parseError.message);
-        console.error('[KaiSign API] Raw data that failed to parse:', rawData);
-        throw new Error(`JSON parse error: ${parseError.message}`);
-      }
+      const response = await this._fetchAndParseApiResponse(apiUrl, 'API');
 
       // Extract metadata from API response
       if (!response.success || !response.metadata) {
         // Direct lookup failed - check for proxy patterns
-        console.log('[KaiSign API] Direct lookup failed:', {
+        KAISIGN_DEBUG && console.log('[KaiSign API] Direct lookup failed:', {
           success: response.success,
           hasMetadata: !!response.metadata,
           error: response.error,
@@ -326,7 +314,7 @@ class SubgraphMetadataService {
 
               return facetMetadata;
             } catch (facetError) {
-              KAISIGN_DEBUG && console.warn('[KaiSign API] Facet metadata fetch failed:', facetError.message);
+              KAISIGN_DEBUG && console.log('[KaiSign API] Facet metadata fetch failed:', facetError.message);
               // Continue to try other proxy patterns
             }
           }
@@ -388,7 +376,7 @@ class SubgraphMetadataService {
                 KAISIGN_DEBUG && console.log('[KaiSign API] Merged facet metadata formats');
               }
             } catch (facetError) {
-              KAISIGN_DEBUG && console.warn('[KaiSign API] Facet metadata merge failed:', facetError.message);
+              KAISIGN_DEBUG && console.log('[KaiSign API] Facet metadata merge failed:', facetError.message);
             }
           }
         }
@@ -418,7 +406,7 @@ class SubgraphMetadataService {
             KAISIGN_DEBUG && console.log('[KaiSign API] Verification result:', verification.source, verification.verified);
           } catch (err) {
             metadata._verification = { verified: false, source: 'error', details: err.message };
-            KAISIGN_DEBUG && console.warn('[KaiSign API] Verification failed:', err.message);
+            KAISIGN_DEBUG && console.log('[KaiSign API] Verification failed:', err.message);
           }
         });
       }
@@ -493,22 +481,12 @@ class SubgraphMetadataService {
     const apiBase = this.getLocalApiBase();
     const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${chainId}`;
 
-    console.log('[KaiSign API] getContractMetadataDirectly:', normalizedAddress, 'chain:', chainId);
+    KAISIGN_DEBUG && console.log('[KaiSign API] getContractMetadataDirectly:', normalizedAddress, 'chain:', chainId);
 
-    const rawData = await this.fetchViaBackground(apiUrl);
-
-    console.log('[KaiSign API] Direct lookup raw response:', rawData?.substring?.(0, 200) || rawData);
-
-    let response;
-    try {
-      response = JSON.parse(rawData);
-    } catch (parseError) {
-      console.error('[KaiSign API] Direct lookup JSON parse failed:', parseError.message, 'raw:', rawData);
-      throw new Error(`JSON parse error: ${parseError.message}`);
-    }
+    const response = await this._fetchAndParseApiResponse(apiUrl, 'API direct');
 
     if (!response.success || !response.metadata) {
-      console.error('[KaiSign API] Direct lookup failed:', {
+      KAISIGN_DEBUG && console.log('[KaiSign API] Direct lookup failed:', {
         success: response.success,
         hasMetadata: !!response.metadata,
         error: response.error
@@ -516,7 +494,7 @@ class SubgraphMetadataService {
       throw new Error(response.error || 'No metadata in response');
     }
 
-    console.log('[KaiSign API] Direct lookup success for:', normalizedAddress);
+    KAISIGN_DEBUG && console.log('[KaiSign API] Direct lookup success for:', normalizedAddress);
     const metadata = response.metadata;
     const registryAddress = this.resolveRegistryAddress(response, metadata);
     if (registryAddress) {
@@ -553,7 +531,7 @@ class SubgraphMetadataService {
       decimals = metadata.metadata?.decimals || metadata.context?.contract?.decimals || 0;
       name = metadata.metadata?.name || metadata.context?.contract?.name || 'Unknown Token';
     } catch (error) {
-      KAISIGN_DEBUG && console.warn('[KaiSign API] Token API metadata not found:', normalizedAddress, error.message);
+      KAISIGN_DEBUG && console.log('[KaiSign API] Token API metadata not found:', normalizedAddress, error.message);
     }
 
     // If no decimals from API, fetch from on-chain
@@ -624,7 +602,7 @@ class SubgraphMetadataService {
       }
       return str;
     } catch (e) {
-      KAISIGN_DEBUG && console.warn('[KaiSign API] Failed to decode ABI string:', e.message);
+      KAISIGN_DEBUG && console.log('[KaiSign API] Failed to decode ABI string:', e.message);
       return '';
     }
   }
@@ -653,10 +631,10 @@ class SubgraphMetadataService {
         }
       }
 
-      KAISIGN_DEBUG && console.warn('[KaiSign API] No EIP-712 format found for:', primaryType);
+      KAISIGN_DEBUG && console.log('[KaiSign API] No EIP-712 format found for:', primaryType);
       return null;
     } catch (error) {
-      console.error('[KaiSign API] EIP-712 metadata fetch failed:', error);
+      console.warn('[KaiSign API] EIP-712 metadata fetch failed:', error);
       throw error;
     }
   }
@@ -677,6 +655,23 @@ class SubgraphMetadataService {
   }
 
   /**
+   * Shared kernel for the two metadata-fetch paths: hit the backend, log
+   * the raw response (debug only), and JSON-parse with a uniform error.
+   * Throws on parse failure; callers handle response.success/.metadata themselves.
+   */
+  async _fetchAndParseApiResponse(apiUrl, label = 'API') {
+    const rawData = await this.fetchViaBackground(apiUrl);
+    KAISIGN_DEBUG && console.log(`[KaiSign ${label}] Raw response preview:`, rawData?.substring?.(0, 300) || rawData);
+    try {
+      return JSON.parse(rawData);
+    } catch (parseError) {
+      console.warn(`[KaiSign ${label}] JSON parse failed:`, parseError.message);
+      KAISIGN_DEBUG && console.warn(`[KaiSign ${label}] Raw data that failed to parse:`, rawData);
+      throw new Error(`JSON parse error: ${parseError.message}`);
+    }
+  }
+
+  /**
    * Fetch via background script to bypass CORS (with retry)
    * @param {string} url - URL to fetch
    * @param {number} retries - Number of retries (default 2)
@@ -691,7 +686,7 @@ class SubgraphMetadataService {
         return result;
       } catch (error) {
         lastError = error;
-        console.warn(`[KaiSign API] Fetch attempt ${attempt + 1} failed:`, error.message);
+        KAISIGN_DEBUG && console.warn(`[KaiSign API] Fetch attempt ${attempt + 1} failed:`, error.message);
         if (attempt < retries) {
           // Wait briefly before retry
           await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
@@ -770,7 +765,7 @@ const metadataService = new SubgraphMetadataService({
 
 // Clear cache on init to ensure fresh metadata after extension reload
 metadataService.clearCache();
-console.log('[KaiSign] Cache auto-cleared on init (DEBUG BUILD v2025.02.15)');
+KAISIGN_DEBUG && console.log('[KaiSign] Cache auto-cleared on init');
 
 // Expose globally
 window.metadataService = metadataService;
@@ -792,6 +787,6 @@ window.clearMetadataCache = () => {
   KAISIGN_DEBUG && console.log('[KaiSign] Metadata cache cleared');
 };
 
-console.log('[KaiSign] Subgraph metadata service ready');
+KAISIGN_DEBUG && console.log('[KaiSign] Subgraph metadata service ready');
 
 } // End of duplicate-load guard

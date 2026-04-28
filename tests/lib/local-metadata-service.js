@@ -35,7 +35,7 @@ export class LocalMetadataService {
     const metadataDir = path.join(this.fixturesPath, 'metadata');
 
     if (!fs.existsSync(metadataDir)) {
-      console.warn('[LocalMetadataService] Metadata directory not found:', metadataDir);
+      console.log('[LocalMetadataService] Metadata directory not found:', metadataDir);
       this.initialized = true;
       return;
     }
@@ -128,7 +128,7 @@ export class LocalMetadataService {
             this.setFilePathForAddress(address, chainId, fullPath);
           }
         } catch (e) {
-          console.warn(`[LocalMetadataService] Failed to parse ${fullPath}:`, e.message);
+          console.log(`[LocalMetadataService] Failed to parse ${fullPath}:`, e.message);
         }
       }
     }
@@ -188,7 +188,7 @@ export class LocalMetadataService {
             console.log(`[LocalMetadataService] Cached facet metadata with selectorKey: ${selectorKey}`);
             return metadata;
           } catch (e) {
-            console.error(`[LocalMetadataService] Failed to read facet file ${facetEntry}:`, e.message);
+            console.log(`[LocalMetadataService] Failed to read facet file ${facetEntry}:`, e.message);
           }
         } else {
           console.log(`[LocalMetadataService] Using pre-loaded facet metadata from addMetadata`);
@@ -233,7 +233,7 @@ export class LocalMetadataService {
 
       return metadata;
     } catch (e) {
-      console.error(`[LocalMetadataService] Failed to read ${filePath}:`, e.message);
+      console.log(`[LocalMetadataService] Failed to read ${filePath}:`, e.message);
       return null;
     }
   }
@@ -335,18 +335,9 @@ export class LocalMetadataService {
         if (abiEntry.selector) {
           const selector = abiEntry.selector.toLowerCase();
           selectorMap.set(selector, metadata);
-          console.log(`[LocalMetadataService] addMetadata added to diamondFacetIndex: diamond=${diamondAddr}, selector=${selector}`);
         }
       }
     }
-    
-    // Check if we should also add to addressToFilePath for file lookup fallback
-    const hasAddressInMetadata = metadata.context?.contract?.address || metadata.address;
-    if (hasAddressInMetadata) {
-      console.log(`[LocalMetadataService] addMetadata: metadata contains address ${hasAddressInMetadata}, but NOT adding to addressToFilePath map`);
-    }
-    
-    console.log(`[LocalMetadataService] addMetadata completed. Current cache size: ${this.metadataCache.size}`);
   }
 
   addTokenMetadata(address, tokenInfo, chainId = 1) {

@@ -1,6 +1,19 @@
-// ISOLATED world content script - bridge between MAIN world and background
+// ISOLATED world content script - bridge between MAIN world and background.
+//
+// Injection design (intentional, do not "simplify"):
+//   manifest.json content_scripts already lists the MAIN-world files with
+//   `"world": "MAIN"`. That is the primary path. The injectScripts() block
+//   below is a *fallback* for pages where manifest injection didn't run
+//   (some sites + some Chrome versions skip MAIN-world manifest scripts).
+//   Each MAIN-world file uses an idempotent load guard at the top, so a
+//   double-load is a no-op rather than a clobber.
+//
+// Logging policy: gate happy-path logs behind BRIDGE_DEBUG (default off,
+// flippable via DevTools `globalThis.KAISIGN_BRIDGE_DEBUG = true`).
+// console.warn / console.error stay ungated — those signal real failures.
 
-// Inject MAIN world scripts
+const BRIDGE_DEBUG = (typeof globalThis !== 'undefined' && globalThis.KAISIGN_BRIDGE_DEBUG === true);
+
 // Settings are passed via KAISIGN_GET_SETTINGS postMessage (no inline script needed - CSP safe)
 (function injectScripts() {
   const container = document.documentElement || document.head || document.body;
@@ -64,11 +77,11 @@ window.addEventListener('message', (event) => {
   // Filter for KaiSign messages
   if (!message || !message.type || !message.type.startsWith('KAISIGN_')) return;
 
-  console.log('[KaiSign Bridge] Received from MAIN world:', message.type);
+  BRIDGE_DEBUG && console.log('[KaiSign Bridge] Received from MAIN world:', message.type);
 
   // Check chrome.runtime availability
   if (typeof chrome === 'undefined' || !chrome.runtime) {
-    console.error('[KaiSign Bridge] chrome.runtime not available, cannot forward message');
+    console.warn('[KaiSign Bridge] chrome.runtime not available, cannot forward message');
     window.postMessage({
       type: message.type.replace('KAISIGN_', 'KAISIGN_') + '_RESPONSE',
       error: 'Extension context not available'
@@ -83,7 +96,7 @@ window.addEventListener('message', (event) => {
         type: 'SAVE_TRANSACTION',
         data: message.data
       }, (response) => {
-        console.log('[KaiSign Bridge] Save response:', response);
+        BRIDGE_DEBUG && console.log('[KaiSign Bridge] Save response:', response);
 
         // Optionally send response back to MAIN world
         window.postMessage({
@@ -120,12 +133,12 @@ window.addEventListener('message', (event) => {
       break;
 
     case 'KAISIGN_FETCH_BLOB':
-      console.log('[KaiSign Bridge] FETCH_BLOB request:', message.url);
+      BRIDGE_DEBUG && console.log('[KaiSign Bridge] FETCH_BLOB request:', message.url);
       safeSendMessage({
         type: 'FETCH_BLOB',
         url: message.url
       }, (response) => {
-        console.log('[KaiSign Bridge] FETCH_BLOB response:', {
+        BRIDGE_DEBUG && console.log('[KaiSign Bridge] FETCH_BLOB response:', {
           hasData: !!response?.data,
           dataPreview: response?.data?.substring?.(0, 200),
           error: response?.error
@@ -196,4 +209,4 @@ try {
   console.warn('[KaiSign Bridge] Failed to add message listener:', error.message);
 }
 
-console.log('[KaiSign] Bridge script ready');
+BRIDGE_DEBUG && console.log('[KaiSign] Bridge script ready');

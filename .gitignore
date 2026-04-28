@@ -26,6 +26,10 @@ crawler/
 untracked/
 .claude/
 
+# Local session/working artifacts (transcripts, JSON exports, etc.)
+kaisign-export-*.json
+20[0-9][0-9]-*-this-session-*.txt
+
 # OS files
 .DS_Store
 Thumbs.db
