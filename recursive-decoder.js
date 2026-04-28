@@ -55,10 +55,10 @@ function isGenericWrapperIntent(intent) {
   if (!intent || typeof intent !== 'string') return true;
   if (intent === 'Contract interaction' || intent === 'Unknown function') return true;
   if (intent.startsWith('Unknown call ') || intent.startsWith('Function call: ')) return true;
-  return /^Execute\b/i.test(intent)
-    || /^Aggregate calls$/i.test(intent)
-    || /multicall/i.test(intent)
-    || /^Batch /i.test(intent);
+  return /^Execute(?:\s+call|\s+batch(?:\s+transactions?)?|\s+transactions?)?\s*$/i.test(intent)
+    || /^Aggregate calls?$/i.test(intent)
+    || /^Multicall\b/i.test(intent)
+    || /^Batch\b/i.test(intent);
 }
 
 /**
@@ -162,12 +162,16 @@ class RecursiveCalldataDecoder {
       // Aggregate intents from nested decodes
       const nestedIntents = this.aggregateIntents(processedResult);
 
-      // Only show leaf intents in aggregated title (user preference: clean display)
-      // Store wrapper intent separately for context
       const wrapperIntent = decoded.wrapperIntent || decoded.intent;
-      const aggregatedIntent = nestedIntents.length > 0 && isGenericWrapperIntent(wrapperIntent)
-        ? nestedIntents.join(' + ')
-        : undefined;
+      let aggregatedIntent;
+      if (nestedIntents.length > 0) {
+        const joined = nestedIntents.join(' + ');
+        if (isGenericWrapperIntent(wrapperIntent) || nestedIntents.length === 1) {
+          aggregatedIntent = joined;
+        } else {
+          aggregatedIntent = `${wrapperIntent}: ${joined}`;
+        }
+      }
 
       return {
         ...decoded,
@@ -660,7 +664,7 @@ class RecursiveCalldataDecoder {
    */
   parsePackedTransactions(data, structure) {
     const transactions = [];
-    const cleanData = data.startsWith('0x') ? data.slice(2) : data;
+    const inputData = data.startsWith('0x') ? data.slice(2) : data;
     let pos = 0;
     const maxTransactions = 50;
     let txCount = 0;
@@ -680,6 +684,8 @@ class RecursiveCalldataDecoder {
         dynamic: def.dynamic
       }));
     }
+
+    const cleanData = this.normalizePackedTransactionsInput(inputData, fields);
 
     KAISIGN_DEBUG && console.log('[parsePackedTransactions] Fields:', fields.map(f => f.name));
 
@@ -734,6 +740,130 @@ class RecursiveCalldataDecoder {
 
     KAISIGN_DEBUG && console.log(`[parsePackedTransactions] Parsed ${transactions.length} transactions`);
     return transactions;
+  }
+
+  normalizePackedTransactionsInput(data, fields) {
+    const fixedFieldsSize = fields
+      .filter(f => !f.dynamic && f.size)
+      .reduce((sum, f) => sum + f.size * 2, 0);
+
+    const fromHeadlessCalldata = this.unwrapHeadlessDynamicBytesArgument(data, fixedFieldsSize);
+    const fromCalldata = this.unwrapSingleDynamicBytesCalldata(fromHeadlessCalldata, fixedFieldsSize);
+    return this.unwrapAbiEncodedBytesPayload(fromCalldata, fixedFieldsSize);
+  }
+
+  unwrapHeadlessDynamicBytesArgument(data, fixedFieldsSize) {
+    if (!data || data.length < 128 || data.length % 2 !== 0) {
+      return data;
+    }
+
+    try {
+      const declaredOffset = BigInt('0x' + data.slice(0, 64));
+      const bytesStart = Number(declaredOffset * 2n);
+      if (declaredOffset < 0n || bytesStart + 64 > data.length) {
+        return data;
+      }
+
+      const declaredByteLength = BigInt('0x' + data.slice(bytesStart, bytesStart + 64));
+      if (declaredByteLength <= 0n) {
+        return data;
+      }
+
+      const availableByteLength = BigInt((data.length - (bytesStart + 64)) / 2);
+      if (declaredByteLength > availableByteLength) {
+        return data;
+      }
+
+      const payloadHexLength = Number(declaredByteLength * 2n);
+      const payload = data.slice(bytesStart + 64, bytesStart + 64 + payloadHexLength);
+      const trailingPadding = data.slice(bytesStart + 64 + payloadHexLength);
+
+      if (payload.length < fixedFieldsSize || (trailingPadding && !/^0*$/.test(trailingPadding))) {
+        return data;
+      }
+
+      KAISIGN_DEBUG && console.log('[parsePackedTransactions] Unwrapped headless dynamic bytes argument');
+      return payload;
+    } catch {
+      return data;
+    }
+  }
+
+  unwrapSingleDynamicBytesCalldata(data, fixedFieldsSize) {
+    if (!data || data.length < 136 || data.length % 2 !== 0) {
+      return data;
+    }
+
+    try {
+      const declaredOffset = BigInt('0x' + data.slice(8, 72));
+      const bytesStart = 8 + Number(declaredOffset * 2n);
+      if (declaredOffset < 0n || bytesStart + 64 > data.length) {
+        return data;
+      }
+
+      const declaredByteLength = BigInt('0x' + data.slice(bytesStart, bytesStart + 64));
+      if (declaredByteLength <= 0n) {
+        return data;
+      }
+
+      const availableByteLength = BigInt((data.length - (bytesStart + 64)) / 2);
+      if (declaredByteLength > availableByteLength) {
+        return data;
+      }
+
+      const payloadHexLength = Number(declaredByteLength * 2n);
+      const payload = data.slice(bytesStart + 64, bytesStart + 64 + payloadHexLength);
+      const trailingPadding = data.slice(bytesStart + 64 + payloadHexLength);
+
+      if (payload.length < fixedFieldsSize || (trailingPadding && !/^0*$/.test(trailingPadding))) {
+        return data;
+      }
+
+      KAISIGN_DEBUG && console.log('[parsePackedTransactions] Unwrapped dynamic bytes calldata payload');
+      return payload;
+    } catch {
+      return data;
+    }
+  }
+
+  unwrapAbiEncodedBytesPayload(data, fixedFieldsSize) {
+    if (!data || data.length < 128 || data.length % 2 !== 0) {
+      return data;
+    }
+
+    try {
+      const declaredByteLength = BigInt('0x' + data.slice(0, 64));
+      if (declaredByteLength <= 0n) {
+        return data;
+      }
+
+      const availableByteLength = BigInt((data.length - 64) / 2);
+      if (declaredByteLength > availableByteLength) {
+        return data;
+      }
+
+      const payloadHexLength = Number(declaredByteLength * 2n);
+      const paddedHexLength = Math.ceil(payloadHexLength / 64) * 64;
+      const totalWrappedHexLength = 64 + paddedHexLength;
+      if (totalWrappedHexLength > data.length) {
+        return data;
+      }
+
+      const trailingPadding = data.slice(64 + payloadHexLength);
+      if (trailingPadding && !/^0*$/.test(trailingPadding)) {
+        return data;
+      }
+
+      const payload = data.slice(64, 64 + payloadHexLength);
+      if (payload.length < fixedFieldsSize) {
+        return data;
+      }
+
+      KAISIGN_DEBUG && console.log('[parsePackedTransactions] Unwrapped ABI-encoded bytes payload');
+      return payload;
+    } catch {
+      return data;
+    }
   }
 
   /**

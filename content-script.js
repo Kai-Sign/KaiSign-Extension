@@ -1949,6 +1949,7 @@ function detectProtocolFromTypedData(typedData) {
  */
 function extractTxFromTypedData(typedData, protocolInfo) {
   const message = typedData?.message;
+  const domain = typedData?.domain || {};
   if (!message) return null;
 
   // Common patterns for embedded transaction data
@@ -1956,7 +1957,9 @@ function extractTxFromTypedData(typedData, protocolInfo) {
     to: message.to || message.target || message.recipient,
     value: message.value || message.amount || '0',
     data: message.data || message.callData || message.input || '0x',
-    operation: message.operation
+    operation: message.operation,
+    chainId: domain.chainId ?? null,
+    eip712TypedData: typedData
   };
 }
 
@@ -2732,7 +2735,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
 
   if (tx.data && tx.data.length >= 10) {
     KAISIGN_DEBUG && console.log('[KaiSign] Transaction detected - selector:', selector);
-    const chainId = context?.chainId ?? tx.chainId ?? null;
+    const chainId = context?.chainId ?? tx.chainId ?? tx.eip712TypedData?.domain?.chainId ?? null;
 
     if (chainId == null) {
       decodedResult = {

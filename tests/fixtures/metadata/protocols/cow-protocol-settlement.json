@@ -80,17 +80,23 @@
         ]
       },
       "setPreSignature(bytes,bool)": {
-        "intent": "Set CoW order pre-signature",
-        "interpolatedIntent": "Set pre-signature for order {orderUid}",
+        "intent": "Authorize CoW order",
+        "interpolatedIntent": "Authorize CoW order",
         "fields": [
+          { "path": "orderUid.[0:31]", "label": "Order Digest", "format": "hex" },
+          { "path": "orderUid.[32:51]", "label": "Order Owner", "format": "address" },
+          { "path": "orderUid.[52:55]", "label": "Valid Until", "format": "timestamp" },
           { "path": "orderUid", "label": "Order UID", "format": "hex" },
           { "path": "signed", "label": "Signed", "format": "boolean" }
         ]
       },
       "invalidateOrder(bytes)": {
-        "intent": "Invalidate CoW order",
-        "interpolatedIntent": "Invalidate order {orderUid}",
+        "intent": "Cancel CoW order",
+        "interpolatedIntent": "Cancel CoW order",
         "fields": [
+          { "path": "orderUid.[0:31]", "label": "Order Digest", "format": "hex" },
+          { "path": "orderUid.[32:51]", "label": "Order Owner", "format": "address" },
+          { "path": "orderUid.[52:55]", "label": "Valid Until", "format": "timestamp" },
           { "path": "orderUid", "label": "Order UID", "format": "hex" }
         ]
       }

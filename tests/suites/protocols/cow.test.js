@@ -54,8 +54,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0xec6cb13f',
       functionName: 'setPreSignature',
-      intentContains: 'Set pre-signature for order'
-      // interpolatedIntent: "Set pre-signature for order {orderUid}"
+      intentContains: 'Authorize CoW order'
     }
   }));
 
@@ -75,8 +74,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x2d9a3f24',
       functionName: 'invalidateOrder',
-      intentContains: 'Invalidate order'
-      // interpolatedIntent: "Invalidate order {orderUid}"
+      intentContains: 'Cancel CoW order'
     }
   }));
 

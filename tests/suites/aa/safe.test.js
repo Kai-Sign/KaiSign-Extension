@@ -53,7 +53,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x1688f0b9',
       functionName: 'createProxyWithNonce',
-      intent: 'Create Safe Wallet',  // Wrapper intent stays primary; nested setup is shown separately
+      intent: 'Setup Safe wallet',  // Wrapper intent now follows decoded initializer semantics
       nestedIntentContains: 'Setup'  // Verify nested decode worked
     }
   }));
@@ -298,6 +298,53 @@ export async function runTests(harness) {
       intentDoesNotContain: 'Contract interaction'
     }
   }));
+
+  const alternateMultiSendAddress = '0x9641d764fc13c8b624c04430c7356c1c7c8102e2';
+  harness.addMetadata(alternateMultiSendAddress, loadMetadata('aa/safe-multisend.json'));
+  const cowSettlementAddress = '0x9008d19f58aabd9ed0d60971565aa8510560ab41';
+  harness.addMetadata(cowSettlementAddress, loadMetadata('protocols/cow-protocol-settlement.json'));
+
+  const alternateMultiSendCalldata = '0x8d80ff0a0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000019200a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044095ea7b3000000000000000000000000c92e8bdf79f0507f65a392b0ab4667716bfe0110ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff009008d19f58aabd9ed0d60971565aa8510560ab41000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a4ec6cb13f00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000003814f3a00b850747daa2bed49aa357466124033bb731cf9798416bb04ff5d54032a10235ea549daa39a108bc26d63bd8daa68e4a2269f068e500000000000000000000000000000000000000000000';
+
+  results.push(await harness.runRecursiveTest({
+    name: 'Safe multiSend alias 0x9641… resolves nested approve + CoW pre-sign',
+    calldata: alternateMultiSendCalldata,
+    contractAddress: alternateMultiSendAddress,
+    expected: {
+      shouldSucceed: true,
+      selector: '0x8d80ff0a',
+      functionName: 'multiSend',
+      nestedIntentContains: ['Approve', 'Authorize CoW order'],
+      intentDoesNotContain: 'Unknown'
+    }
+  }));
+
+  {
+    const parserStructure = loadMetadata('aa/safe-multisend.json').parsing.multicallStructure;
+    const abiWrappedBatchBytes = alternateMultiSendCalldata.slice(74);
+    const parsed = harness.decoders.recursiveCalldataDecoder.parsePackedTransactions(abiWrappedBatchBytes, parserStructure);
+    const passed = parsed.length === 2
+      && parsed[0]?.to?.toLowerCase() === usdcAddress
+      && parsed[0]?.data?.startsWith('0x095ea7b3')
+      && parsed[1]?.to?.toLowerCase() === cowSettlementAddress
+      && parsed[1]?.data?.startsWith('0xec6cb13f');
+
+    results.push(harness.createResult(
+      'Safe multiSend parser unwraps ABI bytes payload before parsing packed ops',
+      passed,
+      {
+        success: passed,
+        operations: parsed
+      },
+      {
+        operationCount: 2,
+        firstTo: usdcAddress,
+        secondTo: cowSettlementAddress
+      },
+      passed ? null : `Parsed unexpected operations: ${JSON.stringify(parsed)}`,
+      0
+    ));
+  }
 
   // Load real Safe transactions from fixtures
   const safeOpsFile = path.resolve(__dirname, '../../fixtures/transactions/accountAbstraction-operations.json');

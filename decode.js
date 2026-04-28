@@ -1779,8 +1779,13 @@ async function decodeCalldata(data, contractAddress, chainId) {
 
     const wrapperIntent = finalIntent;
     const aggregatedIntent = aggregateNestedIntents(nestedIntents);
-    if (aggregatedIntent && isGenericWrapperIntent(wrapperIntent)) {
-      finalIntent = aggregatedIntent;
+    if (aggregatedIntent) {
+      const uniqueChildCount = new Set(nestedIntents).size;
+      if (isGenericWrapperIntent(wrapperIntent) || uniqueChildCount === 1) {
+        finalIntent = aggregatedIntent;
+      } else {
+        finalIntent = `${wrapperIntent}: ${aggregatedIntent}`;
+      }
     }
 
     if ((finalIntent === 'Swap tokens' || finalIntent === 'Swap tokens via LiFi') && typeof functionName === 'string') {
@@ -2676,6 +2681,20 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
     return formatTokenAmount(valueStr, 18, 'ETH');
   }
 
+  if (format === 'timestamp') {
+    let numericValue;
+    if (typeof value === 'string' && value.startsWith('0x')) {
+      numericValue = Number.parseInt(value.slice(2), 16);
+    } else if (value && typeof value === 'object' && value._isBigNumber) {
+      numericValue = Number(value._value !== undefined ? value._value : BigInt(value._hex || '0x0').toString());
+    } else {
+      numericValue = Number(value);
+    }
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return String(value);
+    const date = new Date(numericValue * 1000);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().replace('.000Z', 'Z');
+  }
+
   // addressName or addressOrName format - try to resolve to a human name
   // Order: ERC-20 symbol (WETH, wstETH) → contract name (ParaSwap Augustus V6) → shortened addr
   if (format === 'addressName' || format === 'addressOrName') {
@@ -2719,10 +2738,10 @@ function isGenericWrapperIntent(intent) {
   if (!intent || typeof intent !== 'string') return true;
   if (intent === 'Contract interaction' || intent === 'Unknown function') return true;
   if (intent.startsWith('Unknown call ') || intent.startsWith('Function call: ')) return true;
-  return /^Execute\b/i.test(intent)
-    || /^Aggregate calls$/i.test(intent)
-    || /multicall/i.test(intent)
-    || /^Batch /i.test(intent);
+  return /^Execute(?:\s+call|\s+batch(?:\s+transactions?)?|\s+transactions?)?\s*$/i.test(intent)
+    || /^Aggregate calls?$/i.test(intent)
+    || /^Multicall\b/i.test(intent)
+    || /^Batch\b/i.test(intent);
 }
 
 // Dedup nested intents with run-preserving ×N counts so a 3-leg swap with
