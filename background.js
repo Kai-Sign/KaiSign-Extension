@@ -53,6 +53,9 @@ async function saveTransaction(transaction) {
     const settings = await getSettings();
     const result = await chrome.storage.local.get([STORAGE_KEYS.TRANSACTIONS]);
     const transactions = result[STORAGE_KEYS.TRANSACTIONS] || [];
+    if (transaction?.id && transactions.some((tx) => tx.id === transaction.id)) {
+      return { success: true, count: transactions.length, deduped: true };
+    }
     transactions.unshift(transaction);
     const maxTx = settings.maxTransactions || 100;
     if (transactions.length > maxTx) {

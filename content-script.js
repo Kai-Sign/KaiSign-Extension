@@ -309,9 +309,54 @@ function saveTransactionViaAllChannels(transactionData) {
   window.postMessage({ type: 'KAISIGN_SAVE_TX', data: safeTxData }, '*');
 }
 
+function stableStringify(value) {
+  if (value == null) return 'null';
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'bigint') return JSON.stringify(value.toString());
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  if (typeof value === 'object') {
+    if (value._isBigNumber) {
+      return JSON.stringify(value._value || value._hex || String(value));
+    }
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+function transactionContentId(tx, method, context = null) {
+  const payload = {
+    method,
+    to: tx?.to || null,
+    from: tx?.from || null,
+    value: tx?.value || '0',
+    data: tx?.data || '0x',
+    chainId: tx?.chainId ?? context?.chainId ?? tx?.eip712TypedData?.domain?.chainId ?? null,
+    type: tx?.type || null,
+    primaryType: context?.primaryType || tx?.eip712TypedData?.primaryType || null,
+    domainName: context?.domainName || tx?.eip712TypedData?.domain?.name || null,
+    eip712TypedData: tx?.eip712TypedData || null,
+    authorizationList: tx?.authorizationList || null,
+    accessList: tx?.accessList || null
+  };
+  const serialized = stableStringify(payload);
+  if (window.ethers?.keccak256 && window.ethers?.toUtf8Bytes) {
+    try {
+      return window.ethers.keccak256(window.ethers.toUtf8Bytes(serialized)).slice(2, 18);
+    } catch {}
+  }
+  let hash = 2166136261;
+  for (let i = 0; i < serialized.length; i++) {
+    hash ^= serialized.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `tx-${(hash >>> 0).toString(16)}`;
+}
+
 function buildTransactionRecord(tx, method, intent, decodedResult, extractedBytecodes = [], context = null) {
   return {
-    id: Date.now().toString(),
+    id: transactionContentId(tx, method, context),
     method,
     time: new Date().toISOString(),
     to: tx.to,
@@ -448,6 +493,86 @@ function flattenNestedDecodesToBytecodes(nestedDecodes, depth = 1) {
   }
 
   return result;
+}
+
+function summarizeNestedActionTitle(method, decoded, fallbackIntent) {
+  if (!decoded?.success) return fallbackIntent;
+  if (method !== 'eth_signTypedData_v4') return fallbackIntent;
+
+  const nestedCount = Array.isArray(decoded.nestedIntents) ? decoded.nestedIntents.length : 0;
+  if (nestedCount <= 1) return fallbackIntent;
+
+  return decoded.wrapperIntent || decoded.intent || fallbackIntent;
+}
+
+function collectNestedActionDetails(source, out = []) {
+  if (!source) return out;
+  if (Array.isArray(source)) {
+    source.forEach((item) => collectNestedActionDetails(item, out));
+    return out;
+  }
+
+  if (source.decoded) collectNestedActionDetails(source.decoded, out);
+  if (source.result) collectNestedActionDetails(source.result, out);
+  if (Array.isArray(source.operations)) {
+    source.operations.forEach((op) => collectNestedActionDetails(op, out));
+  }
+  if (Array.isArray(source.nestedDecodes)) {
+    source.nestedDecodes.forEach((nested) => collectNestedActionDetails(nested, out));
+  }
+
+  if (source.intent && source.formatted && typeof source.formatted === 'object') {
+    const fields = Object.values(source.formatted)
+      .filter((field) => field && typeof field === 'object')
+      .filter((field) => field.label && field.value != null && field.value !== '')
+      .filter((field) => !['Data', 'Transactions', 'Call Data', 'Permit'].includes(field.label))
+      .filter((field) => String(field.value).length <= 140)
+      .map((field) => ({
+        label: field.label,
+        value: String(field.value)
+      }));
+
+    if (fields.length > 0) {
+      out.push({
+        intent: source.intent,
+        fields
+      });
+    }
+  }
+
+  return out;
+}
+
+function renderNestedActionDetailsSection(decodedResult, escapeHtml) {
+  const details = collectNestedActionDetails(decodedResult?.nestedDecodes || []);
+  if (!details.length) return '';
+
+  const uniqueDetails = [];
+  const seen = new Set();
+  for (const detail of details) {
+    const key = `${detail.intent}|${detail.fields.map((field) => `${field.label}:${field.value}`).join('|')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueDetails.push(detail);
+  }
+
+  return `
+    <div class="kaisign-section purple">
+      <div class="kaisign-section-header">
+        <span class="kaisign-section-title purple">Action Details</span>
+      </div>
+      <div class="kaisign-decode-result">
+        ${uniqueDetails.map((detail, index) => `
+          <div style="margin-bottom: 10px; padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px;">
+            <div style="font-weight: bold; color: #a78bfa; margin-bottom: 6px;">#${index + 1}: ${escapeHtml(detail.intent)}</div>
+            ${detail.fields.map((field) => `
+              <div class="kaisign-decode-detail">${escapeHtml(field.label)}: ${escapeHtml(field.value)}</div>
+            `).join('')}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
 }
 
 // =============================================================================
@@ -1521,7 +1646,7 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
           }
         }
 
-        updateLoadingStatus('Complete');
+        updateLoadingStatus('Rendering signature details...');
         await showEIP712TypedDataDisplay(typedData, displayData, walletName);
         return;
       }
@@ -1553,7 +1678,7 @@ async function handleTypedDataSignature(typedData, signerAddress, walletName) {
     } else {
       // No embedded transaction - use EIP-712 display with parsed typed data
       KAISIGN_DEBUG && console.log('[KaiSign] No embedded transaction in typed data');
-      updateLoadingStatus('Complete');
+      updateLoadingStatus('Rendering signature details...');
 
       // Build display data from parsed typed data (fallback when metadata unavailable)
       const parsedIntent = parsePermit2TypedData(typedData);
@@ -1760,7 +1885,17 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
   attachPopupDrag(popup);
 
   const transactionData = {
-    id: Date.now().toString(),
+    id: transactionContentId({
+      to: domain.verifyingContract,
+      value: '0',
+      data: '0x',
+      eip712TypedData: typedData
+    }, 'eth_signTypedData_v4', {
+      isEIP712: true,
+      primaryType: displayData.primaryType,
+      domainName: domain.name,
+      chainId: domain.chainId
+    }),
     method: 'eth_signTypedData_v4',
     time: new Date().toISOString(),
     // Original EIP-712 typed data (unmodified)
@@ -2370,6 +2505,14 @@ function showRpcActivityNotification(method, params, category, walletName) {
 // Generic wallet provider hooker
 function hookWalletProvider(provider, walletKey, walletName = walletKey) {
   if (!provider.request) return;
+  if (provider.__kaisignHooked) return;
+
+  Object.defineProperty(provider, '__kaisignHooked', {
+    value: true,
+    configurable: true,
+    enumerable: false,
+    writable: false
+  });
 
   const originalRequest = provider.request.bind(provider);
   let lastObservedChainId = null;
@@ -2656,7 +2799,7 @@ async function handleEIP5792Batch(calls, from, chainId, walletName) {
     });
   }
 
-  updateLoadingStatus('Complete');
+  updateLoadingStatus('Rendering batch details...');
 
   // Create consolidated transaction object
   const batchTx = {
@@ -2765,6 +2908,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
           // instead of the ambiguous "Contract interaction" — distinguishes "no metadata"
           // from "decoder failed" (success: false branch shows generic string).
           intent = decoded.aggregatedIntent || decoded.intent || 'Contract interaction';
+          intent = summarizeNestedActionTitle(method, decoded, intent);
           if (decoded.noFormat && decoded.function) {
             intent = `Function call: ${decoded.function}`;
           }
@@ -2906,7 +3050,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
     if (decodedResult.unknownSummary?.lines?.length) {
       decodedResult.statusDetail = decodedResult.unknownSummary.lines[0];
     }
-    updateLoadingStatus('Complete');
+    updateLoadingStatus('Rendering decoded transaction...');
   }
 
   // SHOW FINAL RESULT (only once, after all decoding is complete)
@@ -3097,6 +3241,8 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     </div>
   ` : '';
 
+  const actionDetailsSection = renderNestedActionDetailsSection(decodedResult, escapeHtml);
+
   // Only show decoding section if successful - hide failed results
   const decodingSection = decodedResult?.success ? `
     <div class="kaisign-section success">
@@ -3219,6 +3365,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     <div class="kaisign-popup-content">
       ${batchSection}
       ${authorizationSection}
+      ${actionDetailsSection}
       ${unknownSummarySection}
       ${bytecodeSection}
       ${extractedSection}

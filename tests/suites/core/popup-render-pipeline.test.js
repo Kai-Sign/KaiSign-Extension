@@ -82,6 +82,37 @@ function renderTransactionIntentSection({ intent, tx, decodedResult }, formatTit
   `;
 }
 
+function summarizeNestedActionTitle(method, decoded, fallbackIntent) {
+  if (!decoded?.success) return fallbackIntent;
+  if (method !== 'eth_signTypedData_v4') return fallbackIntent;
+  const nestedCount = Array.isArray(decoded.nestedIntents) ? decoded.nestedIntents.length : 0;
+  if (nestedCount <= 1) return fallbackIntent;
+  return decoded.wrapperIntent || decoded.intent || fallbackIntent;
+}
+
+function collectNestedActionDetails(source, out = []) {
+  if (!source) return out;
+  if (Array.isArray(source)) {
+    source.forEach((item) => collectNestedActionDetails(item, out));
+    return out;
+  }
+  if (source.decoded) collectNestedActionDetails(source.decoded, out);
+  if (source.result) collectNestedActionDetails(source.result, out);
+  if (Array.isArray(source.operations)) source.operations.forEach((op) => collectNestedActionDetails(op, out));
+  if (Array.isArray(source.nestedDecodes)) source.nestedDecodes.forEach((nested) => collectNestedActionDetails(nested, out));
+
+  if (source.intent && source.formatted && typeof source.formatted === 'object') {
+    const fields = Object.values(source.formatted)
+      .filter((field) => field && typeof field === 'object')
+      .filter((field) => field.label && field.value != null && field.value !== '')
+      .filter((field) => !['Data', 'Transactions', 'Call Data', 'Permit'].includes(field.label))
+      .filter((field) => String(field.value).length <= 140)
+      .map((field) => ({ label: field.label, value: String(field.value) }));
+    if (fields.length > 0) out.push({ intent: source.intent, fields });
+  }
+  return out;
+}
+
 // Mirror selectorMatchesSignature behavior: with the fix it must use keccak256
 function checkSelectorMatch(selectorMatchesSignature, selector, signature) {
   return selectorMatchesSignature(selector, signature);
@@ -238,6 +269,45 @@ export async function runTests(harness) {
       && !transferHtml.includes('Payload To:')
       && !transferHtml.includes('Payload Value:'),
     `expected recipient in title without payload rows, got ${transferHtml}`
+  ));
+
+  const typedBatchTitle = summarizeNestedActionTitle('eth_signTypedData_v4', {
+    success: true,
+    wrapperIntent: 'Execute batch transactions',
+    intent: 'Execute batch transactions',
+    nestedIntents: [
+      'Approve 1.00 USDC to 0xc92e8bdf79f0507f65a392b0ab4667716bfe0110',
+      'Authorize CoW order'
+    ]
+  }, 'Approve 1.00 USDC to 0xc92e8bdf79f0507f65a392b0ab4667716bfe0110 + Authorize CoW order');
+  record(baseResult(
+    'popup pipeline: typed-data batch title stays on wrapper intent instead of joined child intents',
+    typedBatchTitle === 'Execute batch transactions',
+    `expected wrapper title, got ${typedBatchTitle}`
+  ));
+
+  const actionDetails = collectNestedActionDetails([{
+    result: {
+      operations: [
+        {
+          decoded: {
+            intent: 'Authorize CoW order',
+            formatted: {
+              orderDigest: { label: 'Order Digest', value: '0x4587f79fd230dc4b0c563e89cbce8eb834bd5975cb910b5d23f1fef0ddd33056' },
+              orderOwner: { label: 'Order Owner', value: '0xa10235ea549daa39a108bc26d63bd8daa68e4a22' },
+              validUntil: { label: 'Valid Until', value: '2026-04-28T12:34:45Z' }
+            }
+          }
+        }
+      ]
+    }
+  }]);
+  record(baseResult(
+    'popup pipeline: nested action details surface CoW digest-like fields',
+    actionDetails.length === 1
+      && actionDetails[0].fields.some((field) => field.label === 'Order Digest')
+      && actionDetails[0].fields.some((field) => field.label === 'Order Owner'),
+    `expected nested action details with Order Digest, got ${JSON.stringify(actionDetails)}`
   ));
 
   return results;
