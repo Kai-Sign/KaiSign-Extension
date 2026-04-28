@@ -151,7 +151,7 @@ export class ResultFormatter {
    * Format a single test result
    */
   formatTestResult(result) {
-    const { name, passed, duration, result: decodedResult, expected, error, skipped } = result;
+    const { name, passed, duration, result: decodedResult, expected, error, skipped, metadataSync } = result;
 
     let output = '';
 
@@ -170,6 +170,16 @@ export class ResultFormatter {
     // Show decoded result details
     if (decodedResult) {
       output += this.formatDecodedResult(decodedResult);
+    }
+
+    if (metadataSync?.note) {
+      const color =
+        metadataSync.status === 'in-sync' ? 'green' :
+        metadataSync.status === 'drift' ? 'yellow' :
+        metadataSync.status === 'backend-missing' ? 'red' :
+        metadataSync.status === 'error' ? 'red' :
+        'dim';
+      output += `  ${this.color('Fixture Sync:', 'cyan')} ${this.color(metadataSync.note, color)}\n`;
     }
 
     // Show error - different formatting for expected vs unexpected errors

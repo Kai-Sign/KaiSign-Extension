@@ -90,14 +90,16 @@ export class TestHarness {
       // Decode the calldata
       const result = await this.decoders.decodeCalldata(calldata, contractAddress, chainId);
       const duration = Date.now() - startTime;
+      const metadataSync = await this.getMetadataSyncNote(contractAddress, chainId);
 
       // Validate result against expected
       const passed = this.validateResult(result, expected);
 
-      return this.createResult(name, passed, result, expected, null, duration);
+      return this.createResult(name, passed, result, expected, null, duration, metadataSync);
     } catch (error) {
       const duration = Date.now() - startTime;
-      return this.createResult(name, false, null, expected, error.message, duration);
+      const metadataSync = await this.getMetadataSyncNote(contractAddress, chainId);
+      return this.createResult(name, false, null, expected, error.message, duration, metadataSync);
     }
   }
 
@@ -124,13 +126,15 @@ export class TestHarness {
 
       const result = await this.decoders.decodeCalldataRecursive(calldata, contractAddress, chainId);
       const duration = Date.now() - startTime;
+      const metadataSync = await this.getMetadataSyncNote(contractAddress, chainId);
 
       const passed = this.validateRecursiveResult(result, expected);
 
-      return this.createResult(name, passed, result, expected, null, duration);
+      return this.createResult(name, passed, result, expected, null, duration, metadataSync);
     } catch (error) {
       const duration = Date.now() - startTime;
-      return this.createResult(name, false, null, expected, error.message, duration);
+      const metadataSync = await this.getMetadataSyncNote(contractAddress, chainId);
+      return this.createResult(name, false, null, expected, error.message, duration, metadataSync);
     }
   }
 
@@ -157,20 +161,22 @@ export class TestHarness {
 
       const result = await this.decoders.advancedTransactionDecoder.decodeTransaction(rawTx, contractAddress, chainId);
       const duration = Date.now() - startTime;
+      const metadataSync = await this.getMetadataSyncNote(contractAddress, chainId);
 
       const passed = this.validateAdvancedResult(result, expected);
 
-      return this.createResult(name, passed, result, expected, null, duration);
+      return this.createResult(name, passed, result, expected, null, duration, metadataSync);
     } catch (error) {
       const duration = Date.now() - startTime;
-      return this.createResult(name, false, null, expected, error.message, duration);
+      const metadataSync = await this.getMetadataSyncNote(contractAddress, chainId);
+      return this.createResult(name, false, null, expected, error.message, duration, metadataSync);
     }
   }
 
   /**
    * Create a test result object
    */
-  createResult(name, passed, result, expected, error, duration) {
+  createResult(name, passed, result, expected, error, duration, metadataSync = null) {
     const testResult = {
       name,
       passed,
@@ -178,6 +184,7 @@ export class TestHarness {
       result,
       expected,
       error,
+      metadataSync,
       skipped: false
     };
 
@@ -193,6 +200,20 @@ export class TestHarness {
     this.allResults.push(testResult);
 
     return testResult;
+  }
+
+  async getMetadataSyncNote(contractAddress, chainId) {
+    if (typeof this.metadataService?.getFixtureSyncStatus !== 'function') {
+      return null;
+    }
+    try {
+      return await this.metadataService.getFixtureSyncStatus(contractAddress, chainId);
+    } catch (error) {
+      return {
+        status: 'error',
+        note: `sync check error (${error.message})`
+      };
+    }
   }
 
   /**

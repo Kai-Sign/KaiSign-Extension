@@ -105,6 +105,29 @@
             { "name": "permit", "type": "bytes" },
             { "name": "executorData", "type": "bytes" }
           ]
+        },
+        {
+          "type": "function",
+          "name": "swapExactAmountInOnUniswapV3",
+          "selector": "0x876a02f6",
+          "inputs": [
+            {
+              "name": "data",
+              "type": "tuple",
+              "components": [
+                { "name": "fromToken", "type": "address" },
+                { "name": "toToken", "type": "address" },
+                { "name": "fromAmount", "type": "uint256" },
+                { "name": "toAmount", "type": "uint256" },
+                { "name": "quotedAmount", "type": "uint256" },
+                { "name": "metadata", "type": "bytes32" },
+                { "name": "beneficiary", "type": "address" },
+                { "name": "routeData", "type": "bytes" }
+              ]
+            },
+            { "name": "partnerAndFee", "type": "uint256" },
+            { "name": "permit", "type": "bytes" }
+          ]
         }
       ]
     }
@@ -162,6 +185,28 @@
           { "path": "swapData.fromAmount", "label": "Amount In", "format": "tokenAmount", "params": { "tokenPath": "swapData.srcToken" } },
           { "path": "swapData.toAmount", "label": "Min Amount Out", "format": "tokenAmount", "params": { "tokenPath": "swapData.destToken" } },
           { "path": "swapData.beneficiary", "label": "Recipient", "format": "addressName" }
+        ]
+      },
+      "swapExactAmountInOnUniswapV3((address,address,uint256,uint256,uint256,bytes32,address,bytes),uint256,bytes)": {
+        "intent": "Swap via ParaSwap",
+        "interpolatedIntent": "Swap {data.fromAmount} via ParaSwap",
+        "fields": [
+          { "path": "data.fromToken", "label": "From Token", "format": "addressName" },
+          { "path": "data.toToken", "label": "To Token", "format": "addressName" },
+          { "path": "data.fromAmount", "label": "Amount In", "format": "tokenAmount", "params": { "tokenPath": "data.fromToken", "nativeCurrencyAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" } },
+          { "path": "data.toAmount", "label": "Min Amount Out", "format": "tokenAmount", "params": { "tokenPath": "data.toToken", "nativeCurrencyAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" } },
+          { "path": "data.beneficiary", "label": "Recipient", "format": "addressName" }
+        ]
+      },
+      "swapExactAmountInOnUniswapV3(tuple,uint256,bytes)": {
+        "intent": "Swap via ParaSwap",
+        "interpolatedIntent": "Swap {data.fromAmount} via ParaSwap",
+        "fields": [
+          { "path": "data.fromToken", "label": "From Token", "format": "addressName" },
+          { "path": "data.toToken", "label": "To Token", "format": "addressName" },
+          { "path": "data.fromAmount", "label": "Amount In", "format": "tokenAmount", "params": { "tokenPath": "data.fromToken", "nativeCurrencyAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" } },
+          { "path": "data.toAmount", "label": "Min Amount Out", "format": "tokenAmount", "params": { "tokenPath": "data.toToken", "nativeCurrencyAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" } },
+          { "path": "data.beneficiary", "label": "Recipient", "format": "addressName" }
         ]
       }
     }

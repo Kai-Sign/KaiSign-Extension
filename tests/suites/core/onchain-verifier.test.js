@@ -182,22 +182,26 @@ export async function runTests(harness) {
     const start = Date.now();
     try {
       const verifierSource = await readFile(new URL('../../../onchain-verifier.js', import.meta.url), 'utf8');
-      const manualModeStillBuildsProofs = verifierSource.includes('const treeOk = await tree.ensureRootMatches(root);')
-        && !verifierSource.includes("skipCatchUp: this.verificationMode === 'manual'");
+      const manualModeFetchesRootOncePerSession = verifierSource.includes('this._rootFetchedThisSession = false;')
+        && verifierSource.includes("const canFetchRoot = this.verificationMode === 'automatic'")
+        && verifierSource.includes("|| (this.verificationMode === 'manual' && !root && !this._rootFetchedThisSession);");
       const transientRootFailuresNotCached = verifierSource.includes("if (result?.source === 'root-unavailable') {");
+      const seedOnlyProofFlow = verifierSource.includes('const availabilityProof = tree.proveLeaf(availabilityLeaf);')
+        && verifierSource.includes('const revocationProof = tree.proveLeaf(revocationLeaf);')
+        && !verifierSource.includes('ensureRootMatches(');
 
-      const passed = manualModeStillBuildsProofs && transientRootFailuresNotCached;
+      const passed = manualModeFetchesRootOncePerSession && transientRootFailuresNotCached && seedOnlyProofFlow;
       pushResult(
         harness,
         results,
-        'Manual verification mode still syncs the registry tree and does not cache transient root failures',
+        'Manual verification mode uses one root fetch per session and does not cache transient root failures',
         passed,
-        'Manual mode allows proof-building catch-up and root-unavailable results stay transient',
-        passed ? null : 'Manual mode is still suppressing tree catch-up or caching root-unavailable results',
+        'Manual mode is seed-only, fetches the registry root at most once per session, and root-unavailable results stay transient',
+        passed ? null : 'Verifier source no longer matches the current seed-only manual-mode root-fetch contract',
         Date.now() - start
       );
     } catch (error) {
-      pushResult(harness, results, 'Manual verification mode still syncs the registry tree and does not cache transient root failures', false, null, error.message);
+      pushResult(harness, results, 'Manual verification mode uses one root fetch per session and does not cache transient root failures', false, null, error.message);
     }
   }
 

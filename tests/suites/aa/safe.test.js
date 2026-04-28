@@ -53,7 +53,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x1688f0b9',
       functionName: 'createProxyWithNonce',
-      intent: 'Setup Safe wallet',  // Nested intent from initializer's setup() call
+      intent: 'Create Safe Wallet',  // Wrapper intent stays primary; nested setup is shown separately
       nestedIntentContains: 'Setup'  // Verify nested decode worked
     }
   }));
@@ -176,7 +176,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x6a761202',
       functionName: 'execTransaction',
-      intent: 'Approve Unlimited USDC',  // Nested intent from ERC-20 approve (not Safe metadata)
+      intent: 'Approve Unlimited USDC to 0x111111125421ca6dc452d289314280a0f8842a65',  // Nested intent from ERC-20 approve (not Safe metadata)
       nestedIntentContains: 'Approve',   // Verify nested decode worked
       intentDoesNotContain: 'Execute 0'  // Still verify the original bug is fixed
     }

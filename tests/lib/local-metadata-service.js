@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const KAISIGN_API_URL = 'https://kai-sign-production.up.railway.app/api/py/contract';
 
 export class LocalMetadataService {
   constructor(fixturesPath) {
@@ -19,6 +20,7 @@ export class LocalMetadataService {
     this.addressToFilePath = new Map(); // address-chainId -> file path
     this.addressFallbackToFilePath = new Map(); // address -> file path (legacy fallback)
     this.tokenCache = new Map(); // address -> token info
+    this.fixtureSyncCache = new Map(); // address-chainId -> sync status
     // Diamond facet index: diamondAddress -> selector -> metadata file path
     this.diamondFacetIndex = new Map();
     this.initialized = false;
@@ -358,6 +360,7 @@ export class LocalMetadataService {
   clearCache() {
     this.metadataCache.clear();
     this.tokenCache.clear();
+    this.fixtureSyncCache.clear();
   }
 
   setFilePathForAddress(address, chainId, filePath) {
@@ -393,6 +396,123 @@ export class LocalMetadataService {
    */
   getIndexedAddresses() {
     return Array.from(this.addressToFilePath.keys());
+  }
+
+  async getFixtureSyncStatus(address, chainId = 1) {
+    const normalizedAddress = address?.toLowerCase?.();
+    if (!normalizedAddress) {
+      return {
+        status: 'not-applicable',
+        note: 'n/a (no contract address)'
+      };
+    }
+
+    const numericChainId = Number(chainId) || 1;
+    const cacheKey = `${normalizedAddress}-${numericChainId}`;
+    if (this.fixtureSyncCache.has(cacheKey)) {
+      return this.fixtureSyncCache.get(cacheKey);
+    }
+
+    const fixturePath =
+      this.addressToFilePath.get(cacheKey) ||
+      this.addressFallbackToFilePath.get(normalizedAddress);
+
+    if (!fixturePath) {
+      const result = {
+        status: 'not-applicable',
+        note: 'n/a (no local fixture)'
+      };
+      this.fixtureSyncCache.set(cacheKey, result);
+      return result;
+    }
+
+    try {
+      const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+      const apiMetadata = await this.fetchApiMetadata(normalizedAddress, numericChainId);
+
+      if (!apiMetadata) {
+        const result = {
+          status: 'api-missing',
+          note: `backend API missing metadata (${normalizedAddress} on ${numericChainId})`
+        };
+        this.fixtureSyncCache.set(cacheKey, result);
+        return result;
+      }
+
+      const fixtureNormalized = this.normalizeMetadataForComparison(fixture);
+      const apiNormalized = this.normalizeMetadataForComparison(apiMetadata);
+
+      const inSync = JSON.stringify(fixtureNormalized) === JSON.stringify(apiNormalized);
+      const result = inSync
+        ? {
+            status: 'in-sync',
+            note: `in sync with backend API (${normalizedAddress} on ${numericChainId})`
+          }
+        : {
+            status: 'drift',
+            note: `drift vs backend API (${normalizedAddress} on ${numericChainId})`
+          };
+
+      this.fixtureSyncCache.set(cacheKey, result);
+      return result;
+    } catch (error) {
+      const result = {
+        status: error.code === 'NETWORK_UNAVAILABLE' ? 'unavailable' : 'error',
+        note: error.code === 'NETWORK_UNAVAILABLE'
+          ? 'backend API sync unavailable in this environment'
+          : `backend API sync error (${error.message})`
+      };
+      this.fixtureSyncCache.set(cacheKey, result);
+      return result;
+    }
+  }
+
+  async fetchApiMetadata(address, chainId, retries = 2) {
+    const url = `${KAISIGN_API_URL}/${address}?chain_id=${chainId}`;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      let response;
+      try {
+        response = await fetch(url);
+      } catch (error) {
+        if (attempt >= retries) {
+          const wrapped = new Error(`network unavailable: ${error.message}`);
+          wrapped.code = 'NETWORK_UNAVAILABLE';
+          throw wrapped;
+        }
+        const delayMs = Math.min(1000 * (attempt + 1), 3000);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      if (response.status === 429 && attempt < retries) {
+        const delayMs = Math.min(1000 * (attempt + 1), 3000);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      if (!response.ok) {
+        return null;
+      }
+      const payload = await response.json();
+      if (!payload?.success || !payload?.metadata) {
+        return null;
+      }
+      return payload.metadata;
+    }
+    return null;
+  }
+
+  normalizeMetadataForComparison(value) {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.normalizeMetadataForComparison(item));
+    }
+    if (value && typeof value === 'object') {
+      const normalized = {};
+      for (const key of Object.keys(value).sort()) {
+        if (key === '$schema' || key.startsWith('_')) continue;
+        normalized[key] = this.normalizeMetadataForComparison(value[key]);
+      }
+      return normalized;
+    }
+    return value;
   }
 }
 

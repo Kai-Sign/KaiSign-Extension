@@ -432,7 +432,7 @@ export async function runTests(harness) {
     contractAddress: realUsdcAddress,
     expected: {
       shouldSucceed: true,
-      intent: 'Approve 0.10 USDC',
+      intent: 'Approve 0.10 USDC to 0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
       intentDoesNotContain: 'USDC USDC'  // Should NOT have duplicate symbol
     }
   }));
