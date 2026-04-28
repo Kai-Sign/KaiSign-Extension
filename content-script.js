@@ -45,11 +45,11 @@ const KAISIGN_DEBUG = getKaiSignDebugFlag();
     .kaisign-warning { padding: 10px 16px; background: rgba(220, 38, 38, 0.08); border-bottom: 1px solid #e6dccf; font-size: 11px; color: #dc2626; text-align: center; }
     .kaisign-intent-section { padding: 16px; background: #f7efe5; border-bottom: 1px solid #e6dccf; }
     .kaisign-wrapper-context { font-size: 11px; color: #7a6f63; margin-bottom: 4px; padding: 4px 8px; background: rgba(15, 159, 154, 0.08); border-radius: 6px; display: inline-block; }
-    .kaisign-intent { font-size: 16px; font-weight: 700; color: #0f9f9a; margin-bottom: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-    .kaisign-details-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; }
-    .kaisign-detail-item { font-size: 12px; min-width: 0; flex: 1 1 180px; }
+    .kaisign-intent { font-size: 16px; font-weight: 700; color: #0f9f9a; margin-bottom: 12px; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .kaisign-details-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+    .kaisign-detail-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: 12px; min-width: 0; flex: 1 1 180px; }
     .kaisign-detail-label { color: #c2410c; font-weight: 600; }
-    .kaisign-detail-value { color: #2b2722; word-break: break-all; font-family: 'SF Mono', Consolas, monospace; }
+    .kaisign-detail-value { color: #2b2722; font-family: 'SF Mono', Consolas, monospace; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
     .kaisign-detail-separator { color: #7a6f63; padding: 0 4px; }
     .kaisign-popup-content { padding: 16px; }
     .kaisign-section { margin-bottom: 16px; padding: 12px; background: #ffffff; border-radius: 10px; border: none; box-shadow: 0 8px 16px rgba(43,39,34,0.08); }
@@ -113,7 +113,9 @@ const KAISIGN_DEBUG = getKaiSignDebugFlag();
     .kaisign-decode-result { font-size: 11px; }
     .kaisign-decode-success { color: #3fb950; margin-bottom: 4px; }
     .kaisign-decode-error { color: #f85149; }
-    .kaisign-decode-detail { color: #8b949e; margin: 2px 0; }
+    .kaisign-decode-detail { color: #8b949e; margin: 2px 0; overflow-wrap: anywhere; word-break: break-word; }
+    .kaisign-intent-row, .kaisign-field-row, .kaisign-field-subrow { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+    .kaisign-intent-text, .kaisign-field-value, .kaisign-subfield-value { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
     .kaisign-action-bar { display: flex; gap: 8px; padding: 16px; border-top: 1px solid #30363d; background: #0d1117; border-radius: 0 0 12px 12px; }
     .kaisign-btn { flex: 1; padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 6px; border: none; }
     .kaisign-btn-primary { background: #58a6ff; color: white; }
@@ -172,14 +174,6 @@ const KAISIGN_DEBUG = getKaiSignDebugFlag();
     .kaisign-loading-dots span:nth-child(2) { animation-delay: 0.2s; }
     .kaisign-loading-dots span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes kaisign-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
-    /* Address hover tooltip for ENS/Basename resolution */
-    .kaisign-address { position: relative; cursor: help; font-family: 'SF Mono', Consolas, 'Liberation Mono', monospace; }
-    .kaisign-address:hover { color: #0f9f9a; }
-    .kaisign-popup.theme-dark .kaisign-address:hover { color: #3fb950; }
-    .kaisign-address[title]:hover::after { content: attr(title); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #fff9f1; color: #2b2722; border: 1px solid #0f9f9a; border-radius: 4px; padding: 6px 10px; font-size: 11px; white-space: nowrap; box-shadow: 0 4px 12px rgba(15, 159, 154, 0.2); z-index: 10000; margin-bottom: 5px; pointer-events: none; }
-    .kaisign-popup.theme-dark .kaisign-address[title]:hover::after { background: #161b22; color: #e6edf3; border-color: #3fb950; }
-    .kaisign-address[title]:hover::before { content: ''; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #0f9f9a; z-index: 10001; margin-bottom: -4px; }
-    .kaisign-popup.theme-dark .kaisign-address[title]:hover::before { border-top-color: #3fb950; }
   `;
   (document.head || document.documentElement).appendChild(style);
   KAISIGN_DEBUG && console.log('[KaiSign] Embedded styles injected');
@@ -1757,7 +1751,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
           ${displayData.nestedIntents.map((intent, i) => `
             <div class="kaisign-intent-row">
               <span class="kaisign-intent-num">${i + 1}.</span>
-              <span class="kaisign-intent-text" title="${escapeHtml(intent || '')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(intent || ''))}</span>
+              <span class="kaisign-intent-text">${escapeHtml(intent || '')}</span>
             </div>
           `).join('')}
         </div>
@@ -1847,7 +1841,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
 
     <div class="kaisign-intent-section">
       ${displayData.wrapperIntent ? `<div class="kaisign-wrapper-context">${escapeHtml(displayData.wrapperIntent)}</div>` : ''}
-      <div class="kaisign-intent" title="${escapeHtml(displayData.intent || 'Sign Message')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(displayData.intent || 'Sign Message'))}</div>
+      <div class="kaisign-intent">${escapeHtml(displayData.intent || 'Sign Message')}</div>
       <div class="kaisign-details-grid">
         <div class="kaisign-detail-item">
           <span class="kaisign-detail-label">App: </span>
@@ -2011,7 +2005,7 @@ async function showEIP712TypedDataDisplay(typedData, displayData, walletName) {
                     ${parsed.details.map((detail, i) => `
                       <div class="kaisign-intent-row">
                         <span class="kaisign-intent-num">${i + 1}.</span>
-                        <span class="kaisign-intent-text" title="${escapeHtml(detail || '')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(detail || ''))}</span>
+                        <span class="kaisign-intent-text">${escapeHtml(detail || '')}</span>
                       </div>
                     `).join('')}
                   </div>
@@ -3312,7 +3306,6 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
   const isEIP7702 = tx.type === '0x04' || tx.type === 4 || (tx.authorizationList && tx.authorizationList.length > 0);
 
   const rawIntent = intent || 'Analyzing transaction...';
-  const formattedIntent = (window.formatTitleAddresses || ((s) => s))(rawIntent);
   const contractName = decodedResult?.metadata?.context?.contract?.name || decodedResult?.contractName || '';
   const hasPayloadValue = (() => {
     try {
@@ -3358,7 +3351,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       ${isEIP7702 ? `
         <div class="kaisign-wrapper-context" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">EIP-7702 Delegated Transaction${isSelfCall ? ' (Self-call)' : ''}</div>
       ` : ''}
-      <div id="kaisign-intent-text" class="kaisign-intent" title="${escapeHtml(rawIntent)}">${escapeHtml(formattedIntent)}</div>
+      <div id="kaisign-intent-text" class="kaisign-intent">${escapeHtml(rawIntent)}</div>
       ${payloadDetailsSection}
     </div>
 
@@ -3387,8 +3380,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       if (!resolvedIntent || resolvedIntent === rawIntent) return;
       const intentEl = document.getElementById('kaisign-intent-text');
       if (!intentEl) return;
-      intentEl.title = resolvedIntent;
-      intentEl.textContent = (window.formatTitleAddresses || ((s) => s))(resolvedIntent);
+      intentEl.textContent = resolvedIntent;
     }).catch((err) => {
       console.debug('[ContentScript] Failed to resolve intent addresses:', err);
     });
@@ -3467,7 +3459,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         <button class="kaisign-close-btn" onclick="this.closest('.kaisign-popup').remove()">&#x2715;</button>
       </div>
       <div class="kaisign-intent-section">
-        <div class="kaisign-intent" title="${escapeHtml(intent || 'Unknown transaction')}">${escapeHtml((window.formatTitleAddresses || ((s) => s))(intent || 'Unknown transaction'))}</div>
+        <div class="kaisign-intent">${escapeHtml(intent || 'Unknown transaction')}</div>
         ${payloadDetailsSection || `
           <div class="kaisign-details-grid">
             <div class="kaisign-detail-item">
