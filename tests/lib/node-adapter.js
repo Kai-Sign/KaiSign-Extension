@@ -181,3 +181,82 @@ export function calculateSelector(signature) {
 // Note: SimpleInterface is available via mockWindow.SimpleInterface after loadDecoderModules()
 // is called - it's loaded from the production decode.js file
 export { mockWindow };
+
+/**
+ * Load merkle-tree.js + onchain-verifier.js into the same node sandbox.
+ *
+ * These two files target the browser content-script world (localStorage,
+ * window.kaisignMerkleTree slot, document.readyState init). This loader
+ * stubs each so the classes can be exercised under node. Tests inject
+ * fake RPC behavior by monkey-patching `verifier.rpcCall` /
+ * `verifier.ethCallSepolia` after load — the merkle tree resolves the
+ * verifier lazily so post-load injection works.
+ *
+ * Calling this multiple times in one process re-evaluates the modules.
+ * The duplicate-load guards in each file (window.kaisignMerkleTree /
+ * window.onChainVerifier checks) skip re-init if already loaded, so we
+ * delete those slots first.
+ *
+ * @param {object} options
+ * @param {boolean} options.withSeed - bootstrap merkle tree from merkle-seed.js
+ * @returns {{verifier, tree, win, localStorage}}
+ */
+export function loadMerkleStack({ withSeed = false } = {}) {
+  const extensionPath = path.resolve(__dirname, '../..');
+
+  const localStorageStub = (() => {
+    const store = new Map();
+    return {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => { store.set(k, String(v)); },
+      removeItem: (k) => { store.delete(k); },
+      clear: () => { store.clear(); }
+    };
+  })();
+
+  // Reset slots so re-loads don't hit the duplicate-load guards.
+  delete mockWindow.kaisignMerkleTree;
+  delete mockWindow.onChainVerifier;
+  delete globalThis.keccak256Simple;
+
+  if (withSeed) {
+    const seedSrc = fs.readFileSync(path.join(extensionPath, 'merkle-seed.js'), 'utf8');
+    const m = seedSrc.match(/window\.__KAISIGN_MERKLE_SEED\s*=\s*(\{[\s\S]*?\})\s*;?\s*$/);
+    if (!m) throw new Error('Failed to parse merkle-seed.js');
+    mockWindow.__KAISIGN_MERKLE_SEED = JSON.parse(m[1]);
+  } else {
+    delete mockWindow.__KAISIGN_MERKLE_SEED;
+  }
+
+  globalThis.localStorage = localStorageStub;
+  globalThis.document = globalThis.document
+    || { readyState: 'complete', addEventListener: () => {} };
+
+  // decode.js / onchain-verifier.js / merkle-tree.js reference
+  // `keccak256Simple` as a free identifier. In decode.js the function is
+  // declared *inside* an `if (window.SimpleInterface) { ... } else { ... }`
+  // duplicate-load guard, so even indirect eval cannot hoist it to global
+  // scope. Provide a thin shim backed by ethers — semantically identical
+  // (decode.js's own first branch delegates to ethers.keccak256 anyway).
+  globalThis.keccak256Simple = (message) => ethers.keccak256(ethers.toUtf8Bytes(message));
+
+  const indirectEval = (0, eval);
+
+  if (!mockWindow.SimpleInterface) {
+    const decodeCode = fs.readFileSync(path.join(extensionPath, 'decode.js'), 'utf8');
+    indirectEval(decodeCode);
+  }
+
+  const verifierCode = fs.readFileSync(path.join(extensionPath, 'onchain-verifier.js'), 'utf8');
+  indirectEval(verifierCode);
+
+  const merkleCode = fs.readFileSync(path.join(extensionPath, 'merkle-tree.js'), 'utf8');
+  indirectEval(merkleCode);
+
+  return {
+    verifier: mockWindow.onChainVerifier,
+    tree: mockWindow.kaisignMerkleTree,
+    win: mockWindow,
+    localStorage: localStorageStub
+  };
+}

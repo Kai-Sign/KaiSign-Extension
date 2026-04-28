@@ -658,20 +658,10 @@ class OnChainVerifier {
         return result;
       }
 
-      // Make sure the local leaf set is canonical against `root` before trusting
-      // any membership answer it gives. Manual mode still allows a registry-log
-      // catch-up here: that traffic is scoped to the registry contract and is
-      // required to build proofs at all. What manual mode suppresses is the
-      // per-decode merkleRoot re-fetch, not the one-time leaf-log sync needed
-      // to make the cached root usable.
-      const treeOk = await tree.ensureRootMatches(root);
-      if (!treeOk) {
-        result.source = 'root-unavailable';
-        result.details = 'Local merkle tree out of sync with on-chain root';
-        this._cacheResult(cacheKey, result);
-        return result;
-      }
-
+      // The merkle tree is a fixed bundled snapshot of leaves — no catch-up,
+      // no live indexing. Proofs come straight from the seed. If the seed is
+      // older than the live registry, the resulting proofs will fail to
+      // verify against `root` below and we surface that as `unattested`.
       const availabilityProof = tree.proveLeaf(availabilityLeaf);
       const revocationProof = tree.proveLeaf(revocationLeaf);
 

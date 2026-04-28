@@ -63,13 +63,15 @@
       "executeBatch((address,uint256,bytes)[])": {
         "intent": "Execute batch delegated transactions",
         "fields": [
-          { "path": "calls", "label": "Calls", "format": "array" }
+          { "path": "calls", "label": "Calls", "format": "array" },
+          { "path": "calls.[].data", "label": "Call Data", "format": "calldata", "type": "calldata", "to": "$.calls.[].to" }
         ]
       },
       "executeMultiple((address,uint256,bytes)[])": {
         "intent": "Execute multiple delegated calls",
         "fields": [
-          { "path": "calls", "label": "Calls", "format": "array" }
+          { "path": "calls", "label": "Calls", "format": "array" },
+          { "path": "calls.[].data", "label": "Call Data", "format": "calldata", "type": "calldata", "to": "$.calls.[].to" }
         ]
       }
     }

@@ -47,6 +47,7 @@
         "intent": "Execute user operations",
         "fields": [
           { "path": "ops", "label": "User Operations", "format": "array" },
+          { "path": "ops.[].callData", "label": "Operation Call Data", "format": "calldata", "type": "calldata", "to": "$.ops.[].sender" },
           { "path": "beneficiary", "label": "Beneficiary", "format": "address" }
         ]
       },

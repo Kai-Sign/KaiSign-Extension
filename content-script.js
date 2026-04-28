@@ -2705,6 +2705,14 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
   let decodedResult = null;
   let extractedBytecodes = [];
   const selector = tx.data?.slice(0, 10);
+  const authorizationList = Array.isArray(tx.authorizationList) ? tx.authorizationList : [];
+  const isEIP7702Envelope = tx.type === '0x04' || tx.type === 4 || authorizationList.length > 0;
+  const delegatedImplementationAddress = isEIP7702Envelope
+    ? authorizationList
+        .map((auth) => auth?.address)
+        .find((addr) => typeof addr === 'string' && /^0x[a-fA-F0-9]{40}$/.test(addr))
+    : null;
+  const decodeTargetAddress = delegatedImplementationAddress || tx.to;
 
   // SHOW LOADING POPUP IMMEDIATELY (only once)
   await showEnhancedTransactionInfo(tx, method, intent, walletName, { success: false, isLoading: true }, []);
@@ -2743,7 +2751,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         // Try recursive decoder first for full nested intent resolution
         let decoded;
         updateLoadingStatus('Decoding transaction...');
-        decoded = await decodeWithErrorContainment(tx.data, tx.to, chainId, 'transaction');
+        decoded = await decodeWithErrorContainment(tx.data, decodeTargetAddress, chainId, 'transaction');
 
         if (decoded && decoded.success) {
           updateLoadingStatus('Parsing intents...');
@@ -2813,6 +2821,41 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
     }
   }
 
+  if (!decodedResult && isEIP7702Envelope) {
+    const authCount = authorizationList.length;
+    const delegationTargets = authCount > 0
+      ? authorizationList
+          .map((auth) => auth?.address)
+          .filter((addr) => typeof addr === 'string' && addr.startsWith('0x'))
+      : [];
+    const uniqueTargets = [...new Set(delegationTargets.map((addr) => addr.toLowerCase()))];
+    const primaryTarget = delegationTargets[0] || null;
+    const isRevocation = primaryTarget === '0x0000000000000000000000000000000000000000';
+
+    if (!tx.data || tx.data === '0x') {
+      intent = isRevocation
+        ? 'Revoke EIP-7702 delegation'
+        : uniqueTargets.length > 1
+        ? `Authorize ${uniqueTargets.length} EIP-7702 delegations`
+        : primaryTarget
+        ? `Authorize EIP-7702 delegation to ${primaryTarget}`
+        : 'Authorize EIP-7702 delegation';
+    } else if (!decodedResult?.success) {
+      intent = intent === 'Unknown contract interaction'
+        ? 'Execute delegated EIP-7702 transaction'
+        : intent;
+    }
+
+    decodedResult = decodedResult || {
+      success: true,
+      selector,
+      functionName: tx.data && tx.data.length >= 10 ? 'Delegated transaction' : 'EIP-7702 delegation',
+      intent,
+      txType: 'EIP-7702',
+      authorizationCount: authCount
+    };
+  }
+
   // ADDITIONAL DECODING: only run heuristic nested-bytecode scans when the
   // primary decode did not already succeed. Successful top-level decodes have
   // already gone through recursive-decoder.js, so doing a second heuristic
@@ -2825,7 +2868,7 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         const decoder = new window.AdvancedTransactionDecoder();
         const chainId = context?.chainId ?? tx.chainId ?? null;
         if (chainId != null) {
-          const advancedResult = await decoder.decodeTransaction(tx, tx.to, chainId);
+          const advancedResult = await decoder.decodeTransaction(tx, decodeTargetAddress, chainId);
           if (advancedResult?.extractedBytecodes?.length > 0) {
             extractedBytecodes = advancedResult.extractedBytecodes;
             updateLoadingStatus(`Found ${extractedBytecodes.length} nested call(s)`);

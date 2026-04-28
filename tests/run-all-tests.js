@@ -43,6 +43,7 @@ const TEST_SUITES = [
   { name: 'core/advanced.test.js', path: './suites/core/advanced.test.js' },
   { name: 'core/types-advanced.test.js', path: './suites/core/types-advanced.test.js' },
   { name: 'core/onchain-verifier.test.js', path: './suites/core/onchain-verifier.test.js' },
+  { name: 'core/merkle-catchup.test.js', path: './suites/core/merkle-catchup.test.js' },
 
   // Protocol tests
   { name: 'protocols/uniswap.test.js', path: './suites/protocols/uniswap.test.js' },
