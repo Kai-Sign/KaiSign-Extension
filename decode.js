@@ -757,6 +757,57 @@ function buildStandardTokenIntent(functionName, abiInputs, formatted) {
   return null;
 }
 
+async function getSwapTokenDisplay(tokenAddress, chainId) {
+  if (!tokenAddress || typeof tokenAddress !== 'string') return null;
+  const normalized = tokenAddress.toLowerCase();
+  if (normalized === '0x0000000000000000000000000000000000000000' ||
+      normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+    return { symbol: 'ETH', decimals: 18 };
+  }
+
+  try {
+    const tokenInfo = await window.metadataService?.getTokenMetadata?.(tokenAddress, chainId);
+    if (tokenInfo?.symbol) {
+      return {
+        symbol: tokenInfo.symbol,
+        decimals: tokenInfo.decimals ?? null
+      };
+    }
+  } catch {
+    // Fall through to shortened address.
+  }
+
+  return { symbol: shortenHex(tokenAddress), decimals: null };
+}
+
+async function buildStructuredSwapIntent(functionName, rawParams, chainId) {
+  if (!rawParams || !rawParams._swapData) return null;
+
+  const swapEntries = Array.isArray(rawParams._swapData)
+    ? rawParams._swapData
+    : [rawParams._swapData];
+  const firstLeg = swapEntries[0];
+  if (!firstLeg?.sendingAssetId || !firstLeg?.receivingAssetId || firstLeg.fromAmount === undefined || firstLeg.fromAmount === null) {
+    return null;
+  }
+
+  const inputToken = await getSwapTokenDisplay(firstLeg.sendingAssetId, chainId);
+  const outputToken = await getSwapTokenDisplay(firstLeg.receivingAssetId, chainId);
+  const rawAmount = stringifyDecodedValue(firstLeg.fromAmount);
+
+  let amountDisplay = rawAmount;
+  if (inputToken?.decimals !== null && inputToken?.decimals !== undefined) {
+    amountDisplay = formatTokenAmount(rawAmount, inputToken.decimals, inputToken.symbol || '');
+  } else if (inputToken?.symbol) {
+    amountDisplay = `${rawAmount} ${inputToken.symbol}`;
+  }
+
+  const targetLabel = outputToken?.symbol || shortenHex(firstLeg.receivingAssetId);
+  const usesNativeOutput = /ToNative\b/i.test(functionName) || targetLabel === 'ETH';
+  const relation = usesNativeOutput ? 'to' : 'for';
+  return `Swap ${amountDisplay} ${relation} ${targetLabel} via LiFi`;
+}
+
 // Enhanced ABI decoder - supports all Solidity types including bytes, bytes[], arrays
 // NO HARDCODED SELECTORS - all type handling is generic
 class SimpleInterface {
@@ -1730,6 +1781,13 @@ async function decodeCalldata(data, contractAddress, chainId) {
     const aggregatedIntent = aggregateNestedIntents(nestedIntents);
     if (aggregatedIntent && isGenericWrapperIntent(wrapperIntent)) {
       finalIntent = aggregatedIntent;
+    }
+
+    if ((finalIntent === 'Swap tokens' || finalIntent === 'Swap tokens via LiFi') && typeof functionName === 'string') {
+      const structuredSwapIntent = await buildStructuredSwapIntent(functionName, rawParams, chainId);
+      if (structuredSwapIntent) {
+        finalIntent = structuredSwapIntent;
+      }
     }
 
     // noFormat: ABI-decoded successfully but no curated ERC-7730 metadata existed

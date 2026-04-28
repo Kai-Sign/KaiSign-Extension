@@ -2800,6 +2800,15 @@ async function getIntentAndShow(tx, method, walletName = 'Wallet', context = nul
         }
       } catch (decodeError) {
         console.error('[KaiSign] Transaction decoding error:', decodeError);
+        decodedResult = {
+          success: false,
+          selector,
+          error: decodeError?.message || 'Transaction decode failed',
+          statusTitle: 'Decode failed',
+          statusDetail: decodeError?.message || 'Transaction decode failed'
+        };
+        intent = 'Unable to decode transaction';
+        updateLoadingStatus('Decode failed');
       }
     }
   }

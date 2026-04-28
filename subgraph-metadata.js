@@ -252,13 +252,23 @@ class SubgraphMetadataService {
       normalizedChainId = parseInt(chainId, 10);
     }
 
-    const cacheKey = `${normalizedAddress}-${normalizedChainId}-${normalizedSelector || ''}`;
+    const baseCacheKey = `${normalizedAddress}-${normalizedChainId}`;
+    const cacheKey = normalizedSelector ? `${baseCacheKey}-${normalizedSelector}` : baseCacheKey;
 
     // Check cache first
     const cached = this.metadataCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
       KAISIGN_DEBUG && console.log('[KaiSign API] Cache hit for:', normalizedAddress);
       return cached.data;
+    }
+
+    if (normalizedSelector) {
+      const baseCached = this.metadataCache.get(baseCacheKey);
+      if (baseCached && Date.now() - baseCached.timestamp < this.cacheTTL && this.metadataMatchesSelector(baseCached.data, normalizedSelector)) {
+        this.metadataCache.set(cacheKey, baseCached);
+        KAISIGN_DEBUG && console.log('[KaiSign API] Base cache hit for selector:', normalizedSelector);
+        return baseCached.data;
+      }
     }
 
 
@@ -307,10 +317,12 @@ class SubgraphMetadataService {
               const facetMetadata = await this.getContractMetadataDirectly(facetAddress, chainId);
 
               // Cache for original diamond proxy address + selector
-              this.metadataCache.set(cacheKey, {
+              const cachedEntry = {
                 data: facetMetadata,
                 timestamp: Date.now()
-              });
+              };
+              this.metadataCache.set(baseCacheKey, cachedEntry);
+              this.metadataCache.set(cacheKey, cachedEntry);
 
               return facetMetadata;
             } catch (facetError) {
@@ -328,10 +340,12 @@ class SubgraphMetadataService {
           const implMetadata = await this.getContractMetadataDirectly(implAddress, chainId);
 
           // Cache for original proxy address too
-          this.metadataCache.set(cacheKey, {
+          const cachedEntry = {
             data: implMetadata,
             timestamp: Date.now()
-          });
+          };
+          this.metadataCache.set(baseCacheKey, cachedEntry);
+          this.metadataCache.set(cacheKey, cachedEntry);
 
           return implMetadata;
         }
@@ -380,32 +394,34 @@ class SubgraphMetadataService {
         }
       }
 
-      // Run verification — await so _verification is populated before the
-      // metadata gets cached. Single path post-v1.0.0: two-leaf merkle proof
-      // against the cached registry root.
-      if (typeof window !== 'undefined' && window.onChainVerifier) {
-        try {
-          if (registryAddress && typeof window.onChainVerifier.setRegistryAddress === 'function') {
-            window.onChainVerifier.setRegistryAddress(registryAddress);
-          }
-          const verification = await window.onChainVerifier.verifyMetadataAgainstRoot(
-            metadata,
-            normalizedAddress,
-            normalizedChainId
-          );
-          metadata._verification = verification;
-          KAISIGN_DEBUG && console.log('[KaiSign API] Verification result:', verification.source, verification.verified);
-        } catch (err) {
-          metadata._verification = { verified: false, source: 'error', details: err.message };
-          KAISIGN_DEBUG && console.warn('[KaiSign API] Verification failed:', err.message);
-        }
-      }
-
-      // Cache result
-      this.metadataCache.set(cacheKey, {
+      const cachedEntry = {
         data: metadata,
         timestamp: Date.now()
-      });
+      };
+      this.metadataCache.set(baseCacheKey, cachedEntry);
+      this.metadataCache.set(cacheKey, cachedEntry);
+
+      // Verification should not block the decode path. Populate it
+      // opportunistically on the cached metadata object.
+      if (typeof window !== 'undefined' && window.onChainVerifier) {
+        Promise.resolve().then(async () => {
+          try {
+            if (registryAddress && typeof window.onChainVerifier.setRegistryAddress === 'function') {
+              window.onChainVerifier.setRegistryAddress(registryAddress);
+            }
+            const verification = await window.onChainVerifier.verifyMetadataAgainstRoot(
+              metadata,
+              normalizedAddress,
+              normalizedChainId
+            );
+            metadata._verification = verification;
+            KAISIGN_DEBUG && console.log('[KaiSign API] Verification result:', verification.source, verification.verified);
+          } catch (err) {
+            metadata._verification = { verified: false, source: 'error', details: err.message };
+            KAISIGN_DEBUG && console.warn('[KaiSign API] Verification failed:', err.message);
+          }
+        });
+      }
 
       KAISIGN_DEBUG && console.log('[KaiSign API] Successfully fetched metadata for:', normalizedAddress);
       return metadata;
@@ -437,55 +453,33 @@ class SubgraphMetadataService {
     }
   }
 
-  /**
-   * Extract per-selector metadata from a potentially large metadata object.
-   * Returns a minimal metadata object containing only the ABI entry and display
-   * format matching the given selector, suitable for hardware wallets.
-   * @param {Object} metadata - Full ERC-7730 metadata
-   * @param {string} selector - 4-byte function selector (e.g., "0xa9059cbb")
-   * @returns {Object} Minimal metadata for this selector
-   */
-  extractSelectorMetadata(metadata, selector) {
-    if (!metadata || !selector) return metadata;
-
+  metadataMatchesSelector(metadata, selector) {
+    if (!metadata || !selector) return true;
     const normalizedSelector = selector.toLowerCase();
     const abi = metadata.context?.contract?.abi || [];
-    const formats = metadata.display?.formats || {};
-
-    // Find matching ABI entry
-    const matchingAbi = abi.filter(entry =>
-      entry.selector && entry.selector.toLowerCase() === normalizedSelector
-    );
-
-    if (matchingAbi.length === 0) return metadata; // No match, return original
-
-    // Find matching display formats
-    const matchingFormats = {};
-    const matchedName = matchingAbi[0].name;
-
-    for (const [key, value] of Object.entries(formats)) {
-      if (key.startsWith(matchedName + '(') || key.includes(normalizedSelector.slice(2))) {
-        matchingFormats[key] = value;
-      }
+    if (abi.some((entry) => entry?.selector?.toLowerCase?.() === normalizedSelector)) {
+      return true;
     }
 
-    // Build minimal metadata
-    return {
-      $schema: metadata.$schema,
-      context: {
-        contract: {
-          abi: matchingAbi,
-          deployments: metadata.context?.contract?.deployments,
-          ...(metadata.context?.contract?.facetOf && { facetOf: metadata.context.contract.facetOf })
-        }
-      },
-      metadata: metadata.metadata,
-      display: {
-        formats: matchingFormats
-      },
-      _verification: metadata._verification,
-      _extracted: true
-    };
+    const formats = metadata.display?.formats || {};
+    return Object.keys(formats).some((signature) => this.selectorMatchesSignature(normalizedSelector, signature));
+  }
+
+  /**
+   * Preserve the full metadata blob for all selector lookups.
+   *
+   * Older code trimmed metadata down to one ABI entry / one format for
+   * selector-specific consumers. That breaks any downstream flow that needs the
+   * full signed/provable metadata blob, including merkle-root proof inputs.
+   *
+   * Keep the method for compatibility, but return the original metadata object.
+   * @param {Object} metadata - Full ERC-7730 metadata
+   * @param {string} selector - 4-byte function selector (unused)
+   * @returns {Object} Full metadata
+   */
+  extractSelectorMetadata(metadata, selector) {
+    void selector;
+    return metadata;
   }
 
   /**

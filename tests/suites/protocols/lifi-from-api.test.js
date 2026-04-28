@@ -128,7 +128,7 @@ export async function runTests(harness) {
       shouldSucceed: true,
       selector: '0x5fd9ae2e',
       functionName: 'swapTokensMultipleV3ERC20ToERC20',
-      intentContains: 'Swap',
+      intentContains: 'Swap 100.00 USDC',
       intentDoesNotContain: 'Approve Unlimited'
     }
   }));
