@@ -195,8 +195,65 @@ class NameResolutionService {
    */
   async _resolveENS(address) {
     try {
-      // PRIMARY METHOD: Direct ENS contract call via public RPC (FREE, NO KEY)
-      const reverseNode = this._computeReverseNode(address);
+      // Correct modern ENS path: use the Universal Resolver's reverse(bytes,uint256)
+      // entrypoint. It verifies both reverse and forward resolution.
+      const universalResolver = '0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe';
+      const reverseSelector = keccak256Simple('reverse(bytes,uint256)').slice(0, 10);
+      const normalized = address.toLowerCase().replace(/^0x/, '');
+      const lookupAddressBytes = normalized;
+      const lookupAddressByteLen = (lookupAddressBytes.length / 2).toString(16).padStart(64, '0');
+      const paddedLookupAddress = lookupAddressBytes.padEnd(Math.ceil(lookupAddressBytes.length / 64) * 64, '0');
+      const coinType = (60n).toString(16).padStart(64, '0');
+      const reverseCalldata =
+        reverseSelector +
+        '0000000000000000000000000000000000000000000000000000000000000040' +
+        coinType +
+        lookupAddressByteLen +
+        paddedLookupAddress;
+
+      const tryResolveViaCaller = async (caller) => {
+        const rawResult = await caller({
+          to: universalResolver,
+          data: reverseCalldata
+        });
+        if (!rawResult || rawResult === '0x' || rawResult.length < 194) {
+          return null;
+        }
+
+        // ABI decode first return value: string primary
+        const data = rawResult.slice(2);
+        const stringOffset = parseInt(data.slice(0, 64), 16) * 2;
+        const stringLength = parseInt(data.slice(stringOffset, stringOffset + 64), 16) * 2;
+        const stringHex = data.slice(stringOffset + 64, stringOffset + 64 + stringLength);
+        if (!stringHex) return null;
+
+        let ensName = '';
+        for (let i = 0; i < stringHex.length; i += 2) {
+          const code = parseInt(stringHex.slice(i, i + 2), 16);
+          if (code > 0) ensName += String.fromCharCode(code);
+        }
+        return ensName && ensName.endsWith('.eth') ? ensName : null;
+      };
+
+      // Use the wallet provider first when available. For real user flows this
+      // is usually the most reliable mainnet RPC the page already has.
+      if (typeof window !== 'undefined' && window.ethereum?.request) {
+        try {
+          const providerName = await tryResolveViaCaller(async ({ to, data }) => {
+            return await window.ethereum.request({
+              method: 'eth_call',
+              params: [{ to, data }, 'latest']
+            });
+          });
+          if (providerName) {
+            KAISIGN_DEBUG && console.log('[NameResolution] ENS resolved via wallet provider:', providerName);
+            return providerName;
+          }
+        } catch (providerError) {
+          KAISIGN_DEBUG && console.warn('[NameResolution] Wallet provider ENS lookup failed:', providerError.message);
+        }
+      }
+
       const publicRpcProviders = [
         'https://eth.llamarpc.com',
         'https://rpc.ankr.com/eth',
@@ -206,27 +263,26 @@ class NameResolutionService {
       // Try public RPC providers
       for (const provider of publicRpcProviders) {
         try {
-          const rpcResponse = await fetch(provider, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'eth_call',
-              params: [{
-                to: '0x084b1c3C81545d370f3634392De611CaaBFf8148', // ENS Reverse Registrar
-                data: `0x691f3431${reverseNode.slice(2)}` // name(bytes32 node)
-              }, 'latest']
-            })
-          });
-
-          const rpcData = await rpcResponse.json();
-          if (rpcData.result && rpcData.result !== '0x' && rpcData.result.length > 2) {
-            const ensName = this._decodeENSName(rpcData.result);
-            if (ensName && ensName.endsWith('.eth')) {
-              KAISIGN_DEBUG && console.log('[NameResolution] ENS resolved via', provider, ':', ensName);
-              return ensName;
+          const providerName = await tryResolveViaCaller(async ({ to, data }) => {
+            const resp = await fetch(provider, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'eth_call',
+                params: [{ to, data }, 'latest']
+              })
+            });
+            const rpcData = await resp.json();
+            if (rpcData.error) {
+              throw new Error(rpcData.error.message || 'RPC error');
             }
+            return rpcData.result;
+          });
+          if (providerName) {
+            KAISIGN_DEBUG && console.log('[NameResolution] ENS resolved via', provider, ':', providerName);
+            return providerName;
           }
         } catch (providerError) {
           KAISIGN_DEBUG && console.warn(`[NameResolution] Provider ${provider} failed:`, providerError.message);

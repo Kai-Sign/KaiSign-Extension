@@ -2474,9 +2474,27 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
     return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().replace('.000Z', 'Z');
   }
 
-  // address/addressName/addressOrName format - try to resolve to a human name
-  // Order: ERC-20 symbol (WETH, wstETH) → contract name (ParaSwap Augustus V6) → shortened addr
-  if (format === 'address' || format === 'addressName' || format === 'addressOrName') {
+  // address format - plain address field such as a transfer recipient.
+  // Do not substitute token symbols here; prefer ENS/Basename, then shorten.
+  if (format === 'address') {
+    const addr = String(value).toLowerCase();
+    if (window.nameResolutionService && addr.startsWith('0x') && addr.length === 42) {
+      try {
+        const resolvedName = await window.nameResolutionService.resolveName(addr, chainId);
+        if (resolvedName) return resolvedName;
+      } catch (e) {
+        KAISIGN_DEBUG && console.log('[applyFieldFormat] ENS/Basename lookup failed:', e.message);
+      }
+    }
+    if (addr.length === 42) {
+      return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+    }
+    return String(value);
+  }
+
+  // addressName/addressOrName format - semantic entity name fields where a
+  // token symbol or contract name is acceptable.
+  if (format === 'addressName' || format === 'addressOrName') {
     const addr = String(value).toLowerCase();
     const isShortenedFallback = (s) => typeof s === 'string' && /^0x[0-9a-f]{4}\.\.\.[0-9a-f]{4}$/i.test(s);
     if (window.nameResolutionService && addr.startsWith('0x') && addr.length === 42) {
