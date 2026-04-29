@@ -32,8 +32,8 @@
  *   - window.metadataService / window.getContractMetadata - the verification
  *     gate lives in subgraph-metadata.js; this file consumes the result but
  *     does not re-verify.
- *   - window.registryLoader - read-only ERC-standard selector cache, used as
- *     last-resort fallback when metadata + ABI lookup both fail.
+ *   - window.metadataService / window.getTokenInfo - helper accessors for
+ *     metadata-backed symbol/decimals formatting.
  *
  * Out of scope
  *   - On-chain verification (lives in onchain-verifier.js).
@@ -254,23 +254,17 @@ async function resolveUnknownSummaryAddressLabels(addresses, chainId) {
 
 async function buildUnknownCalldataSummary(data, chainId, baseTitle = '') {
   const selector = data?.slice(0, 10) || '0x';
-  const selectorInfo = window.registryLoader?.getSelectorInfo?.(selector);
   const words = extractCalldataWords(data);
   const addresses = extractAddressCandidates(words);
   const timestamps = extractTimestampCandidates(words);
   const { labels: addressLabels, tokenHints } = await resolveUnknownSummaryAddressLabels(addresses.slice(0, 4), chainId);
 
-  const title = baseTitle || (selectorInfo?.intent
-    ? `${selectorInfo.intent} on unknown contract`
-    : `Unknown call ${selector}`);
+  const title = baseTitle || `Unknown call ${selector}`;
 
   const lines = [
     `Selector: ${selector}`
   ];
 
-  if (selectorInfo?.signature) {
-    lines.push(`Known selector: ${selectorInfo.signature}`);
-  }
   if (addressLabels.length) {
     lines.push(`Address refs: ${addressLabels.join(', ')}`);
   }
@@ -658,53 +652,6 @@ async function decodeRuntimeFallback(selectorInfo, data, contractAddress, chainI
     function: selectorInfo.signature,
     params,
     formatted
-  };
-}
-
-async function buildRuntimeRegistryFallbackResult(data, contractAddress, chainId, contractName = '', metadata = null, errorMessage = '') {
-  const selector = data?.slice(0, 10)?.toLowerCase() || '0x';
-  const selectorInfo = window.registryLoader?.getSelectorInfo?.(selector);
-  if (!selectorInfo?.intent) return null;
-
-  const contractLabel = contractName || shortenHex(contractAddress);
-  const override = getRuntimeFallbackDefinition(selector, contractAddress);
-  const defaultTitle = override?.title
-    ? override.title(contractLabel)
-    : `${selectorInfo.intent} on ${contractLabel}`;
-
-  let decodedFallback = null;
-  try {
-    decodedFallback = await decodeRuntimeFallback(selectorInfo, data, contractAddress, chainId);
-  } catch (error) {
-    KAISIGN_DEBUG && console.warn('[Decode] Runtime fallback param decode failed:', error?.message || error);
-  }
-
-  let title = defaultTitle;
-  if (decodedFallback?.functionName && override?.abi?.inputs && decodedFallback?.formatted) {
-    const synthesizedIntent = buildStandardTokenIntent(
-      decodedFallback.functionName,
-      override.abi.inputs,
-      decodedFallback.formatted
-    );
-    if (synthesizedIntent) {
-      title = synthesizedIntent;
-    }
-  }
-
-  const unknownSummary = await buildUnknownCalldataSummary(data, chainId, title);
-
-  return {
-    success: false,
-    selector,
-    contractName,
-    metadata,
-    functionName: decodedFallback?.functionName || selectorInfo.name,
-    function: decodedFallback?.function || selectorInfo.signature,
-    params: decodedFallback?.params || {},
-    formatted: decodedFallback?.formatted || {},
-    intent: title,
-    unknownSummary,
-    error: errorMessage || 'Function not found in metadata ABI'
   };
 }
 
@@ -1161,15 +1108,6 @@ async function decodeCalldata(data, contractAddress, chainId) {
     // If no metadata from subgraph, return failure
     if (!metadata) {
       KAISIGN_DEBUG && console.log('[Decode] No metadata found, returning Contract interaction');
-      const runtimeFallback = await buildRuntimeRegistryFallbackResult(
-        data,
-        contractAddress,
-        chainId,
-        '',
-        null,
-        'No metadata found in subgraph'
-      );
-      if (runtimeFallback) return runtimeFallback;
       const unknownSummary = await buildUnknownCalldataSummary(data, chainId);
       return {
         success: false,
@@ -1218,15 +1156,6 @@ async function decodeCalldata(data, contractAddress, chainId) {
     if (!functionSignature && !functionName) {
       const contractName = metadata.context?.contract?.name || '';
       KAISIGN_DEBUG && console.log('[Decode] Function not found in metadata ABI:', { selector, contractName, abiLength: metadata.context?.contract?.abi?.length });
-      const runtimeFallback = await buildRuntimeRegistryFallbackResult(
-        data,
-        contractAddress,
-        chainId,
-        contractName,
-        metadata,
-        'Function not found in metadata ABI'
-      );
-      if (runtimeFallback) return runtimeFallback;
       const unknownSummary = await buildUnknownCalldataSummary(data, chainId, `Unknown function on ${contractName}`);
       return {
         success: false,
@@ -1256,7 +1185,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
         }
       }
       if (!format) {
-        KAISIGN_DEBUG && console.warn(`[Decode] No format found for function ${functionName} (signature ${functionSignature})`);
+        KAISIGN_DEBUG && console.log(`[Decode] No format found for function ${functionName} (signature ${functionSignature})`);
       }
     }
 
@@ -1467,7 +1396,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
               displayValue = symbol ? `${integerPart}.${fractionalStr} ${symbol}` : `${integerPart}.${fractionalStr}`;
               KAISIGN_DEBUG && console.log(`[Decode] INLINE formatted: "${displayValue}"`);
             } catch (e) {
-              console.error('[Decode] Inline format error:', e);
+              console.log('[Decode] Inline format error:', e);
               displayValue = rawValue;
             }
           }
@@ -1506,7 +1435,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
                 displayValue = rawValue;
               }
             } catch (e) {
-              console.warn('[Decode] tokenAmount format error:', e.message);
+              console.log('[Decode] tokenAmount format error:', e.message);
               displayValue = rawValue;
             }
           }
@@ -1819,7 +1748,7 @@ async function decodeCalldata(data, contractAddress, chainId) {
     };
     
   } catch (error) {
-    console.error('[Decode] Error:', error.message);
+    console.log('[Decode] Error:', error.message);
     const unknownSummary = await buildUnknownCalldataSummary(data, chainId);
     return {
       success: false,
@@ -1847,7 +1776,7 @@ function formatTokenAmount(rawValue, decimals, symbol) {
     const dec = Number(decimals);
     KAISIGN_DEBUG && console.log('[formatTokenAmount] dec after Number():', dec);
     if (isNaN(dec) || dec < 0) {
-      console.warn('[formatTokenAmount] Invalid decimals:', decimals);
+      console.log('[formatTokenAmount] Invalid decimals:', decimals);
       return rawValue;
     }
 
@@ -1870,7 +1799,7 @@ function formatTokenAmount(rawValue, decimals, symbol) {
     // certainly a mis-tagged packed bitfield (e.g. 1inch v6 partnerAndFee). Refuse to
     // pretty-print as a token amount; show raw hex so the user notices.
     if (value > (1n << 200n)) {
-      console.warn('[formatTokenAmount] value exceeds 2^200, refusing to format as token amount:', value.toString());
+      console.log('[formatTokenAmount] value exceeds 2^200, refusing to format as token amount:', value.toString());
       return `0x${value.toString(16)}`;
     }
 
@@ -1915,7 +1844,7 @@ function formatTokenAmount(rawValue, decimals, symbol) {
     KAISIGN_DEBUG && console.log('[formatTokenAmount] RESULT:', result);
     return result;
   } catch (e) {
-    console.error('[formatTokenAmount] Error:', e, 'rawValue:', rawValue, 'decimals:', decimals);
+    console.log('[formatTokenAmount] Error:', e, 'rawValue:', rawValue, 'decimals:', decimals);
     return rawValue;
   }
 }
@@ -2426,7 +2355,7 @@ async function substituteInterpolatedIntent(template, rawParams, fields, chainId
     // Find field spec for this path
     const fieldSpec = fields.find(f => f.path === pathStr);
     if (!fieldSpec) {
-      KAISIGN_DEBUG && console.warn(`[interpolatedIntent] No field spec found for path: ${pathStr}`);
+      KAISIGN_DEBUG && console.log(`[interpolatedIntent] No field spec found for path: ${pathStr}`);
       return { match: fullMatch, value: fullMatch };
     }
 
@@ -2435,7 +2364,7 @@ async function substituteInterpolatedIntent(template, rawParams, fields, chainId
     // Navigate to the value using the path
     const value = resolveFieldPath(pathStr, rawParams);
     if (value === undefined || value === null) {
-      KAISIGN_DEBUG && console.warn(`[interpolatedIntent] No value found for path: ${pathStr}`);
+      KAISIGN_DEBUG && console.log(`[interpolatedIntent] No value found for path: ${pathStr}`);
       return { match: fullMatch, value: fullMatch };
     }
 
@@ -2540,7 +2469,7 @@ function resolveFieldPath(pathStr, params) {
         value = value[idx];
       } else {
         // Not an array - log warning and return undefined
-        KAISIGN_DEBUG && console.warn('[resolveFieldPath] Array syntax used on non-array:', {
+        KAISIGN_DEBUG && console.log('[resolveFieldPath] Array syntax used on non-array:', {
           path: pathStr,
           part: part,
           valueType: typeof value,
@@ -2586,7 +2515,7 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
   if (format === 'tokenAmount') {
     const tokenPath = params.tokenPath;
     if (!tokenPath) {
-      KAISIGN_DEBUG && console.warn('[applyFieldFormat] tokenAmount format missing tokenPath');
+      KAISIGN_DEBUG && console.log('[applyFieldFormat] tokenAmount format missing tokenPath');
       return String(value);
     }
 
@@ -2606,7 +2535,7 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
 
     // Validate token address
     if (!tokenAddress || typeof tokenAddress !== 'string' || tokenAddress.length < 10) {
-      KAISIGN_DEBUG && console.warn('[applyFieldFormat] Invalid or missing token address:', {
+      KAISIGN_DEBUG && console.log('[applyFieldFormat] Invalid or missing token address:', {
         tokenAddress,
         tokenPath,
         pathValue: allParams.path
@@ -2631,7 +2560,7 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
           decimals = tokenInfo.decimals || 18;
           symbol = tokenInfo.symbol || '';
         } catch (error) {
-          KAISIGN_DEBUG && console.warn('[applyFieldFormat] Failed to fetch token metadata:', error.message);
+          KAISIGN_DEBUG && console.log('[applyFieldFormat] Failed to fetch token metadata:', error.message);
           symbol = `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
         }
       }

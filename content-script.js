@@ -1210,21 +1210,10 @@ function parsePermit2TypedData(typedData) {
   if (message.data && typeof message.data === 'string' && message.data.length > 10 && message.data.startsWith('0x')) {
     const selector = message.data.slice(0, 10);
 
-    // Try to get function name from selector
-    let functionName = null;
-    if (window.registryLoader) {
-      const selectorInfo = window.registryLoader.getSelectorInfo(selector);
-      if (selectorInfo?.name) {
-        functionName = selectorInfo.name;
-      }
-    }
-
     // Build intent based on what we know
     const toAddr = message.to ? formatAddressShort(message.to) : null;
     let intent;
-    if (functionName) {
-      intent = toAddr ? `${functionName} to ${toAddr}` : functionName;
-    } else if (toAddr) {
+    if (toAddr) {
       intent = `Call ${toAddr}`;
     } else {
       intent = `Sign ${primaryType}`;
@@ -1236,11 +1225,7 @@ function parsePermit2TypedData(typedData) {
     if (message.value && message.value !== '0' && message.value !== 0) {
       details.push(`value: ${message.value}`);
     }
-    if (functionName) {
-      details.push(`function: ${functionName}`);
-    } else {
-      details.push(`selector: ${selector}`);
-    }
+    details.push(`selector: ${selector}`);
     if (message.operation !== undefined) {
       details.push(`operation: ${message.operation === 0 ? 'Call' : message.operation === 1 ? 'DelegateCall' : message.operation}`);
     }
@@ -1467,16 +1452,8 @@ function parseMulticallData(calldata, structure) {
       const data = '0x' + packedData.slice(pos, pos + dataLength);
       pos += dataLength;
 
-      // Get selector and try to resolve function name
+      // Keep only the selector here; function naming must come from backend metadata.
       const selector = data.length >= 10 ? data.slice(0, 10) : null;
-      let functionName = null;
-
-      if (selector && window.registryLoader) {
-        const selectorInfo = window.registryLoader.getSelectorInfo(selector);
-        if (selectorInfo?.name) {
-          functionName = selectorInfo.name;
-        }
-      }
 
       // Get operation label from metadata or use raw value
       const opLabels = structure.operation?.labels;
@@ -1487,8 +1464,7 @@ function parseMulticallData(calldata, structure) {
         to,
         value,
         data,
-        selector,
-        functionName
+        selector
       });
     }
   } catch (e) {

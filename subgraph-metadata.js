@@ -278,7 +278,8 @@ class SubgraphMetadataService {
 
       // Fetch via KaiSign API /contract endpoint
       const apiBase = this.getLocalApiBase();
-      const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${normalizedChainId}`;
+      const selectorQuery = normalizedSelector ? `&selector=${encodeURIComponent(normalizedSelector)}` : '';
+      const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${normalizedChainId}${selectorQuery}`;
 
       const response = await this._fetchAndParseApiResponse(apiUrl, 'API');
 
