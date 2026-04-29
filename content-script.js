@@ -287,10 +287,14 @@ function saveTransactionDirect(transactionData) {
     chrome.storage.local.get(['kaisign-transactions', 'kaisign-settings'], (result) => {
       const existing = result['kaisign-transactions'] || [];
       const safeData = sanitizeForStorage(transactionData);
-      if (existing.some((tx) => tx.id === safeData.id)) return;
       const settings = result['kaisign-settings'] || {};
       const maxTx = settings.maxTransactions || 100;
-      existing.unshift(safeData);
+      const existingIndex = existing.findIndex((tx) => tx.id === safeData.id);
+      if (existingIndex >= 0) {
+        existing[existingIndex] = safeData;
+      } else {
+        existing.unshift(safeData);
+      }
       if (existing.length > maxTx) existing.splice(maxTx);
       chrome.storage.local.set({ 'kaisign-transactions': existing }, () => {});
     });
@@ -3391,13 +3395,25 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
 
   // Update verification badge asynchronously
   if (decodedResult?._verification || (typeof window !== 'undefined' && window.onChainVerifier)) {
+    const persistVerificationState = (verification) => {
+      if (!verification || !transactionData?.id) return;
+      if (decodedResult) {
+        decodedResult._verification = verification;
+      }
+      if (decodedResult?.metadata) {
+        decodedResult.metadata._verification = verification;
+      }
+      transactionData.decodedResult = decodedResult;
+      saveTransactionViaAllChannels(transactionData);
+    };
+
     const updateVerificationBadge = (verification) => {
       const badge = document.getElementById('kaisign-verification-badge');
       if (!badge) return;
 
       if (!verification) {
-        badge.textContent = 'Unverified';
-        badge.title = 'No on-chain verification available';
+        badge.textContent = 'No attestation';
+        badge.title = 'No on-chain verification result available';
         badge.style.background = 'rgba(156,163,175,0.2)';
         badge.style.color = '#9ca3af';
         return;
@@ -3408,14 +3424,34 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         badge.title = 'Metadata verified against on-chain registry';
         badge.style.background = 'rgba(34,197,94,0.2)';
         badge.style.color = '#22c55e';
+      } else if (verification.source === 'revoked') {
+        badge.textContent = 'Revoked';
+        badge.title = verification.details || 'Attestation has been revoked on-chain';
+        badge.style.background = 'rgba(239,68,68,0.2)';
+        badge.style.color = '#ef4444';
+      } else if (verification.source === 'proof-unavailable') {
+        badge.textContent = 'Unverified';
+        badge.title = verification.details || 'Backend did not provide Merkle sibling leaves';
+        badge.style.background = 'rgba(156,163,175,0.2)';
+        badge.style.color = '#9ca3af';
+      } else if (verification.source === 'root-unavailable') {
+        badge.textContent = 'Missing Merkle root';
+        badge.title = verification.details || 'Could not fetch the registry Merkle root';
+        badge.style.background = 'rgba(245,158,11,0.2)';
+        badge.style.color = '#f59e0b';
       } else if (verification.source === 'mismatch') {
-        badge.textContent = 'Mismatch';
+        badge.textContent = 'Hash mismatch';
         badge.title = verification.details || 'Metadata hash does not match on-chain record';
         badge.style.background = 'rgba(239,68,68,0.2)';
         badge.style.color = '#ef4444';
-      } else {
-        badge.textContent = 'Unverified';
+      } else if (verification.source === 'unattested') {
+        badge.textContent = 'No attestation';
         badge.title = verification.details || 'No on-chain attestation found';
+        badge.style.background = 'rgba(156,163,175,0.2)';
+        badge.style.color = '#9ca3af';
+      } else {
+        badge.textContent = 'Verification error';
+        badge.title = verification.details || 'Verification failed';
         badge.style.background = 'rgba(156,163,175,0.2)';
         badge.style.color = '#9ca3af';
       }
@@ -3424,6 +3460,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
     // Check if verification is already available on metadata
     const metadata = decodedResult?.metadata;
     if (metadata?._verification) {
+      persistVerificationState(metadata._verification);
       updateVerificationBadge(metadata._verification);
     } else {
       // Poll for verification result (it runs async)
@@ -3431,6 +3468,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       const pollInterval = setInterval(() => {
         pollCount++;
         if (metadata?._verification) {
+          persistVerificationState(metadata._verification);
           updateVerificationBadge(metadata._verification);
           clearInterval(pollInterval);
         } else if (pollCount > 40) {

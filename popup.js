@@ -74,7 +74,7 @@ async function loadData() {
       renderTransactions();
     });
   } catch (error) {
-    console.error('[KaiSign] Load error:', error);
+    console.log('[KaiSign] Load error:', error);
     showToast('Failed to load data', 'error');
   }
 }
@@ -162,11 +162,66 @@ function filterTransactions(txs) {
 }
 
 function getTransactionStatus(tx) {
+  const verification = tx.decodedResult?.metadata?._verification || tx.decodedResult?._verification || null;
   const error = tx.decodedResult?.error || '';
   const statusTitle = tx.decodedResult?.statusTitle || '';
   const statusDetail = tx.decodedResult?.statusDetail || '';
   const intentLower = (tx.intent || '').toLowerCase();
   const errorLower = error.toLowerCase();
+
+  if (verification?.verified) {
+    return {
+      label: 'Verified',
+      tone: 'success',
+      useAsTitle: false,
+      detail: verification.details || 'Metadata verified against on-chain registry.'
+    };
+  }
+
+  if (verification?.source === 'revoked') {
+    return {
+      label: 'Revoked',
+      tone: 'error',
+      useAsTitle: true,
+      detail: verification.details || 'Attestation has been revoked on-chain.'
+    };
+  }
+
+  if (verification?.source === 'proof-unavailable') {
+    return {
+      label: 'Unverified',
+      tone: 'warning',
+      useAsTitle: true,
+      detail: verification.details || 'Backend did not provide Merkle sibling leaves.'
+    };
+  }
+
+  if (verification?.source === 'root-unavailable') {
+    return {
+      label: 'Missing Merkle root',
+      tone: 'warning',
+      useAsTitle: true,
+      detail: verification.details || 'Could not fetch the registry Merkle root.'
+    };
+  }
+
+  if (verification?.source === 'mismatch') {
+    return {
+      label: 'Hash mismatch',
+      tone: 'error',
+      useAsTitle: true,
+      detail: verification.details || 'Metadata hash does not match the on-chain attestation.'
+    };
+  }
+
+  if (verification?.source === 'unattested') {
+    return {
+      label: 'Unverified',
+      tone: 'warning',
+      useAsTitle: true,
+      detail: verification.details || 'No attestation for this metadata in the registry Merkle tree.'
+    };
+  }
 
   if (error) {
     if (errorLower.includes('metadata')) {
@@ -254,6 +309,7 @@ function getContextLine(tx, status) {
 }
 
 function getTxIconLabel(tx, status) {
+  if (status?.tone === 'success') return 'OK';
   if (tx.isEIP712) return 'SIG';
   if (status?.tone === 'warning') return 'META';
   if (status?.tone === 'error') return 'ERR';
@@ -449,7 +505,7 @@ async function handleExport(format) {
       showToast(`Exported as ${format.toUpperCase()}`, 'success');
     });
   } catch (error) {
-    console.error('[KaiSign] Export error:', error);
+    console.log('[KaiSign] Export error:', error);
     showToast('Export failed', 'error');
   }
 }

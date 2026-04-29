@@ -14,7 +14,7 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_VERIFICATION_STATUS = {
-  registryAddress: '0x122d1ad78fdda6829f104cb8cbb56e5561e56ba8',
+  registryAddress: '0x60204745695F375cA2695bA433eB2fa39724e834',
   merkleRoot: null,
   verificationMode: 'manual',
   lastUpdated: null,
@@ -59,8 +59,13 @@ async function saveTransaction(transaction) {
     const settings = await getSettings();
     const result = await chrome.storage.local.get([STORAGE_KEYS.TRANSACTIONS]);
     const transactions = result[STORAGE_KEYS.TRANSACTIONS] || [];
-    if (transaction?.id && transactions.some((tx) => tx.id === transaction.id)) {
-      return { success: true, count: transactions.length, deduped: true };
+    const existingIndex = transaction?.id
+      ? transactions.findIndex((tx) => tx.id === transaction.id)
+      : -1;
+    if (existingIndex >= 0) {
+      transactions[existingIndex] = transaction;
+      await chrome.storage.local.set({ [STORAGE_KEYS.TRANSACTIONS]: transactions });
+      return { success: true, count: transactions.length, updated: true };
     }
     transactions.unshift(transaction);
     const maxTx = settings.maxTransactions || 100;

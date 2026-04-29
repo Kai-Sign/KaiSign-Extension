@@ -103,6 +103,13 @@ export class RemoteMetadataService {
       if (registryAddress) {
         metadata._registryAddress = registryAddress;
       }
+      metadata._proofs =
+        data.proofs ||
+        data.merkleProofs ||
+        data.proof ||
+        data.attestationProofs ||
+        metadata._proofs ||
+        null;
 
       // v1.0.0 KaiSign backend response envelope (single shape across all
       // /api/py/contract/{address} paths): { success, blob_hash, metadata,

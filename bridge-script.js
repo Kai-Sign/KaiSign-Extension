@@ -178,6 +178,16 @@ window.addEventListener('message', (event) => {
       });
       break;
 
+    case 'KAISIGN_GET_VERIFICATION_STATUS':
+      safeSendMessage({ type: 'GET_VERIFICATION_STATUS' }, (response) => {
+        window.postMessage({
+          type: 'KAISIGN_VERIFICATION_STATUS_RESPONSE',
+          status: response?.status || null,
+          error: response?.error
+        }, '*');
+      });
+      break;
+
     case 'KAISIGN_SAVE_VERIFICATION_STATUS':
       safeSendMessage({
         type: 'SAVE_VERIFICATION_STATUS',

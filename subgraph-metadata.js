@@ -347,9 +347,19 @@ class SubgraphMetadataService {
         metadata._registryAddress = registryAddress;
       }
 
-      // v1.0.0: backend serves only (chainId, extcodehash, metadata). Leaf
-      // hashes and merkle proofs are computed client-side against the cached
-      // registry merkleRoot — see onchain-verifier.js + merkle-tree.js.
+      // Preserve proof material from the backend response when available.
+      // The verifier consumes this directly and no longer relies on a bundled
+      // local seed tree as a primary proof source.
+      metadata._proofs =
+        response.proofs ||
+        response.merkleProofs ||
+        response.proof ||
+        response.attestationProofs ||
+        metadata._proofs ||
+        null;
+
+      // Preferred verification model: backend returns proof material, client
+      // verifies that proof against the live registry merkle root.
 
       // Check if the metadata has the format for this selector
       // If not, and it's a Diamond proxy, try fetching facet metadata
