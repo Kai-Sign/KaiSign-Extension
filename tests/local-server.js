@@ -67,7 +67,7 @@ app.get('/api/py/contract/:address', async (req, res) => {
       return res.json({ success: false, error: 'Metadata not found' });
     }
   } catch (err) {
-    console.error(`  -> Error: ${err.message}`);
+    console.log(`  -> Error: ${err.message}`);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -100,7 +100,7 @@ app.get('/api/py/eip712/:contract/:primaryType', async (req, res) => {
       return res.json({ success: false, error: 'EIP-712 metadata not found' });
     }
   } catch (err) {
-    console.error(`  -> Error: ${err.message}`);
+    console.log(`  -> Error: ${err.message}`);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -171,6 +171,6 @@ async function start() {
 }
 
 start().catch(err => {
-  console.error('Failed to start server:', err);
+  console.log('Failed to start server:', err);
   process.exit(1);
 });

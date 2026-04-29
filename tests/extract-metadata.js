@@ -48,7 +48,7 @@ for (const testFile of testFiles) {
 
       index++;
     } catch (e) {
-      console.error(`  Error parsing metadata: ${e.message}`);
+      console.log(`  Error parsing metadata: ${e.message}`);
     }
   }
 }

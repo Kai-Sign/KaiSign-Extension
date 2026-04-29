@@ -109,7 +109,7 @@ async function main() {
 
   const metadataDir = path.join(FIXTURES_PATH, 'metadata');
   if (!fs.existsSync(metadataDir)) {
-    console.error('Error: No metadata directory found at', metadataDir);
+    console.log('Error: No metadata directory found at', metadataDir);
     process.exit(1);
   }
 
@@ -164,7 +164,7 @@ async function main() {
 
       await sleep(DELAY_MS);
     } catch (e) {
-      console.error(`  Error processing ${filePath}:`, e.message);
+      console.log(`  Error processing ${filePath}:`, e.message);
       skipped.push({ fixture: path.relative(FIXTURES_PATH, filePath), reason: e.message });
     }
   }
@@ -228,6 +228,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('Audit failed:', err);
+  console.log('Audit failed:', err);
   process.exit(1);
 });

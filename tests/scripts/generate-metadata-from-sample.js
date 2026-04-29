@@ -219,6 +219,6 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('[generate-metadata-from-sample] fatal:', error);
+  console.log('[generate-metadata-from-sample] fatal:', error);
   process.exit(1);
 });

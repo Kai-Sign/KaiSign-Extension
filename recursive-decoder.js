@@ -116,7 +116,7 @@ class RecursiveCalldataDecoder {
     // Do NOT include depth in key - depth changes naturally in recursion
     const stackKey = `${targetAddress?.toLowerCase()}:${selector}`;
     if (this.decodingStack.includes(stackKey)) {
-      KAISIGN_DEBUG && console.warn(`[RecursiveDecoder] Cycle detected: ${stackKey}`);
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] Cycle detected: ${stackKey}`);
       return {
         success: false,
         error: 'Recursive cycle detected',
@@ -556,7 +556,7 @@ class RecursiveCalldataDecoder {
     // Use passed structure - no fallback, must come from metadata
     const structure = multicallStructure;
     if (!structure) {
-      KAISIGN_DEBUG && console.warn('[RecursiveDecoder] No multicall structure in metadata');
+      KAISIGN_DEBUG && console.log('[RecursiveDecoder] No multicall structure in metadata');
       return { error: 'No multicall structure in metadata', operations: [] };
     }
     KAISIGN_DEBUG && console.log('[RecursiveDecoder] Using multicall structure:', Object.keys(structure));

@@ -59,7 +59,7 @@ class KaiSignMerkleTree {
     for (let i = 0; i < seedLeaves.length; i++) {
       const v = seedLeaves[i];
       if (typeof v !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(v)) {
-        console.warn('[MerkleTree] dropping malformed seed leaf at', i, v);
+        console.log('[MerkleTree] dropping malformed seed leaf at', i, v);
         continue;
       }
       this.leaves.push(v.toLowerCase());

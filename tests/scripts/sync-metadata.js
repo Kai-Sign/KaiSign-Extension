@@ -392,12 +392,12 @@ Examples:
     try {
       const response = await fetch(`${apiUrl}/admin/state`);
       if (!response.ok) {
-        console.error(`Error: Fork server at ${apiUrl} returned ${response.status}`);
+        console.log(`Error: Fork server at ${apiUrl} returned ${response.status}`);
         process.exit(1);
       }
     } catch (e) {
-      console.error(`Error: Cannot reach fork server at ${apiUrl}`);
-      console.error(`Make sure the server is running: cd kaisign-state-reader && node src/index.js serve`);
+      console.log(`Error: Cannot reach fork server at ${apiUrl}`);
+      console.log(`Make sure the server is running: cd kaisign-state-reader && node src/index.js serve`);
       process.exit(1);
     }
   }
@@ -417,6 +417,6 @@ Examples:
 }
 
 main().catch(err => {
-  console.error('Error:', err.message);
+  console.log('Error:', err.message);
   process.exit(1);
 });

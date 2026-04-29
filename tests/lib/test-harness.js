@@ -265,7 +265,7 @@ export class TestHarness {
     // NEW: Intent must NOT contain (negative validation)
     if (expected.intentDoesNotContain) {
       if (result.intent?.includes(expected.intentDoesNotContain)) {
-        console.error(`Intent should not contain "${expected.intentDoesNotContain}"`);
+        console.log(`Intent should not contain "${expected.intentDoesNotContain}"`);
         return false;
       }
     }
@@ -273,7 +273,7 @@ export class TestHarness {
     // intentNotContains - alias for intentDoesNotContain
     if (expected.intentNotContains) {
       if (result.intent?.includes(expected.intentNotContains)) {
-        console.error(`Intent should not contain "${expected.intentNotContains}" but got: ${result.intent}`);
+        console.log(`Intent should not contain "${expected.intentNotContains}" but got: ${result.intent}`);
         return false;
       }
     }
@@ -284,38 +284,38 @@ export class TestHarness {
         ? expected.intentMatches
         : new RegExp(expected.intentMatches);
       if (!regex.test(result.intent || '')) {
-        console.error(`Intent should match ${regex} but got: ${result.intent}`);
+        console.log(`Intent should match ${regex} but got: ${result.intent}`);
         return false;
       }
     }
 
     if (expected.unknownSummary) {
       if (!result.unknownSummary) {
-        console.error('Expected unknownSummary object');
+        console.log('Expected unknownSummary object');
         return false;
       }
 
       if (expected.unknownSummary.selector && result.unknownSummary.selector !== expected.unknownSummary.selector) {
-        console.error(`unknownSummary selector mismatch: expected ${expected.unknownSummary.selector}, got ${result.unknownSummary.selector}`);
+        console.log(`unknownSummary selector mismatch: expected ${expected.unknownSummary.selector}, got ${result.unknownSummary.selector}`);
         return false;
       }
 
       if (expected.unknownSummary.addressCount !== undefined &&
           result.unknownSummary.addressCount !== expected.unknownSummary.addressCount) {
-        console.error(`unknownSummary addressCount mismatch: expected ${expected.unknownSummary.addressCount}, got ${result.unknownSummary.addressCount}`);
+        console.log(`unknownSummary addressCount mismatch: expected ${expected.unknownSummary.addressCount}, got ${result.unknownSummary.addressCount}`);
         return false;
       }
 
       if (expected.unknownSummary.addressCountMin !== undefined &&
           (result.unknownSummary.addressCount || 0) < expected.unknownSummary.addressCountMin) {
-        console.error(`unknownSummary addressCount too small: expected at least ${expected.unknownSummary.addressCountMin}, got ${result.unknownSummary.addressCount}`);
+        console.log(`unknownSummary addressCount too small: expected at least ${expected.unknownSummary.addressCountMin}, got ${result.unknownSummary.addressCount}`);
         return false;
       }
 
       if (expected.unknownSummary.tokenHintsContain) {
         for (const tokenHint of expected.unknownSummary.tokenHintsContain) {
           if (!result.unknownSummary.tokenHints?.includes(tokenHint)) {
-            console.error(`unknownSummary missing token hint: ${tokenHint}`);
+            console.log(`unknownSummary missing token hint: ${tokenHint}`);
             return false;
           }
         }
@@ -325,7 +325,7 @@ export class TestHarness {
         for (const snippet of expected.unknownSummary.linesContain) {
           const found = result.unknownSummary.lines?.some(line => line.includes(snippet));
           if (!found) {
-            console.error(`unknownSummary missing line containing: ${snippet}`);
+            console.log(`unknownSummary missing line containing: ${snippet}`);
             return false;
           }
         }
@@ -335,26 +335,26 @@ export class TestHarness {
     // NEW: Decoded commands validation (Uniswap command registry)
     if (expected.decodedCommands) {
       if (!Array.isArray(result.decodedCommands)) {
-        console.error('Expected decodedCommands array, got:', typeof result.decodedCommands);
+        console.log('Expected decodedCommands array, got:', typeof result.decodedCommands);
         return false;
       }
       if (result.decodedCommands.length !== expected.decodedCommands.length) {
-        console.error(`Command count: expected ${expected.decodedCommands.length}, got ${result.decodedCommands.length}`);
+        console.log(`Command count: expected ${expected.decodedCommands.length}, got ${result.decodedCommands.length}`);
         return false;
       }
       for (let i = 0; i < expected.decodedCommands.length; i++) {
         const exp = expected.decodedCommands[i];
         const act = result.decodedCommands[i];
         if (exp.command && act.command !== exp.command) {
-          console.error(`Command ${i} opcode mismatch: expected ${exp.command}, got ${act.command}`);
+          console.log(`Command ${i} opcode mismatch: expected ${exp.command}, got ${act.command}`);
           return false;
         }
         if (exp.name && act.name !== exp.name) {
-          console.error(`Command ${i} name mismatch: expected ${exp.name}, got ${act.name}`);
+          console.log(`Command ${i} name mismatch: expected ${exp.name}, got ${act.name}`);
           return false;
         }
         if (exp.intent && act.intent !== exp.intent) {
-          console.error(`Command ${i} intent mismatch: expected "${exp.intent}", got "${act.intent}"`);
+          console.log(`Command ${i} intent mismatch: expected "${exp.intent}", got "${act.intent}"`);
           return false;
         }
       }
@@ -457,7 +457,7 @@ export class TestHarness {
     if (expected.nestedIntents && Array.isArray(expected.nestedIntents)) {
       const actualNested = result.nestedIntents || result.allIntents || [];
       if (actualNested.length !== expected.nestedIntents.length) {
-        console.error(`Nested count: expected ${expected.nestedIntents.length}, got ${actualNested.length}`);
+        console.log(`Nested count: expected ${expected.nestedIntents.length}, got ${actualNested.length}`);
         return false;
       }
 
@@ -469,17 +469,17 @@ export class TestHarness {
           // Exact string match or substring
           const actStr = typeof act === 'string' ? act : act?.intent || act?.toString() || '';
           if (actStr !== exp && !actStr.includes(exp)) {
-            console.error(`Nested intent ${i}: expected "${exp}", got "${actStr}"`);
+            console.log(`Nested intent ${i}: expected "${exp}", got "${actStr}"`);
             return false;
           }
         } else {
           // Object validation
           if (exp.intent && act.intent !== exp.intent) {
-            console.error(`Nested intent ${i} text mismatch`);
+            console.log(`Nested intent ${i} text mismatch`);
             return false;
           }
           if (exp.functionName && act.functionName !== exp.functionName) {
-            console.error(`Nested intent ${i} function mismatch`);
+            console.log(`Nested intent ${i} function mismatch`);
             return false;
           }
         }
@@ -538,7 +538,7 @@ export class TestHarness {
         try {
           formattedDisplay = await globalThis.window.formatEIP712Display(typedData, metadata);
         } catch (e) {
-          console.warn('[TestHarness] formatEIP712Display failed:', e.message);
+          console.log('[TestHarness] formatEIP712Display failed:', e.message);
         }
       }
       

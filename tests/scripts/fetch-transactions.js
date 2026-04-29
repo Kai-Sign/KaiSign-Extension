@@ -44,12 +44,12 @@ async function fetchRecentTransactions(address, chainId = 1, maxTxs = 100) {
 
     // V2 API requires a V2-enabled API key
     if (data.message === 'NOTOK' && data.result?.includes('Invalid API Key')) {
-      console.warn(`  [WARN] Etherscan V2 API requires a V2-enabled API key. Get one at https://etherscan.io/myapikey`);
+      console.log(`  [WARN] Etherscan V2 API requires a V2-enabled API key. Get one at https://etherscan.io/myapikey`);
     }
 
     return [];
   } catch (e) {
-    console.error(`[Etherscan] Error fetching transactions:`, e.message);
+    console.log(`[Etherscan] Error fetching transactions:`, e.message);
     return [];
   }
 }
@@ -76,7 +76,7 @@ async function fetchTransactionByHash(txHash, chainId = 1) {
     }
     return null;
   } catch (e) {
-    console.error(`[Alchemy] Error fetching tx ${txHash}:`, e.message);
+    console.log(`[Alchemy] Error fetching tx ${txHash}:`, e.message);
     return null;
   }
 }
@@ -268,7 +268,7 @@ async function main() {
   console.log('='.repeat(60));
 
   if (!ETHERSCAN_API_KEY) {
-    console.warn('[Warning] ETHERSCAN_API_KEY not set. Using rate-limited access.');
+    console.log('[Warning] ETHERSCAN_API_KEY not set. Using rate-limited access.');
   }
 
   const allTransactions = {

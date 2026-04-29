@@ -42,11 +42,11 @@ async function fetchAbiFromEtherscan(address, chainId = 1) {
     if (data.status === '1' && data.result) {
       return JSON.parse(data.result);
     } else {
-      console.warn(`[Etherscan] Failed to fetch ABI for ${address}: ${data.message || data.result}`);
+      console.log(`[Etherscan] Failed to fetch ABI for ${address}: ${data.message || data.result}`);
       return null;
     }
   } catch (e) {
-    console.error(`[Etherscan] Error fetching ABI for ${address}:`, e.message);
+    console.log(`[Etherscan] Error fetching ABI for ${address}:`, e.message);
     return null;
   }
 }
@@ -66,7 +66,7 @@ async function fetchFromKaiSignApi(address, chainId = 1) {
     }
     return null;
   } catch (e) {
-    console.warn(`[KaiSign API] Failed to fetch for ${address}:`, e.message);
+    console.log(`[KaiSign API] Failed to fetch for ${address}:`, e.message);
     return null;
   }
 }
@@ -291,7 +291,7 @@ async function main() {
   console.log('='.repeat(60));
 
   if (!ETHERSCAN_API_KEY) {
-    console.warn('[Warning] ETHERSCAN_API_KEY not set. Using rate-limited access.');
+    console.log('[Warning] ETHERSCAN_API_KEY not set. Using rate-limited access.');
   }
 
   const contracts = getAllContractAddresses();

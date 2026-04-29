@@ -374,6 +374,6 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('[sample] fatal:', error);
+  console.log('[sample] fatal:', error);
   process.exit(1);
 });

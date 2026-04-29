@@ -3388,7 +3388,7 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
       if (!badge) return;
 
       if (!verification) {
-        badge.textContent = 'No attestation';
+        badge.textContent = 'Unverified';
         badge.title = 'No on-chain verification result available';
         badge.style.background = 'rgba(156,163,175,0.2)';
         badge.style.color = '#9ca3af';
@@ -3421,8 +3421,8 @@ async function showEnhancedTransactionInfo(tx, method, intent, walletName = 'Wal
         badge.style.background = 'rgba(239,68,68,0.2)';
         badge.style.color = '#ef4444';
       } else if (verification.source === 'unattested') {
-        badge.textContent = 'No attestation';
-        badge.title = verification.details || 'No on-chain attestation found';
+        badge.textContent = 'Unverified';
+        badge.title = verification.details || 'Unverified';
         badge.style.background = 'rgba(156,163,175,0.2)';
         badge.style.color = '#9ca3af';
       } else {

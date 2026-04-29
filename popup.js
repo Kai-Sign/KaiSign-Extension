@@ -219,7 +219,7 @@ function getTransactionStatus(tx) {
       label: 'Unverified',
       tone: 'warning',
       useAsTitle: true,
-      detail: verification.details || 'No attestation for this metadata in the registry Merkle tree.'
+      detail: verification.details || 'Unverified'
     };
   }
 

@@ -522,6 +522,6 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('[sweep] fatal:', error);
+  console.log('[sweep] fatal:', error);
   process.exit(1);
 });

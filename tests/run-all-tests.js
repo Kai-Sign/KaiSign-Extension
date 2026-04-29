@@ -203,6 +203,6 @@ async function main() {
 
 // Run main
 main().catch(error => {
-  console.error('Fatal error:', error);
+  console.log('Fatal error:', error);
   process.exit(1);
 });
