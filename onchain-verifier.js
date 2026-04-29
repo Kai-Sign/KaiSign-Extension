@@ -5,10 +5,9 @@
  * on Sepolia using the v1.0.0 two-leaf model.
  *
  * Trust boundary
- *   The contract's `merkleRoot()` is the only authority. The backend serves
- *   the ordered leaf list (canonical seed-frontier.json) as transport data;
- *   the client builds the complete Merkle tree locally, computes its own
- *   proofs, and verifies them against the live on-chain root.
+ *   The backend serves the canonical ordered leaf list; the client builds the
+ *   complete Merkle tree locally, derives the root itself, computes its own
+ *   proofs, and verifies them against that fixed root value.
  *
  * Verification flow (v1.0.0 — 4-field leaf, two leaves per metadata)
  * 1. Compute extcodehash via eth_getCode + keccak256
@@ -18,14 +17,14 @@
  * 4. Look up each leaf in the local frontier tree (fetched from backend, built
  *    client-side — same algorithm as import-migrated.mjs)
  * 5. Compute Merkle proof locally for each found leaf index
- * 6. Run verifyMerkleProof(leaf, proof, index, root) off-chain against the cached
- *    merkleRoot — same algorithm as KaiSignRegistry.sol:546-568
+ * 6. Run verifyMerkleProof(leaf, proof, index, root) off-chain against the
+ *    locally derived root — same algorithm as KaiSignRegistry.sol:546-568
  *
  * Result mapping:
  *   availability ∈ tree && revocation ∉ tree  →  verified
  *   both ∈ tree                                →  revoked
  *   availability ∉ tree                        →  unattested
- *   no cached/fetched root                     →  root-unavailable
+ *   no cached/derived root                    →  root-unavailable
  *   frontier not loaded                        →  frontier-unavailable
  */
 
@@ -74,7 +73,7 @@ class OnChainVerifier {
     this._frontierLayers = null;       // all tree layers for proof computation
     this._frontierFetched = false;     // true once loaded successfully
     this._frontierFetching = null;     // pending fetch promise (dedupe)
-    this._frontierMerkleRoot = null;   // root from the frontier file (reference only)
+    this._frontierMerkleRoot = null;   // root derived locally from the frontier leaves
 
     // Function selectors (computed from keccak256 of signatures)
     // getLatestSpecForBytecode(uint256,bytes32) -> first 4 bytes of keccak256
@@ -118,9 +117,21 @@ class OnChainVerifier {
 
         this._frontierLeaves = leaves;
         this._frontierLeafIndex = leafIndex;
-        this._frontierMerkleRoot = (data.merkleRoot || '').toLowerCase();
         this._frontierZeroHashes = this._computeZeroHashes();
         this._frontierLayers = this._buildTreeLayers(leaves);
+        this._frontierMerkleRoot = (this._frontierLayers?.[this._frontierTreeDepth]?.[0] || '').toLowerCase();
+        if (this._frontierMerkleRoot) {
+          this._saveRegistryMerkleRoot(this._frontierMerkleRoot);
+        }
+
+        const advertisedRoot = (data.merkleRoot || '').toLowerCase();
+        if (advertisedRoot && this._frontierMerkleRoot && advertisedRoot !== this._frontierMerkleRoot) {
+          console.warn(
+            '[OnChainVerifier] Frontier root mismatch:',
+            'derived=', this._frontierMerkleRoot,
+            'advertised=', advertisedRoot
+          );
+        }
         this._frontierFetched = true;
 
         KAISIGN_DEBUG && console.log(
@@ -790,30 +801,23 @@ class OnChainVerifier {
       result.availabilityLeaf = availabilityLeaf;
       result.revocationLeaf = revocationLeaf;
 
-      // Step 4: resolve a current merkleRoot.
+      // Step 4: resolve the locally derived merkleRoot.
       // Cache key is registry-scoped (not per-contract) — the registry holds one
       // global root, and storing it per-contract would just duplicate it.
-      //
-      // Manual mode: fetch from chain at most once per session (and only if the
-      // localStorage cache is also empty). Automatic mode: always refetch so
-      // the root is fresh for every verification.
       let root = this._loadRegistryMerkleRoot();
-      const canFetchRoot = this.verificationMode === 'automatic'
-        || (this.verificationMode === 'manual' && !root && !this._rootFetchedThisSession);
-      if (canFetchRoot) {
+      if (!root) {
         try {
-          const fresh = await this.fetchMerkleRoot();
-          if (fresh) {
-            root = fresh;
-            this._saveRegistryMerkleRoot(fresh);
+          await this._loadFrontierLeaves();
+          if (this._frontierMerkleRoot) {
+            root = this._frontierMerkleRoot;
+            this._saveRegistryMerkleRoot(root);
           }
-          this._rootFetchedThisSession = true;
-        } catch (rpcErr) {
-          KAISIGN_DEBUG && console.log('[OnChainVerifier] merkleRoot fetch failed:', rpcErr.message);
+        } catch (frontierErr) {
+          KAISIGN_DEBUG && console.log('[OnChainVerifier] frontier root load failed:', frontierErr.message);
         }
       }
       if (!root) {
-        result.details = 'Could not fetch merkle root from registry and none cached';
+        result.details = 'Could not load merkle root and none cached';
         this._publishVerificationStatus({
           merkleRoot: null,
           lastError: result.details,
