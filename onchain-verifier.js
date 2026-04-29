@@ -5,17 +5,17 @@
  * on Sepolia using the v1.0.0 two-leaf model.
  *
  * Trust boundary
- *   The contract's `merkleRoot()` is the only authority. The backend serves
- *   only `(chainId, extcodehash, metadata)` and is NEVER trusted for leaf
- *   hashes or proofs — those are computed locally so a compromised backend
- *   cannot forge attestations.
+ *   The contract's `merkleRoot()` is the only authority. The backend may serve
+ *   Merkle sibling paths / indices as transport data, but the client still
+ *   recomputes candidate leaves locally and verifies those paths against the
+ *   live on-chain root before trusting them.
  *
  * Verification flow (v1.0.0 — 4-field leaf, two leaves per metadata)
  * 1. Compute extcodehash via eth_getCode + keccak256
  * 2. Compute metadataHash = keccak256(canonical(metadata))
  * 3. Build availabilityLeaf = keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, false))
  *    Build revocationLeaf   = keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, true))
- * 4. Generate proofs locally via merkle-tree.js (mirrors KaiSignRegistry._insertLeaf)
+ * 4. Read backend-supplied proof data (index + sibling hashes) for each leaf
  * 5. Run verifyMerkleProof(leaf, proof, index, root) off-chain against the cached
  *    merkleRoot — same algorithm as KaiSignRegistry.sol:546-568
  *
@@ -33,11 +33,12 @@ if (window.onChainVerifier) {
 
 console.log('[KaiSign] On-chain verifier loading...');
 const KAISIGN_DEBUG = false;
+const DEFAULT_REGISTRY_ADDRESS = '0x60204745695F375cA2695bA433eB2fa39724e834';
 
 class OnChainVerifier {
   constructor(config = {}) {
     this.registryAddress = this._normalizeRegistryAddress(
-      config.registryAddress || '0x122D1ad78FddA6829F104cb8cBB56E5561E56Ba8'
+      config.registryAddress || DEFAULT_REGISTRY_ADDRESS
     );
 
     // RPC URLs - local override is checked dynamically in _getRpcUrl()
@@ -137,16 +138,28 @@ class OnChainVerifier {
       }
     };
 
+    const applyVerificationStatus = (status) => {
+      if (!status || typeof status !== 'object') return;
+      const nextRegistry = this._normalizeRegistryAddress(status.registryAddress);
+      if (nextRegistry && nextRegistry !== this.registryAddress) {
+        this.setRegistryAddress(nextRegistry);
+      }
+    };
+
     window.addEventListener('message', (event) => {
       if (event.source !== window) return;
       const t = event.data?.type;
       if (t === 'KAISIGN_SETTINGS_RESPONSE' || t === 'KAISIGN_SETTINGS_UPDATED') {
         applySettings(event.data.settings);
+      } else if (t === 'KAISIGN_VERIFICATION_STATUS_RESPONSE'
+        || t === 'KAISIGN_SAVE_VERIFICATION_STATUS_RESPONSE') {
+        applyVerificationStatus(event.data.status);
       }
     });
 
     try {
       window.postMessage({ type: 'KAISIGN_GET_SETTINGS' }, '*');
+      window.postMessage({ type: 'KAISIGN_GET_VERIFICATION_STATUS' }, '*');
     } catch { /* bridge may not be present in test harness */ }
   }
 
@@ -170,11 +183,11 @@ class OnChainVerifier {
         KAISIGN_DEBUG && console.log('[OnChainVerifier] Selectors computed:', this.selectors);
       } else {
         // Fallback: selectors stay empty, verification will gracefully skip
-        KAISIGN_DEBUG && console.warn('[OnChainVerifier] keccak256Simple not available, selectors not computed');
+        KAISIGN_DEBUG && console.log('[OnChainVerifier] keccak256Simple not available, selectors not computed');
         this.selectors = {};
       }
     } catch (e) {
-      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to compute selectors:', e.message);
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] Failed to compute selectors:', e.message);
     }
   }
 
@@ -298,7 +311,7 @@ class OnChainVerifier {
       this._extcodehashCache.set(cacheKey, hash);
       return hash;
     } catch (e) {
-      KAISIGN_DEBUG && console.warn('[OnChainVerifier] Failed to get extcodehash:', e.message);
+      KAISIGN_DEBUG && console.log('[OnChainVerifier] Failed to get extcodehash:', e.message);
       return null;
     }
   }
@@ -520,10 +533,13 @@ class OnChainVerifier {
   _canonicalStringify(obj) {
     return JSON.stringify(obj, (key, value) => {
       if (value && typeof value === 'object' && !Array.isArray(value)) {
-        return Object.keys(value).sort().reduce((sorted, k) => {
-          sorted[k] = value[k];
-          return sorted;
-        }, {});
+        return Object.keys(value)
+          .filter((k) => !k.startsWith('_'))
+          .sort()
+          .reduce((sorted, k) => {
+            sorted[k] = value[k];
+            return sorted;
+          }, {});
       }
       return value;
     });
@@ -538,11 +554,9 @@ class OnChainVerifier {
    *   3. Build availabilityLeaf (revoked=false) and revocationLeaf (revoked=true)
    *      from the new 4-field LEAF_TYPEHASH
    *   4. Resolve a current merkleRoot — load from cache if present, else fetch
-   *      from `merkleRoot()` on the registry. The merkle-tree indexer keeps the
-   *      cache fresh on its own TTL; this step is just the look-up.
-   *   5. Ask the local merkle-tree indexer (window.kaisignMerkleTree) to prove
-   *      each leaf's membership against the cached leaf set, and verify each
-   *      proof off-chain via the same algorithm as KaiSignRegistry.verifyMerkleProof
+   *      from `merkleRoot()` on the registry.
+   *   5. Read backend-supplied proof data for each leaf and verify each proof
+   *      off-chain via the same algorithm as KaiSignRegistry.verifyMerkleProof
    *
    * Result `source`:
    *   - 'merkle-verified'  : availability ∈ tree && revocation ∉ tree
@@ -635,7 +649,7 @@ class OnChainVerifier {
           }
           this._rootFetchedThisSession = true;
         } catch (rpcErr) {
-          KAISIGN_DEBUG && console.warn('[OnChainVerifier] merkleRoot fetch failed:', rpcErr.message);
+          KAISIGN_DEBUG && console.log('[OnChainVerifier] merkleRoot fetch failed:', rpcErr.message);
         }
       }
       if (!root) {
@@ -650,26 +664,33 @@ class OnChainVerifier {
       }
       result.merkleRoot = root;
 
-      // Step 5: ask the local indexer to prove each leaf
-      const tree = (typeof window !== 'undefined') ? window.kaisignMerkleTree : null;
-      if (!tree || typeof tree.proveLeaf !== 'function') {
-        result.details = 'Merkle-tree indexer not loaded';
+      // Step 5: verify backend-supplied sibling paths against the live root.
+      const proofs = this._normalizeProofPayload(metadata?._proofs);
+      if (!proofs) {
+        result.source = 'proof-unavailable';
+        result.details = 'Backend did not provide Merkle proof data';
         this._cacheResult(cacheKey, result);
         return result;
       }
 
-      // The merkle tree is a fixed bundled snapshot of leaves — no catch-up,
-      // no live indexing. Proofs come straight from the seed. If the seed is
-      // older than the live registry, the resulting proofs will fail to
-      // verify against `root` below and we surface that as `unattested`.
-      const availabilityProof = tree.proveLeaf(availabilityLeaf);
-      const revocationProof = tree.proveLeaf(revocationLeaf);
+      const availabilityProof = proofs.availability;
+      const revocationProof = proofs.revocation;
 
       const availabilityIn = availabilityProof
-        ? this._verifyMerkleProofOffChain(availabilityLeaf, availabilityProof.proof, availabilityProof.index, root)
+        ? this._verifyMerkleProofOffChain(
+          availabilityLeaf,
+          availabilityProof.siblings,
+          availabilityProof.index,
+          root
+        )
         : false;
       const revocationIn = revocationProof
-        ? this._verifyMerkleProofOffChain(revocationLeaf, revocationProof.proof, revocationProof.index, root)
+        ? this._verifyMerkleProofOffChain(
+          revocationLeaf,
+          revocationProof.siblings,
+          revocationProof.index,
+          root
+        )
         : false;
 
       if (availabilityIn && !revocationIn) {
@@ -692,7 +713,7 @@ class OnChainVerifier {
         lastError: result.details,
         source: 'verification-error'
       });
-      console.warn('[OnChainVerifier] Verification failed:', e.message);
+      console.log('[OnChainVerifier] Verification failed:', e.message);
     }
 
     this._publishVerificationStatus({
@@ -703,6 +724,53 @@ class OnChainVerifier {
     });
     this._cacheResult(cacheKey, result);
     return result;
+  }
+
+  _normalizeProofPayload(rawProofs) {
+    if (!rawProofs || typeof rawProofs !== 'object') return null;
+
+    const availability = this._normalizeSingleProof(
+      rawProofs.availability
+      || rawProofs.available
+      || rawProofs.availabilityProof
+      || rawProofs.proof
+    );
+    const revocation = this._normalizeSingleProof(
+      rawProofs.revocation
+      || rawProofs.revoked
+      || rawProofs.revocationProof
+    );
+
+    if (!availability && !revocation) return null;
+    return { availability, revocation };
+  }
+
+  _normalizeSingleProof(rawProof) {
+    if (!rawProof || typeof rawProof !== 'object') return null;
+
+    const siblings = rawProof.siblings || rawProof.proof || rawProof.path;
+    const index = rawProof.index ?? rawProof.leafIndex ?? rawProof.position;
+
+    if (!Array.isArray(siblings) || index === undefined || index === null) {
+      return null;
+    }
+
+    const normalizedSiblings = siblings
+      .filter((value) => typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value))
+      .map((value) => value.toLowerCase());
+
+    if (normalizedSiblings.length !== siblings.length) {
+      return null;
+    }
+
+    try {
+      return {
+        index: Number(index),
+        siblings: normalizedSiblings
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -791,7 +859,7 @@ class OnChainVerifier {
       });
       KAISIGN_DEBUG && console.log('[OnChainVerifier] Cached registry merkleRoot:', root.slice(0, 18));
     } catch (e) {
-      console.warn('[OnChainVerifier] Failed to cache merkle root:', e.message);
+      console.log('[OnChainVerifier] Failed to cache merkle root:', e.message);
     }
   }
 
@@ -834,7 +902,7 @@ class OnChainVerifier {
         console.log('[OnChainVerifier] Cleared', keysToRemove.length, 'legacy per-contract merkle roots');
       }
     } catch (e) {
-      console.warn('[OnChainVerifier] Failed to clear legacy merkle roots:', e.message);
+      console.log('[OnChainVerifier] Failed to clear legacy merkle roots:', e.message);
     }
   }
 }

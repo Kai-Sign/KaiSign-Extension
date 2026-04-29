@@ -18,7 +18,7 @@ import { ethers } from 'ethers';
 
 const LIVE_FLAG = process.env.KAISIGN_LIVE_SEPOLIA === '1' || process.argv.includes('--live-sepolia');
 
-const NEW_REGISTRY_ADDRESS = '0x122D1ad78FddA6829F104cb8cBB56E5561E56Ba8';
+const NEW_REGISTRY_ADDRESS = '0x60204745695F375cA2695bA433eB2fa39724e834';
 const OLD_REGISTRY_ADDRESS = '0xC203e8C22eFCA3C9218a6418f6d4281Cb7744dAa';
 const SEPOLIA_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com';
 
@@ -182,26 +182,46 @@ export async function runTests(harness) {
     const start = Date.now();
     try {
       const verifierSource = await readFile(new URL('../../../onchain-verifier.js', import.meta.url), 'utf8');
+      const passed = verifierSource.includes(".filter((k) => !k.startsWith('_'))");
+      pushResult(
+        harness,
+        results,
+        'Metadata hash excludes client-only underscore fields',
+        passed,
+        'Verifier strips transient fields like _proofs/_verification before canonical hashing',
+        passed ? null : 'Verifier still hashes client-only underscore fields into metadataHash',
+        Date.now() - start
+      );
+    } catch (error) {
+      pushResult(harness, results, 'Metadata hash excludes client-only underscore fields', false, null, error.message);
+    }
+  }
+
+  {
+    const start = Date.now();
+    try {
+      const verifierSource = await readFile(new URL('../../../onchain-verifier.js', import.meta.url), 'utf8');
       const manualModeFetchesRootOncePerSession = verifierSource.includes('this._rootFetchedThisSession = false;')
         && verifierSource.includes("const canFetchRoot = this.verificationMode === 'automatic'")
         && verifierSource.includes("|| (this.verificationMode === 'manual' && !root && !this._rootFetchedThisSession);");
       const transientRootFailuresNotCached = verifierSource.includes("if (result?.source === 'root-unavailable') {");
-      const seedOnlyProofFlow = verifierSource.includes('const availabilityProof = tree.proveLeaf(availabilityLeaf);')
-        && verifierSource.includes('const revocationProof = tree.proveLeaf(revocationLeaf);')
-        && !verifierSource.includes('ensureRootMatches(');
+      const backendProofFlow = verifierSource.includes('const proofs = this._normalizeProofPayload(metadata?._proofs);')
+        && verifierSource.includes("result.source = 'proof-unavailable';")
+        && verifierSource.includes('availabilityProof.siblings')
+        && !verifierSource.includes('tree.proveLeaf(');
 
-      const passed = manualModeFetchesRootOncePerSession && transientRootFailuresNotCached && seedOnlyProofFlow;
+      const passed = manualModeFetchesRootOncePerSession && transientRootFailuresNotCached && backendProofFlow;
       pushResult(
         harness,
         results,
-        'Manual verification mode uses one root fetch per session and does not cache transient root failures',
+        'Manual verification mode uses one root fetch per session and consumes backend proof paths',
         passed,
-        'Manual mode is seed-only, fetches the registry root at most once per session, and root-unavailable results stay transient',
-        passed ? null : 'Verifier source no longer matches the current seed-only manual-mode root-fetch contract',
+        'Manual mode fetches the registry root at most once per session and verifies backend-supplied sibling paths',
+        passed ? null : 'Verifier source no longer matches the current backend-proof manual-mode contract',
         Date.now() - start
       );
     } catch (error) {
-      pushResult(harness, results, 'Manual verification mode uses one root fetch per session and does not cache transient root failures', false, null, error.message);
+      pushResult(harness, results, 'Manual verification mode uses one root fetch per session and consumes backend proof paths', false, null, error.message);
     }
   }
 
