@@ -1279,6 +1279,12 @@ async function decodeCalldata(data, contractAddress, chainId) {
               displayValue = rawValue;
             }
           }
+        } else if (fieldDef?.format === 'address') {
+          try {
+            displayValue = await applyFieldFormat(rawValue, fieldDef, rawParams, chainId);
+          } catch (e) {
+            displayValue = rawValue;
+          }
         }
 
         params[paramName] = rawValue;
@@ -1350,7 +1356,11 @@ async function decodeCalldata(data, contractAddress, chainId) {
               displayValue = rawValue;
             }
           }
-        } else if (fieldDef.format === 'addressName' || fieldDef.format === 'addressOrName') {
+        } else if (
+          fieldDef.format === 'address'
+          || fieldDef.format === 'addressName'
+          || fieldDef.format === 'addressOrName'
+        ) {
           try {
             displayValue = await applyFieldFormat(rawValue, fieldDef, rawParams, chainId);
           } catch (e) {
@@ -2464,11 +2474,19 @@ async function applyFieldFormat(value, fieldSpec, allParams, chainId = 1) {
     return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().replace('.000Z', 'Z');
   }
 
-  // addressName or addressOrName format - try to resolve to a human name
+  // address/addressName/addressOrName format - try to resolve to a human name
   // Order: ERC-20 symbol (WETH, wstETH) → contract name (ParaSwap Augustus V6) → shortened addr
-  if (format === 'addressName' || format === 'addressOrName') {
+  if (format === 'address' || format === 'addressName' || format === 'addressOrName') {
     const addr = String(value).toLowerCase();
     const isShortenedFallback = (s) => typeof s === 'string' && /^0x[0-9a-f]{4}\.\.\.[0-9a-f]{4}$/i.test(s);
+    if (window.nameResolutionService && addr.startsWith('0x') && addr.length === 42) {
+      try {
+        const resolvedName = await window.nameResolutionService.resolveName(addr, chainId);
+        if (resolvedName) return resolvedName;
+      } catch (e) {
+        KAISIGN_DEBUG && console.log('[applyFieldFormat] ENS/Basename lookup failed:', e.message);
+      }
+    }
     if (window.metadataService && addr.startsWith('0x') && addr.length === 42) {
       try {
         const tokenInfo = await window.metadataService.getTokenMetadata(addr, chainId);
