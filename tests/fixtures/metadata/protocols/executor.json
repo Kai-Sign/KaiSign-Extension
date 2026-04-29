@@ -1,0 +1,42 @@
+{
+  "context": {
+    "contract": {
+      "address": "0x7747f8d2a76bd6345cc29622a946a929647f2359",
+      "chainId": 1,
+      "name": "Executor",
+      "abi": [
+        {
+          "type": "function",
+          "name": "execute",
+          "selector": "0x1fff991f",
+          "inputs": [
+            {
+              "name": "execution",
+              "type": "tuple",
+              "components": [
+                { "name": "recipient", "type": "address" },
+                { "name": "asset", "type": "address" },
+                { "name": "amount", "type": "uint256" }
+              ]
+            },
+            { "name": "calls", "type": "bytes[]" },
+            { "name": "salt", "type": "bytes32" }
+          ]
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "execute((address,address,uint256),bytes[],bytes32)": {
+        "intent": "Execute",
+        "interpolatedIntent": "Execute {execution.amount} via Executor",
+        "fields": [
+          { "path": "execution.recipient", "label": "Recipient", "format": "addressName" },
+          { "path": "execution.asset", "label": "Asset", "format": "addressName" },
+          { "path": "execution.amount", "label": "Amount", "format": "tokenAmount", "params": { "tokenPath": "execution.asset", "nativeCurrencyAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" } }
+        ]
+      }
+    }
+  }
+}

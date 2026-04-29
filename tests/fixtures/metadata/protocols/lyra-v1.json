@@ -1,0 +1,40 @@
+{
+  "context": {
+    "contract": {
+      "address": "0x7d7327624bf9627fc11f6da240db8066c4beb3c8",
+      "chainId": 1,
+      "name": "Lyra V1",
+      "abi": [
+        {
+          "type": "function",
+          "name": "depositToLyra",
+          "selector": "0xf4e8cd69",
+          "inputs": [
+            { "name": "asset", "type": "address" },
+            { "name": "market", "type": "address" },
+            { "name": "isCall", "type": "bool" },
+            { "name": "strikeId", "type": "uint256" },
+            { "name": "amount", "type": "uint256" },
+            { "name": "beneficiary", "type": "address" }
+          ]
+        }
+      ]
+    }
+  },
+  "display": {
+    "formats": {
+      "depositToLyra(address,address,bool,uint256,uint256,address)": {
+        "intent": "Deposit to Lyra",
+        "interpolatedIntent": "Deposit {amount} to Lyra",
+        "fields": [
+          { "path": "asset", "label": "Asset", "format": "addressName" },
+          { "path": "market", "label": "Market", "format": "addressName" },
+          { "path": "isCall", "label": "Call Option", "format": "raw" },
+          { "path": "strikeId", "label": "Strike ID", "format": "raw" },
+          { "path": "amount", "label": "Amount", "format": "tokenAmount", "params": { "tokenPath": "asset" } },
+          { "path": "beneficiary", "label": "Beneficiary", "format": "addressName" }
+        ]
+      }
+    }
+  }
+}
