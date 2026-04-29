@@ -81,12 +81,6 @@ export async function loadDecoderModules(metadataService) {
   mockWindow.getEIP712Metadata = (contract, primaryType) =>
     metadataService.getEIP712Metadata(contract, primaryType);
 
-  // Load runtime-registry.js (provides window.registryLoader with embedded ERC selectors)
-  // Must load before decode.js so the unknown-function fallback can consult it
-  const registryCode = fs.readFileSync(path.join(extensionPath, 'runtime-registry.js'), 'utf8');
-  const adaptedRegistryCode = adaptBrowserCode(registryCode, 'runtime-registry.js');
-  eval(adaptedRegistryCode);
-
   // Load decode.js
   const decodeCode = fs.readFileSync(path.join(extensionPath, 'decode.js'), 'utf8');
   const adaptedDecodeCode = adaptBrowserCode(decodeCode, 'decode.js');
@@ -150,7 +144,7 @@ function adaptBrowserCode(code, filename) {
 try {
 ${adapted}
 } catch (e) {
-  console.error('[NodeAdapter] Error loading ${filename}:', e.message);
+  console.log('[NodeAdapter] Error loading ${filename}:', e.message);
   throw e;
 }
 `;

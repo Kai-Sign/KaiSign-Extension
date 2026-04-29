@@ -16,10 +16,17 @@
  */
 
 import { ethers } from 'ethers';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { loadMerkleStack } from '../../lib/node-adapter.js';
 
-const SEED_REGISTRY = '0x122d1ad78fdda6829f104cb8cbb56e5561e56ba8';
-const SEED_LEAF_COUNT = 788;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const EXTENSION_ROOT = path.resolve(__dirname, '../../..');
+const FRONTIER_PATH = path.resolve(EXTENSION_ROOT, '../kaisign-backend/backend/data/seed-frontier.json');
+const CURRENT_FRONTIER = JSON.parse(fs.readFileSync(FRONTIER_PATH, 'utf8'));
+const SEEDED_LEAVES = new Set(CURRENT_FRONTIER.leaves.map((leaf) => leaf.leaf.toLowerCase()));
 const EXPORT_AVAILABILITY_LEAF_TX1 = '0xbe54c9ccb95cdbb64a7c9c4bf4b738e127d13fae4b8a0facc71577e300831578';
 
 function pushResult(harness, results, name, passed, intent, error = null) {
@@ -40,19 +47,21 @@ export async function runTests(harness) {
   {
     const { tree, verifier } = loadMerkleStack({ withSeed: true });
     const uniqueLeafCount = new Set(tree.leaves).size;
+    const localLevels = tree._buildLevels();
+    const localRoot = localLevels[tree.zeroHashes.length].get(0) || tree.zeroHashes[tree.zeroHashes.length - 1];
     const passed = Array.isArray(tree.leaves)
-      && tree.leaves.length === SEED_LEAF_COUNT
-      && tree.stats().leafCount === SEED_LEAF_COUNT
+      && tree.leaves.length === CURRENT_FRONTIER.leaves.length
+      && tree.stats().leafCount === CURRENT_FRONTIER.leaves.length
       && tree.indexByLeaf instanceof Map
       && tree.indexByLeaf.size === uniqueLeafCount
-      && verifier.registryAddress === SEED_REGISTRY;
+      && localRoot.toLowerCase() === CURRENT_FRONTIER.merkleRoot.toLowerCase();
 
     pushResult(harness, results,
       'P1: bundled seed loads and indexes the expected leaf set',
       passed,
       passed
-        ? `leafCount=${tree.leaves.length}, uniqueLeafCount=${uniqueLeafCount}, registry=${SEED_REGISTRY.slice(0, 14)}…`
-        : `MISMATCH: leaves=${tree.leaves?.length} stats=${JSON.stringify(tree.stats?.())}`
+        ? `leafCount=${tree.leaves.length}, uniqueLeafCount=${uniqueLeafCount}, root=${CURRENT_FRONTIER.merkleRoot.slice(0, 14)}…`
+        : `MISMATCH: leaves=${tree.leaves?.length} stats=${JSON.stringify(tree.stats?.())} expected=${CURRENT_FRONTIER.leaves.length}`
     );
   }
 
@@ -73,6 +82,7 @@ export async function runTests(harness) {
       && proof.index === tree.indexByLeaf.get(seedLeaf)
       && proof.proof.length === depth
       && proofVerifies
+      && root.toLowerCase() === CURRENT_FRONTIER.merkleRoot.toLowerCase()
       && !!caseInsensitiveProof
       && caseInsensitiveProof.index === proof.index;
 
@@ -89,13 +99,18 @@ export async function runTests(harness) {
   {
     const { tree } = loadMerkleStack({ withSeed: true });
     const proof = tree.proveLeaf(EXPORT_AVAILABILITY_LEAF_TX1);
-    const passed = proof === null;
+    const expectedPresent = SEEDED_LEAVES.has(EXPORT_AVAILABILITY_LEAF_TX1.toLowerCase());
+    const passed = expectedPresent ? proof !== null : proof === null;
     pushResult(harness, results,
-      'P3: export availabilityLeaf is not in the bundled seed',
+      'P3: export availabilityLeaf presence matches the bundled seed',
       passed,
       passed
-        ? `leaf ${EXPORT_AVAILABILITY_LEAF_TX1.slice(0, 14)}… is absent, so stale-seed verification would show unattested`
-        : 'UNEXPECTED: export leaf is present in the current bundled seed'
+        ? expectedPresent
+          ? `leaf ${EXPORT_AVAILABILITY_LEAF_TX1.slice(0, 14)}… is present in the current bundled seed`
+          : `leaf ${EXPORT_AVAILABILITY_LEAF_TX1.slice(0, 14)}… is absent from the current bundled seed`
+        : expectedPresent
+          ? 'EXPECTED seeded export leaf proof, but lookup returned null'
+          : 'EXPECTED missing export leaf, but lookup unexpectedly returned a proof'
     );
   }
 

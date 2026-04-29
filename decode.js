@@ -283,8 +283,8 @@ async function buildUnknownCalldataSummary(data, chainId, baseTitle = '') {
   return {
     title,
     selector,
-    selectorName: selectorInfo?.name || null,
-    selectorSignature: selectorInfo?.signature || null,
+    selectorName: null,
+    selectorSignature: null,
     calldataBytes: Math.max(0, (data.length - 2) / 2),
     preview: `${data.slice(0, 18)}...${data.slice(-16)}`,
     addresses,
@@ -1707,20 +1707,20 @@ async function decodeCalldata(data, contractAddress, chainId) {
     }
 
     const wrapperIntent = finalIntent;
+    const structuredSwapIntent =
+      (wrapperIntent === 'Swap tokens' || wrapperIntent === 'Swap tokens via LiFi') &&
+      typeof functionName === 'string'
+        ? await buildStructuredSwapIntent(functionName, rawParams, chainId)
+        : null;
+
     const aggregatedIntent = aggregateNestedIntents(nestedIntents);
-    if (aggregatedIntent) {
-      const uniqueChildCount = new Set(nestedIntents).size;
-      if (isGenericWrapperIntent(wrapperIntent) || uniqueChildCount === 1) {
+    if (structuredSwapIntent) {
+      finalIntent = structuredSwapIntent;
+    } else if (aggregatedIntent) {
+      if (isGenericWrapperIntent(wrapperIntent) || nestedIntents.length === 1) {
         finalIntent = aggregatedIntent;
       } else {
         finalIntent = `${wrapperIntent}: ${aggregatedIntent}`;
-      }
-    }
-
-    if ((finalIntent === 'Swap tokens' || finalIntent === 'Swap tokens via LiFi') && typeof functionName === 'string') {
-      const structuredSwapIntent = await buildStructuredSwapIntent(functionName, rawParams, chainId);
-      if (structuredSwapIntent) {
-        finalIntent = structuredSwapIntent;
       }
     }
 
