@@ -18,7 +18,7 @@ import { ethers } from 'ethers';
 
 const LIVE_FLAG = process.env.KAISIGN_LIVE_SEPOLIA === '1' || process.argv.includes('--live-sepolia');
 
-const NEW_REGISTRY_ADDRESS = '0x60204745695F375cA2695bA433eB2fa39724e834';
+const NEW_REGISTRY_ADDRESS = '0x09568CC107d73846dD308C8d3e05e00F1d0d186c';
 const OLD_REGISTRY_ADDRESS = '0xC203e8C22eFCA3C9218a6418f6d4281Cb7744dAa';
 const SEPOLIA_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com';
 
