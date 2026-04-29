@@ -74,6 +74,10 @@ class SubgraphMetadataService {
     });
   }
 
+  isCanonicalAddress(value) {
+    return typeof value === 'string' && /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+  }
+
   resolveRegistryAddress(response, metadata) {
     const candidates = [
       response?.registry_address,
@@ -242,6 +246,11 @@ class SubgraphMetadataService {
    * @returns {Promise<Object>} ERC-7730 metadata
    */
   async getContractMetadata(address, chainId, selector) {
+    if (!this.isCanonicalAddress(address)) {
+      KAISIGN_DEBUG && console.log('[KaiSign API] Rejecting invalid metadata address:', address);
+      return null;
+    }
+
     const normalizedAddress = address.toLowerCase();
     const normalizedSelector = selector?.toLowerCase() || null;
 
@@ -488,6 +497,11 @@ class SubgraphMetadataService {
    * @returns {Promise<Object>} ERC-7730 metadata
    */
   async getContractMetadataDirectly(address, chainId) {
+    if (!this.isCanonicalAddress(address)) {
+      KAISIGN_DEBUG && console.log('[KaiSign API] Rejecting invalid direct metadata address:', address);
+      return null;
+    }
+
     const normalizedAddress = address.toLowerCase();
     const apiBase = this.getLocalApiBase();
     const apiUrl = `${apiBase}/api/py/contract/${normalizedAddress}?chain_id=${chainId}`;

@@ -1053,6 +1053,10 @@ class RecursiveCalldataDecoder {
    */
   async getMetadata(address, chainId, selector = null) {
     KAISIGN_DEBUG && console.log(`[RecursiveDecoder] getMetadata called: address=${address}, chainId=${chainId}, selector=${selector || '(none)'}`);
+    if (typeof address !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      KAISIGN_DEBUG && console.log(`[RecursiveDecoder] getMetadata skipped invalid address: ${address}`);
+      return null;
+    }
     if (window.metadataService) {
       const result = await window.metadataService.getContractMetadata(address, chainId, selector);
       KAISIGN_DEBUG && console.log(`[RecursiveDecoder] getMetadata result: ${result ? 'FOUND' : 'NOT FOUND'}`);

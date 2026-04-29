@@ -1468,6 +1468,10 @@ class AdvancedTransactionDecoder {
    * Get contract metadata with enhanced blob storage integration
    */
   async getContractMetadata(contractAddress, chainId) {
+    if (typeof contractAddress !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(contractAddress)) {
+      KAISIGN_DEBUG && console.log(`[AdvDecoder] Skipping metadata fetch for invalid address: ${contractAddress}`);
+      return null;
+    }
     const cacheKey = `${contractAddress.toLowerCase()}-${chainId}`;
     
     // Check cache first
