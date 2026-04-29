@@ -14,7 +14,7 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_VERIFICATION_STATUS = {
-  registryAddress: '0x09568CC107d73846dD308C8d3e05e00F1d0d186c',
+  registryAddress: '0x22a8b67608D6622C68D30384Ba0b71e0f74DeB12',
   merkleRoot: null,
   verificationMode: 'manual',
   lastUpdated: null,

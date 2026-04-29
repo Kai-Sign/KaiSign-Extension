@@ -33,7 +33,7 @@ if (window.onChainVerifier) {
 
 console.log('[KaiSign] On-chain verifier loading...');
 const KAISIGN_DEBUG = false;
-const DEFAULT_REGISTRY_ADDRESS = '0x09568CC107d73846dD308C8d3e05e00F1d0d186c';
+const DEFAULT_REGISTRY_ADDRESS = '0x22a8b67608D6622C68D30384Ba0b71e0f74DeB12';
 
 class OnChainVerifier {
   constructor(config = {}) {
