@@ -5,18 +5,20 @@
  * on Sepolia using the v1.0.0 two-leaf model.
  *
  * Trust boundary
- *   The contract's `merkleRoot()` is the only authority. The backend may serve
- *   Merkle sibling paths / indices as transport data, but the client still
- *   recomputes candidate leaves locally and verifies those paths against the
- *   live on-chain root before trusting them.
+ *   The contract's `merkleRoot()` is the only authority. The backend serves
+ *   the ordered leaf list (canonical seed-frontier.json) as transport data;
+ *   the client builds the complete Merkle tree locally, computes its own
+ *   proofs, and verifies them against the live on-chain root.
  *
  * Verification flow (v1.0.0 — 4-field leaf, two leaves per metadata)
  * 1. Compute extcodehash via eth_getCode + keccak256
  * 2. Compute metadataHash = keccak256(canonical(metadata))
  * 3. Build availabilityLeaf = keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, false))
  *    Build revocationLeaf   = keccak256(abi.encode(LEAF_TYPEHASH, chainId, extcodehash, metadataHash, true))
- * 4. Read backend-supplied proof data (index + sibling hashes) for each leaf
- * 5. Run verifyMerkleProof(leaf, proof, index, root) off-chain against the cached
+ * 4. Look up each leaf in the local frontier tree (fetched from backend, built
+ *    client-side — same algorithm as import-migrated.mjs)
+ * 5. Compute Merkle proof locally for each found leaf index
+ * 6. Run verifyMerkleProof(leaf, proof, index, root) off-chain against the cached
  *    merkleRoot — same algorithm as KaiSignRegistry.sol:546-568
  *
  * Result mapping:
@@ -24,6 +26,7 @@
  *   both ∈ tree                                →  revoked
  *   availability ∉ tree                        →  unattested
  *   no cached/fetched root                     →  root-unavailable
+ *   frontier not loaded                        →  frontier-unavailable
  */
 
 // Guard against duplicate loading (MAIN world scripts can run multiple times)
@@ -33,7 +36,7 @@ if (window.onChainVerifier) {
 
 console.log('[KaiSign] On-chain verifier loading...');
 const KAISIGN_DEBUG = false;
-const DEFAULT_REGISTRY_ADDRESS = '0x22a8b67608D6622C68D30384Ba0b71e0f74DeB12';
+const DEFAULT_REGISTRY_ADDRESS = '0x558762e7cf3755eead65e001cca65b2c713a350a';
 
 class OnChainVerifier {
   constructor(config = {}) {
@@ -59,6 +62,20 @@ class OnChainVerifier {
     this._rootFetchedThisSession = false;
     this._extcodehashCache = new Map(); // `${addr}-${chainId}` -> bytes32
 
+    // ----- Frontier Merkle tree (client-side proof computation) -----
+    // Fetched from the backend once per session, then proofs are computed
+    // locally — same algorithm as import-migrated.mjs. The backend remains
+    // the canonical store of ALL indexes; the client just needs the ordered
+    // leaf hashes to build the tree.
+    this._frontierTreeDepth = 20;
+    this._frontierLeaves = null;       // ordered leaf hashes, set after fetch
+    this._frontierLeafIndex = null;    // Map<leafHash, index> for O(1) lookup
+    this._frontierZeroHashes = null;   // zeros[0..19] precomputed
+    this._frontierLayers = null;       // all tree layers for proof computation
+    this._frontierFetched = false;     // true once loaded successfully
+    this._frontierFetching = null;     // pending fetch promise (dedupe)
+    this._frontierMerkleRoot = null;   // root from the frontier file (reference only)
+
     // Function selectors (computed from keccak256 of signatures)
     // getLatestSpecForBytecode(uint256,bytes32) -> first 4 bytes of keccak256
     // getAttestation(bytes32) -> first 4 bytes of keccak256
@@ -66,6 +83,149 @@ class OnChainVerifier {
     this.selectors = {};
     this._initSelectors();
     this._initSettings();
+  }
+
+  // ==========================================================================
+  // Frontier Merkle Tree — client-side proof computation
+  // Ported from import-migrated.mjs (same algorithm as on-chain
+  // KaiSignRegistry._insertLeaf / verifyMerkleProof).
+  // ==========================================================================
+
+  /**
+   * Fetch the canonical ordered leaf list from the backend and build the
+   * local Merkle tree. Called lazily — first verification triggers the load,
+   * subsequent calls are cached for the session lifetime.
+   */
+  async _loadFrontierLeaves() {
+    if (this._frontierFetched) return;
+    if (this._frontierFetching) return this._frontierFetching;
+
+    this._frontierFetching = (async () => {
+      try {
+        const apiBase = this._getApiBase();
+        const url = `${apiBase}/api/py/metadata/frontier/leaves`;
+        const raw = await this._fetchFromBackend(url);
+        const data = JSON.parse(raw);
+        if (!data.success || !Array.isArray(data.leaves)) {
+          throw new Error('Invalid frontier response');
+        }
+
+        const leaves = data.leaves.map(l => l.toLowerCase());
+        const leafIndex = new Map();
+        for (let i = 0; i < leaves.length; i++) {
+          leafIndex.set(leaves[i], i);
+        }
+
+        this._frontierLeaves = leaves;
+        this._frontierLeafIndex = leafIndex;
+        this._frontierMerkleRoot = (data.merkleRoot || '').toLowerCase();
+        this._frontierZeroHashes = this._computeZeroHashes();
+        this._frontierLayers = this._buildTreeLayers(leaves);
+        this._frontierFetched = true;
+
+        KAISIGN_DEBUG && console.log(
+          '[OnChainVerifier] Frontier loaded:', leaves.length, 'leaves, root',
+          this._frontierMerkleRoot.slice(0, 18)
+        );
+      } catch (e) {
+        console.warn('[OnChainVerifier] Failed to load frontier:', e.message);
+        this._frontierFetching = null; // allow retry next time
+        throw e;
+      }
+    })();
+
+    return this._frontierFetching;
+  }
+
+  /**
+   * Compute cumulative zero hashes for each tree level.
+   * zeros[0] = 0x00...00, zeros[i] = keccak256(zeros[i-1] || zeros[i-1])
+   */
+  _computeZeroHashes() {
+    const zeros = ['0x' + '0'.repeat(64)];
+    for (let i = 1; i < this._frontierTreeDepth; i++) {
+      zeros[i] = this.keccak256Bytes('0x' + zeros[i - 1].slice(2) + zeros[i - 1].slice(2));
+    }
+    return zeros;
+  }
+
+  /**
+   * Build all Merkle tree layers from the ordered leaf list.
+   * layers[0] = leaves, layers[i+1] = hash of pairs from layers[i].
+   * Odd nodes are padded with the level's zero hash.
+   */
+  _buildTreeLayers(leaves) {
+    const layers = [leaves];
+    for (let i = 0; i < this._frontierTreeDepth; i++) {
+      const layer = layers[i];
+      const next = [];
+      for (let j = 0; j < layer.length; j += 2) {
+        const left = layer[j];
+        const right = (j + 1 < layer.length) ? layer[j + 1] : this._frontierZeroHashes[i];
+        next.push(this.keccak256Bytes('0x' + left.slice(2) + right.slice(2)));
+      }
+      layers.push(next);
+    }
+    return layers;
+  }
+
+  /**
+   * Compute the Merkle proof for a leaf at the given index.
+   * Returns 20 sibling hashes (tree depth 20).
+   */
+  _computeMerkleProof(leafIndex) {
+    if (!this._frontierLayers) return null;
+    let idx = leafIndex;
+    const proof = [];
+    for (let i = 0; i < this._frontierTreeDepth; i++) {
+      const layer = this._frontierLayers[i];
+      const siblingIdx = (idx % 2 === 0) ? idx + 1 : idx - 1;
+      proof.push(
+        (siblingIdx < layer.length)
+          ? layer[siblingIdx]
+          : this._frontierZeroHashes[i]
+      );
+      idx = Math.floor(idx / 2);
+    }
+    return proof;
+  }
+
+  /**
+   * Look up the leaf index by leaf hash. Returns -1 if not found.
+   */
+  _findLeafIndex(leafHash) {
+    if (!this._frontierLeafIndex) return -1;
+    const idx = this._frontierLeafIndex.get(leafHash.toLowerCase());
+    return idx !== undefined ? idx : -1;
+  }
+
+  /**
+   * Get the backend API base URL.
+   */
+  _getApiBase() {
+    const PRODUCTION_API = 'https://kai-sign-production.up.railway.app';
+    try {
+      if (localStorage.getItem('kaisign_dev_mode') === 'true') {
+        const local = localStorage.getItem('kaisign_local_api');
+        if (local) return local;
+      }
+    } catch {}
+    return PRODUCTION_API;
+  }
+
+  /**
+   * Fetch raw text from the backend. Uses the metadata service's bridge
+   * if available (same postMessage path as metadata fetches).
+   */
+  async _fetchFromBackend(url) {
+    // Reuse the existing metadata service fetch path when available
+    if (typeof window !== 'undefined' && window.metadataService?.fetchViaBackground) {
+      return window.metadataService.fetchViaBackground(url);
+    }
+    // Fallback: direct fetch (may hit CORS — used only in test harness)
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Backend returned ${resp.status}`);
+    return resp.text();
   }
 
   _normalizeRegistryAddress(address) {
@@ -664,17 +824,57 @@ class OnChainVerifier {
       }
       result.merkleRoot = root;
 
-      // Step 5: verify backend-supplied sibling paths against the live root.
-      const proofs = this._normalizeProofPayload(metadata?._proofs);
-      if (!proofs) {
-        result.source = 'proof-unavailable';
-        result.details = 'Backend did not provide Merkle proof data';
-        this._cacheResult(cacheKey, result);
-        return result;
+      // Step 5: compute proofs locally from the frontier tree.
+      // The verifier builds its own Merkle tree from the backend's canonical
+      // ordered leaf list (same algorithm as import-migrated.mjs). If the
+      // frontier hasn't been loaded yet (or the load failed), fall back to
+      // backend-supplied _proofs as a transport path.
+      let availabilityProof = null;
+      let revocationProof = null;
+
+      try {
+        await this._loadFrontierLeaves();
+      } catch {
+        // Frontier load failed — fall through to backend proofs below
       }
 
-      const availabilityProof = proofs.availability;
-      const revocationProof = proofs.revocation;
+      if (this._frontierFetched) {
+        // Local frontier tree is available — look up leaves and compute proofs
+        const availIdx = this._findLeafIndex(availabilityLeaf);
+        const revokeIdx = this._findLeafIndex(revocationLeaf);
+
+        if (availIdx >= 0) {
+          availabilityProof = {
+            index: availIdx,
+            siblings: this._computeMerkleProof(availIdx)
+          };
+        }
+        if (revokeIdx >= 0) {
+          revocationProof = {
+            index: revokeIdx,
+            siblings: this._computeMerkleProof(revokeIdx)
+          };
+        }
+
+        // unattested: availability leaf not in the tree
+        if (!availabilityProof) {
+          result.source = 'unattested';
+          result.details = 'No attestation for this metadata in the registry merkle tree';
+          this._cacheResult(cacheKey, result);
+          return result;
+        }
+      } else {
+        // Frontier not loaded — fall back to backend-supplied proofs
+        const proofs = this._normalizeProofPayload(metadata?._proofs);
+        if (!proofs) {
+          result.source = 'proof-unavailable';
+          result.details = 'Frontier not loaded and no backend proof data provided';
+          this._cacheResult(cacheKey, result);
+          return result;
+        }
+        availabilityProof = proofs.availability;
+        revocationProof = proofs.revocation;
+      }
 
       const availabilityIn = availabilityProof
         ? this._verifyMerkleProofOffChain(
@@ -820,12 +1020,18 @@ class OnChainVerifier {
   }
 
   /**
-   * Clear verification cache
+   * Clear verification cache and frontier tree state
    */
   clearCache() {
     this.verificationCache.clear();
     this._extcodehashCache.clear();
     this._rootFetchedThisSession = false;
+    this._frontierFetched = false;
+    this._frontierFetching = null;
+    this._frontierLeaves = null;
+    this._frontierLeafIndex = null;
+    this._frontierLayers = null;
+    this._frontierMerkleRoot = null;
   }
 
   // ============================================================================

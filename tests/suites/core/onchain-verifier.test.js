@@ -18,7 +18,7 @@ import { ethers } from 'ethers';
 
 const LIVE_FLAG = process.env.KAISIGN_LIVE_SEPOLIA === '1' || process.argv.includes('--live-sepolia');
 
-const NEW_REGISTRY_ADDRESS = '0x22a8b67608D6622C68D30384Ba0b71e0f74DeB12';
+const NEW_REGISTRY_ADDRESS = '0x558762e7cf3755eead65e001cca65b2c713a350a';
 const OLD_REGISTRY_ADDRESS = '0xC203e8C22eFCA3C9218a6418f6d4281Cb7744dAa';
 const SEPOLIA_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com';
 
@@ -205,23 +205,23 @@ export async function runTests(harness) {
         && verifierSource.includes("const canFetchRoot = this.verificationMode === 'automatic'")
         && verifierSource.includes("|| (this.verificationMode === 'manual' && !root && !this._rootFetchedThisSession);");
       const transientRootFailuresNotCached = verifierSource.includes("if (result?.source === 'root-unavailable') {");
-      const backendProofFlow = verifierSource.includes('const proofs = this._normalizeProofPayload(metadata?._proofs);')
-        && verifierSource.includes("result.source = 'proof-unavailable';")
-        && verifierSource.includes('availabilityProof.siblings')
-        && !verifierSource.includes('tree.proveLeaf(');
+      const localProofFlow = verifierSource.includes('this._loadFrontierLeaves()')
+        && verifierSource.includes('this._findLeafIndex(availabilityLeaf)')
+        && verifierSource.includes('this._computeMerkleProof(availIdx)')
+        && verifierSource.includes('this._buildTreeLayers');
 
-      const passed = manualModeFetchesRootOncePerSession && transientRootFailuresNotCached && backendProofFlow;
+      const passed = manualModeFetchesRootOncePerSession && transientRootFailuresNotCached && localProofFlow;
       pushResult(
         harness,
         results,
-        'Manual verification mode uses one root fetch per session and consumes backend proof paths',
+        'Manual verification mode uses one root fetch per session and computes proofs locally',
         passed,
-        'Manual mode fetches the registry root at most once per session and verifies backend-supplied sibling paths',
-        passed ? null : 'Verifier source no longer matches the current backend-proof manual-mode contract',
+        'Manual mode fetches the registry root at most once per session and builds Merkle proofs from the locally-computed frontier tree',
+        passed ? null : 'Verifier source no longer matches the current local-frontier manual-mode contract',
         Date.now() - start
       );
     } catch (error) {
-      pushResult(harness, results, 'Manual verification mode uses one root fetch per session and consumes backend proof paths', false, null, error.message);
+      pushResult(harness, results, 'Manual verification mode uses one root fetch per session and computes proofs locally', false, null, error.message);
     }
   }
 

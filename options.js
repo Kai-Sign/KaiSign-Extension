@@ -12,7 +12,7 @@ OPTS_DEBUG && console.log('[KaiSign] Options page loading...');
 let elements = {};
 const VERIFICATION_STATUS_KEY = 'kaisign-verification-status';
 const DEFAULT_VERIFICATION_STATUS = {
-  registryAddress: '0x22a8b67608D6622C68D30384Ba0b71e0f74DeB12',
+  registryAddress: '0x558762e7cf3755eead65e001cca65b2c713a350a',
   merkleRoot: null,
   verificationMode: 'manual',
   lastUpdated: null,
