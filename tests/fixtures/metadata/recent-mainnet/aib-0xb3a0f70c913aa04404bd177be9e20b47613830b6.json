@@ -29,6 +29,142 @@
             }
           ],
           "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "addBots",
+          "selector": "0xd34628cc",
+          "inputs": [
+            {
+              "internalType": "address[]",
+              "name": "bots_",
+              "type": "address[]"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "delBots",
+          "selector": "0x31c2d847",
+          "inputs": [
+            {
+              "internalType": "address[]",
+              "name": "notbot",
+              "type": "address[]"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "manualSwap",
+          "selector": "0x51bc3c85",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "manualsend",
+          "selector": "0x6fc3eaec",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "openTrading",
+          "selector": "0xc9567bf9",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "reduceFee",
+          "selector": "0xec1f3f63",
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "_newFee",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "removeLimits",
+          "selector": "0x751039fc",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "removeTransferTax",
+          "selector": "0x109daa99",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "renounceOwnership",
+          "selector": "0x715018a6",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "transfer",
+          "selector": "0xa9059cbb",
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "recipient",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "transferFrom",
+          "selector": "0x23b872dd",
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "sender",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "recipient",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
         }
       ]
     }
@@ -51,6 +187,95 @@
               "decimals": 9,
               "symbol": "AIB"
             }
+          }
+        ]
+      },
+      "addBots(address[])": {
+        "intent": "Add Bots on contract",
+        "fields": [
+          {
+            "path": "bots_",
+            "label": "Bots ",
+            "format": "raw"
+          }
+        ]
+      },
+      "delBots(address[])": {
+        "intent": "Del Bots on contract",
+        "fields": [
+          {
+            "path": "notbot",
+            "label": "Notbot",
+            "format": "raw"
+          }
+        ]
+      },
+      "manualSwap()": {
+        "intent": "Manual Swap on contract",
+        "fields": []
+      },
+      "manualsend()": {
+        "intent": "Manualsend on contract",
+        "fields": []
+      },
+      "openTrading()": {
+        "intent": "Open Trading on contract",
+        "fields": []
+      },
+      "reduceFee(uint256)": {
+        "intent": "Reduce Fee on contract",
+        "fields": [
+          {
+            "path": "_newFee",
+            "label": " new Fee",
+            "format": "raw"
+          }
+        ]
+      },
+      "removeLimits()": {
+        "intent": "Remove Limits on contract",
+        "fields": []
+      },
+      "removeTransferTax()": {
+        "intent": "Remove Transfer Tax on contract",
+        "fields": []
+      },
+      "renounceOwnership()": {
+        "intent": "Renounce Ownership on contract",
+        "fields": []
+      },
+      "transfer(address,uint256)": {
+        "intent": "Transfer on contract",
+        "fields": [
+          {
+            "path": "recipient",
+            "label": "Recipient",
+            "format": "address"
+          },
+          {
+            "path": "amount",
+            "label": "Amount",
+            "format": "raw"
+          }
+        ]
+      },
+      "transferFrom(address,address,uint256)": {
+        "intent": "Transfer From on contract",
+        "fields": [
+          {
+            "path": "sender",
+            "label": "Sender",
+            "format": "address"
+          },
+          {
+            "path": "recipient",
+            "label": "Recipient",
+            "format": "address"
+          },
+          {
+            "path": "amount",
+            "label": "Amount",
+            "format": "raw"
           }
         ]
       }

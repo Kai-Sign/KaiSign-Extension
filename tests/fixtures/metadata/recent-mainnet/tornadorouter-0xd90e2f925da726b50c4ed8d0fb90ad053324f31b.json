@@ -25,6 +25,113 @@
           ],
           "outputs": [],
           "stateMutability": "payable"
+        },
+        {
+          "type": "function",
+          "name": "approveExactToken",
+          "selector": "0x3ef10783",
+          "inputs": [
+            {
+              "internalType": "contract IERC20",
+              "name": "_token",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "_spender",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "_amount",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "backupNotes",
+          "selector": "0x6485ba2a",
+          "inputs": [
+            {
+              "internalType": "bytes[]",
+              "name": "_encryptedNotes",
+              "type": "bytes[]"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "rescueTokens",
+          "selector": "0xcea9d26f",
+          "inputs": [
+            {
+              "internalType": "contract IERC20",
+              "name": "_token",
+              "type": "address"
+            },
+            {
+              "internalType": "address payable",
+              "name": "_to",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "_amount",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "withdraw",
+          "selector": "0xb438689f",
+          "inputs": [
+            {
+              "internalType": "contract ITornadoInstance",
+              "name": "_tornado",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes",
+              "name": "_proof",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "_root",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "_nullifierHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "address payable",
+              "name": "_recipient",
+              "type": "address"
+            },
+            {
+              "internalType": "address payable",
+              "name": "_relayer",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "_fee",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "_refund",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "payable"
         }
       ]
     }
@@ -48,6 +155,101 @@
             "path": "_encryptedNote",
             "label": "Encrypted Note",
             "format": "hex"
+          }
+        ]
+      },
+      "approveExactToken(address,address,uint256)": {
+        "intent": "Approve Exact Token on contract",
+        "fields": [
+          {
+            "path": "_token",
+            "label": " token",
+            "format": "address"
+          },
+          {
+            "path": "_spender",
+            "label": " spender",
+            "format": "address"
+          },
+          {
+            "path": "_amount",
+            "label": " amount",
+            "format": "raw"
+          }
+        ]
+      },
+      "backupNotes(bytes[])": {
+        "intent": "Backup Notes on contract",
+        "fields": [
+          {
+            "path": "_encryptedNotes",
+            "label": " encrypted Notes",
+            "format": "hex"
+          }
+        ]
+      },
+      "rescueTokens(address,address,uint256)": {
+        "intent": "Rescue Tokens on contract",
+        "fields": [
+          {
+            "path": "_token",
+            "label": " token",
+            "format": "address"
+          },
+          {
+            "path": "_to",
+            "label": " to",
+            "format": "address"
+          },
+          {
+            "path": "_amount",
+            "label": " amount",
+            "format": "raw"
+          }
+        ]
+      },
+      "withdraw(address,bytes,bytes32,bytes32,address,address,uint256,uint256)": {
+        "intent": "Withdraw on contract",
+        "fields": [
+          {
+            "path": "_tornado",
+            "label": " tornado",
+            "format": "address"
+          },
+          {
+            "path": "_proof",
+            "label": " proof",
+            "format": "hex"
+          },
+          {
+            "path": "_root",
+            "label": " root",
+            "format": "hex"
+          },
+          {
+            "path": "_nullifierHash",
+            "label": " nullifier Hash",
+            "format": "hex"
+          },
+          {
+            "path": "_recipient",
+            "label": " recipient",
+            "format": "address"
+          },
+          {
+            "path": "_relayer",
+            "label": " relayer",
+            "format": "address"
+          },
+          {
+            "path": "_fee",
+            "label": " fee",
+            "format": "raw"
+          },
+          {
+            "path": "_refund",
+            "label": " refund",
+            "format": "raw"
           }
         ]
       }

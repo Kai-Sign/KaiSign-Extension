@@ -78,7 +78,8 @@ const TEST_SUITES = [
   { name: 'aa/erc4337.test.js', path: './suites/aa/erc4337.test.js' },
   { name: 'aa/eip7702.test.js', path: './suites/aa/eip7702.test.js' },
 
-  // Coverage audit (verified ABIs from Sourcify)
+  // Coverage audits (verified ABIs from Sourcify)
+  { name: 'coverage/metadata-selector-closure.test.js', path: './suites/coverage/metadata-selector-closure.test.js' },
   { name: 'coverage/verified-abi-coverage.test.js', path: './suites/coverage/verified-abi-coverage.test.js' }
 ];
 

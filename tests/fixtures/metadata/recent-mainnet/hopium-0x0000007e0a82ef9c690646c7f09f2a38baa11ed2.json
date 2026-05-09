@@ -29,6 +29,277 @@
             }
           ],
           "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "changeTaxBuySell",
+          "selector": "0x3d36920e",
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "newBuyT",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "newSellT",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "decreaseAllowance",
+          "selector": "0xa457c2d7",
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "spender",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "subtractedValue",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "enableLaunch",
+          "selector": "0xff5211bb",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "ethWith",
+          "selector": "0x6501898f",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "exmptFee",
+          "selector": "0xfd0a3451",
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "targ",
+              "type": "address"
+            },
+            {
+              "internalType": "bool",
+              "name": "isExempt",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "increaseAllowance",
+          "selector": "0x39509351",
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "spender",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "addedValue",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "modeC",
+          "selector": "0x5d41d61f",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "newlimit_maxtx",
+          "selector": "0xc37c941b",
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "maxtxnew",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "newlimit_maxwlt",
+          "selector": "0xc5ea3f3d",
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "maxwltnew",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "newvalsSwapb",
+          "selector": "0x8d7d5829",
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "newmin",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "newmax",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "noLim",
+          "selector": "0xf1b244d1",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "renounceOwnership",
+          "selector": "0x715018a6",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "setlt",
+          "selector": "0xabbdcc49",
+          "inputs": [
+            {
+              "internalType": "address[]",
+              "name": "newadd",
+              "type": "address[]"
+            },
+            {
+              "internalType": "bool",
+              "name": "status",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "setnwMktRec",
+          "selector": "0xdc3b2ecd",
+          "inputs": [
+            {
+              "internalType": "address payable",
+              "name": "mktwWalletNew",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "transfer",
+          "selector": "0xa9059cbb",
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "recipient",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "transferFrom",
+          "selector": "0x23b872dd",
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "sender",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "recipient",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "transferOwnership",
+          "selector": "0xf2fde38b",
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "newOwner",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "triggerSwap",
+          "selector": "0x8f937cc4",
+          "inputs": [],
+          "stateMutability": "nonpayable"
         }
       ]
     }
@@ -53,6 +324,195 @@
             }
           }
         ]
+      },
+      "changeTaxBuySell(uint256,uint256)": {
+        "intent": "Change Tax Buy Sell on contract",
+        "fields": [
+          {
+            "path": "newBuyT",
+            "label": "New Buy T",
+            "format": "raw"
+          },
+          {
+            "path": "newSellT",
+            "label": "New Sell T",
+            "format": "raw"
+          }
+        ]
+      },
+      "decreaseAllowance(address,uint256)": {
+        "intent": "Decrease Allowance on contract",
+        "fields": [
+          {
+            "path": "spender",
+            "label": "Spender",
+            "format": "address"
+          },
+          {
+            "path": "subtractedValue",
+            "label": "Subtracted Value",
+            "format": "raw"
+          }
+        ]
+      },
+      "enableLaunch()": {
+        "intent": "Enable Launch on contract",
+        "fields": []
+      },
+      "ethWith()": {
+        "intent": "Eth With on contract",
+        "fields": []
+      },
+      "exmptFee(address,bool)": {
+        "intent": "Exmpt Fee on contract",
+        "fields": [
+          {
+            "path": "targ",
+            "label": "Targ",
+            "format": "address"
+          },
+          {
+            "path": "isExempt",
+            "label": "Is Exempt",
+            "format": "boolean"
+          }
+        ]
+      },
+      "increaseAllowance(address,uint256)": {
+        "intent": "Increase Allowance on contract",
+        "fields": [
+          {
+            "path": "spender",
+            "label": "Spender",
+            "format": "address"
+          },
+          {
+            "path": "addedValue",
+            "label": "Added Value",
+            "format": "raw"
+          }
+        ]
+      },
+      "modeC()": {
+        "intent": "Mode C on contract",
+        "fields": []
+      },
+      "newlimit_maxtx(uint256)": {
+        "intent": "Newlimit maxtx on contract",
+        "fields": [
+          {
+            "path": "maxtxnew",
+            "label": "Maxtxnew",
+            "format": "raw"
+          }
+        ]
+      },
+      "newlimit_maxwlt(uint256)": {
+        "intent": "Newlimit maxwlt on contract",
+        "fields": [
+          {
+            "path": "maxwltnew",
+            "label": "Maxwltnew",
+            "format": "raw"
+          }
+        ]
+      },
+      "newvalsSwapb(uint256,uint256)": {
+        "intent": "Newvals Swapb on contract",
+        "fields": [
+          {
+            "path": "newmin",
+            "label": "Newmin",
+            "format": "raw"
+          },
+          {
+            "path": "newmax",
+            "label": "Newmax",
+            "format": "raw"
+          }
+        ]
+      },
+      "noLim()": {
+        "intent": "No Lim on contract",
+        "fields": []
+      },
+      "renounceOwnership()": {
+        "intent": "Renounce Ownership on contract",
+        "fields": []
+      },
+      "setlt(address[],bool)": {
+        "intent": "Setlt on contract",
+        "fields": [
+          {
+            "path": "newadd",
+            "label": "Newadd",
+            "format": "raw"
+          },
+          {
+            "path": "status",
+            "label": "Status",
+            "format": "boolean"
+          }
+        ]
+      },
+      "setnwMktRec(address)": {
+        "intent": "Setnw Mkt Rec on contract",
+        "fields": [
+          {
+            "path": "mktwWalletNew",
+            "label": "Mktw Wallet New",
+            "format": "address"
+          }
+        ]
+      },
+      "transfer(address,uint256)": {
+        "intent": "Transfer on contract",
+        "fields": [
+          {
+            "path": "recipient",
+            "label": "Recipient",
+            "format": "address"
+          },
+          {
+            "path": "amount",
+            "label": "Amount",
+            "format": "raw"
+          }
+        ]
+      },
+      "transferFrom(address,address,uint256)": {
+        "intent": "Transfer From on contract",
+        "fields": [
+          {
+            "path": "sender",
+            "label": "Sender",
+            "format": "address"
+          },
+          {
+            "path": "recipient",
+            "label": "Recipient",
+            "format": "address"
+          },
+          {
+            "path": "amount",
+            "label": "Amount",
+            "format": "raw"
+          }
+        ]
+      },
+      "transferOwnership(address)": {
+        "intent": "Transfer Ownership on contract",
+        "fields": [
+          {
+            "path": "newOwner",
+            "label": "New Owner",
+            "format": "address"
+          }
+        ]
+      },
+      "triggerSwap()": {
+        "intent": "Trigger Swap on contract",
+        "fields": []
       }
     }
   },

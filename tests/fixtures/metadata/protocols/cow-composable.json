@@ -15,12 +15,24 @@
               "name": "params",
               "type": "tuple",
               "components": [
-                { "name": "handler", "type": "address" },
-                { "name": "salt", "type": "bytes32" },
-                { "name": "staticInput", "type": "bytes" }
+                {
+                  "name": "handler",
+                  "type": "address"
+                },
+                {
+                  "name": "salt",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "staticInput",
+                  "type": "bytes"
+                }
               ]
             },
-            { "name": "dispatch", "type": "bool" }
+            {
+              "name": "dispatch",
+              "type": "bool"
+            }
           ]
         },
         {
@@ -32,14 +44,32 @@
               "name": "params",
               "type": "tuple",
               "components": [
-                { "name": "handler", "type": "address" },
-                { "name": "salt", "type": "bytes32" },
-                { "name": "staticInput", "type": "bytes" }
+                {
+                  "name": "handler",
+                  "type": "address"
+                },
+                {
+                  "name": "salt",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "staticInput",
+                  "type": "bytes"
+                }
               ]
             },
-            { "name": "factory", "type": "address" },
-            { "name": "data", "type": "bytes" },
-            { "name": "dispatch", "type": "bool" }
+            {
+              "name": "factory",
+              "type": "address"
+            },
+            {
+              "name": "data",
+              "type": "bytes"
+            },
+            {
+              "name": "dispatch",
+              "type": "bool"
+            }
           ]
         },
         {
@@ -47,7 +77,10 @@
           "name": "remove",
           "selector": "0x95bc2673",
           "inputs": [
-            { "name": "singleOrderHash", "type": "bytes32" }
+            {
+              "name": "singleOrderHash",
+              "type": "bytes32"
+            }
           ]
         },
         {
@@ -55,13 +88,22 @@
           "name": "setRoot",
           "selector": "0xf53f1014",
           "inputs": [
-            { "name": "root", "type": "bytes32" },
+            {
+              "name": "root",
+              "type": "bytes32"
+            },
             {
               "name": "proof",
               "type": "tuple",
               "components": [
-                { "name": "location", "type": "bytes32" },
-                { "name": "data", "type": "bytes32[]" }
+                {
+                  "name": "location",
+                  "type": "bytes32"
+                },
+                {
+                  "name": "data",
+                  "type": "bytes32[]"
+                }
               ]
             }
           ]
@@ -71,8 +113,126 @@
           "name": "setSwapGuard",
           "selector": "0x8f7984ed",
           "inputs": [
-            { "name": "swapGuard", "type": "address" }
+            {
+              "name": "swapGuard",
+              "type": "address"
+            }
           ]
+        },
+        {
+          "type": "function",
+          "name": "createWithContext",
+          "selector": "0x0d0d9800",
+          "inputs": [
+            {
+              "components": [
+                {
+                  "internalType": "contract IConditionalOrder",
+                  "name": "handler",
+                  "type": "address"
+                },
+                {
+                  "internalType": "bytes32",
+                  "name": "salt",
+                  "type": "bytes32"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "staticInput",
+                  "type": "bytes"
+                }
+              ],
+              "internalType": "struct IConditionalOrder.ConditionalOrderParams",
+              "name": "params",
+              "type": "tuple"
+            },
+            {
+              "internalType": "contract IValueFactory",
+              "name": "factory",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes",
+              "name": "data",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bool",
+              "name": "dispatch",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "setRoot",
+          "selector": "0x1ab0dd9d",
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "root",
+              "type": "bytes32"
+            },
+            {
+              "components": [
+                {
+                  "internalType": "uint256",
+                  "name": "location",
+                  "type": "uint256"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "data",
+                  "type": "bytes"
+                }
+              ],
+              "internalType": "struct ComposableCoW.Proof",
+              "name": "proof",
+              "type": "tuple"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "setRootWithContext",
+          "selector": "0x57f1d41a",
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "root",
+              "type": "bytes32"
+            },
+            {
+              "components": [
+                {
+                  "internalType": "uint256",
+                  "name": "location",
+                  "type": "uint256"
+                },
+                {
+                  "internalType": "bytes",
+                  "name": "data",
+                  "type": "bytes"
+                }
+              ],
+              "internalType": "struct ComposableCoW.Proof",
+              "name": "proof",
+              "type": "tuple"
+            },
+            {
+              "internalType": "contract IValueFactory",
+              "name": "factory",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes",
+              "name": "data",
+              "type": "bytes"
+            }
+          ],
+          "stateMutability": "nonpayable"
         }
       ]
     }
@@ -83,39 +243,115 @@
         "intent": "Create conditional order on CoW Protocol",
         "interpolatedIntent": "Create conditional order with handler {params.handler}",
         "fields": [
-          { "path": "params.handler", "label": "Order Handler", "format": "addressOrName" },
-          { "path": "params.salt", "label": "Salt", "format": "hex" },
-          { "path": "dispatch", "label": "Dispatch Event", "format": "boolean" }
+          {
+            "path": "params.handler",
+            "label": "Order Handler",
+            "format": "addressOrName"
+          },
+          {
+            "path": "params.salt",
+            "label": "Salt",
+            "format": "hex"
+          },
+          {
+            "path": "dispatch",
+            "label": "Dispatch Event",
+            "format": "boolean"
+          }
         ]
       },
       "createWithContext((address,bytes32,bytes),address,bytes,bool)": {
         "intent": "Create conditional order with context",
         "interpolatedIntent": "Create conditional order with handler {params.handler}",
         "fields": [
-          { "path": "params.handler", "label": "Order Handler", "format": "addressOrName" },
-          { "path": "factory", "label": "Value Factory", "format": "addressOrName" },
-          { "path": "dispatch", "label": "Dispatch Event", "format": "boolean" }
+          {
+            "path": "params.handler",
+            "label": "Order Handler",
+            "format": "addressOrName"
+          },
+          {
+            "path": "factory",
+            "label": "Value Factory",
+            "format": "addressOrName"
+          },
+          {
+            "path": "dispatch",
+            "label": "Dispatch Event",
+            "format": "boolean"
+          }
         ]
       },
       "remove(bytes32)": {
         "intent": "Remove conditional order",
         "interpolatedIntent": "Remove conditional order {singleOrderHash}",
         "fields": [
-          { "path": "singleOrderHash", "label": "Order Hash", "format": "hex" }
+          {
+            "path": "singleOrderHash",
+            "label": "Order Hash",
+            "format": "hex"
+          }
         ]
       },
       "setRoot(bytes32,(bytes32,bytes32[]))": {
         "intent": "Set merkle root for batch orders",
         "interpolatedIntent": "Set merkle root {root}",
         "fields": [
-          { "path": "root", "label": "Merkle Root", "format": "hex" }
+          {
+            "path": "root",
+            "label": "Merkle Root",
+            "format": "hex"
+          }
         ]
       },
       "setSwapGuard(address)": {
         "intent": "Set swap guard for conditional orders",
         "interpolatedIntent": "Set swap guard to {swapGuard}",
         "fields": [
-          { "path": "swapGuard", "label": "Swap Guard", "format": "addressOrName" }
+          {
+            "path": "swapGuard",
+            "label": "Swap Guard",
+            "format": "addressOrName"
+          }
+        ]
+      },
+      "setRoot(bytes32,(uint256,bytes))": {
+        "intent": "Set Root on contract",
+        "fields": [
+          {
+            "path": "root",
+            "label": "Root",
+            "format": "hex"
+          },
+          {
+            "path": "proof",
+            "label": "Proof",
+            "format": "raw"
+          }
+        ]
+      },
+      "setRootWithContext(bytes32,(uint256,bytes),address,bytes)": {
+        "intent": "Set Root With Context on contract",
+        "fields": [
+          {
+            "path": "root",
+            "label": "Root",
+            "format": "hex"
+          },
+          {
+            "path": "proof",
+            "label": "Proof",
+            "format": "raw"
+          },
+          {
+            "path": "factory",
+            "label": "Factory",
+            "format": "address"
+          },
+          {
+            "path": "data",
+            "label": "Data",
+            "format": "hex"
+          }
         ]
       }
     }

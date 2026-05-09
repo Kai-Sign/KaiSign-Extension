@@ -8,7 +8,8 @@
         { "type": "function", "name": "supply", "selector": "0x617ba037", "inputs": [{ "name": "asset", "type": "address" }, { "name": "amount", "type": "uint256" }, { "name": "onBehalfOf", "type": "address" }, { "name": "referralCode", "type": "uint16" }] },
         { "type": "function", "name": "withdraw", "selector": "0x69328dec", "inputs": [{ "name": "asset", "type": "address" }, { "name": "amount", "type": "uint256" }, { "name": "to", "type": "address" }] },
         { "type": "function", "name": "borrow", "selector": "0xa415bcad", "inputs": [{ "name": "asset", "type": "address" }, { "name": "amount", "type": "uint256" }, { "name": "interestRateMode", "type": "uint256" }, { "name": "referralCode", "type": "uint16" }, { "name": "onBehalfOf", "type": "address" }] },
-        { "type": "function", "name": "repay", "selector": "0x573ade81", "inputs": [{ "name": "asset", "type": "address" }, { "name": "amount", "type": "uint256" }, { "name": "interestRateMode", "type": "uint256" }, { "name": "onBehalfOf", "type": "address" }] }
+        { "type": "function", "name": "repay", "selector": "0x573ade81", "inputs": [{ "name": "asset", "type": "address" }, { "name": "amount", "type": "uint256" }, { "name": "interestRateMode", "type": "uint256" }, { "name": "onBehalfOf", "type": "address" }] },
+        { "type": "function", "name": "repayWithPermit", "selector": "0xee3e210b", "inputs": [{ "name": "asset", "type": "address" }, { "name": "amount", "type": "uint256" }, { "name": "interestRateMode", "type": "uint256" }, { "name": "onBehalfOf", "type": "address" }, { "name": "deadline", "type": "uint256" }, { "name": "permitV", "type": "uint8" }, { "name": "permitR", "type": "bytes32" }, { "name": "permitS", "type": "bytes32" }] }
       ]
     }
   },
@@ -50,6 +51,20 @@
           { "path": "amount", "label": "Amount", "format": "tokenAmount", "params": { "tokenPath": "asset" } },
           { "path": "interestRateMode", "label": "Rate Mode", "format": "number" },
           { "path": "onBehalfOf", "label": "On Behalf Of", "format": "addressName" }
+        ]
+      },
+      "repayWithPermit(address,uint256,uint256,address,uint256,uint8,bytes32,bytes32)": {
+        "intent": "Repay to Aave with permit",
+        "interpolatedIntent": "Repay {amount} to Aave with permit",
+        "fields": [
+          { "path": "asset", "label": "Token", "format": "addressName" },
+          { "path": "amount", "label": "Amount", "format": "tokenAmount", "params": { "tokenPath": "asset" } },
+          { "path": "interestRateMode", "label": "Rate Mode", "format": "number" },
+          { "path": "onBehalfOf", "label": "On Behalf Of", "format": "addressName" },
+          { "path": "deadline", "label": "Permit Deadline", "format": "number" },
+          { "path": "permitV", "label": "Permit V", "format": "number" },
+          { "path": "permitR", "label": "Permit R", "format": "raw" },
+          { "path": "permitS", "label": "Permit S", "format": "raw" }
         ]
       }
     }

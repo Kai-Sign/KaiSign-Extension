@@ -1,8 +1,8 @@
 {
   "context": {
     "contract": {
-      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-      "chainId": 1,
+      "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "chainId": 8453,
       "name": "USD Coin",
       "symbol": "USDC",
       "decimals": 6,
@@ -83,7 +83,7 @@
   "display": {
     "formats": {
       "approve(address,uint256)": {
-        "intent": "Approve {amount} USDC to {spender}",
+        "intent": "Approve {amount} USDC",
         "fields": [
           {
             "path": "spender",
@@ -102,7 +102,7 @@
         ]
       },
       "transfer(address,uint256)": {
-        "intent": "Transfer {amount} USDC to {to}",
+        "intent": "Transfer {amount} USDC",
         "fields": [
           {
             "path": "to",
