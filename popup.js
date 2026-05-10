@@ -79,41 +79,58 @@ async function loadData() {
   }
 }
 
-// Generate meaningful title for transaction
+function getDecodedIntent(tx) {
+  const candidates = [
+    tx.decodedResult?.intent,
+    tx.decodedResult?.wrapperIntent,
+    tx.intent,
+    Array.isArray(tx.decodedResult?.nestedIntents) ? tx.decodedResult.nestedIntents.join(' + ') : null
+  ];
+
+  const invalidPatterns = [
+    'Parsing',
+    'Loading',
+    'Processing',
+    'Contract interaction',
+    'Unknown function',
+    'Unknown call',
+    'undefined',
+    'null',
+    '...'
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const intent = candidate.trim();
+    if (intent.length <= 3) continue;
+    const lower = intent.toLowerCase();
+    if (invalidPatterns.some(pattern => lower.includes(pattern.toLowerCase()))) continue;
+    return intent;
+  }
+
+  return '';
+}
+
+function truncateTitle(value) {
+  if (!value) return '';
+  return value.length > 72 ? value.slice(0, 69) + '...' : value;
+}
+
+// Generate meaningful title for transaction. Intent wins over verification badge.
 function generateMeaningfulTitle(tx, status) {
+  const intent = getDecodedIntent(tx);
+  if (intent) return truncateTitle(intent);
+
   if (status?.useAsTitle && status.label) {
     return status.label;
   }
 
-  // 1. Try decoded protocol name
+  // 2. Try protocol + function, but never hide a real intent behind protocol name.
+  if (tx.decodedResult?.protocolName && tx.decodedResult?.functionName) {
+    return `${tx.decodedResult.protocolName} ${tx.decodedResult.functionName}`;
+  }
   if (tx.decodedResult?.protocolName) {
     return tx.decodedResult.protocolName;
-  }
-
-  // 2. Try intent if meaningful (filter out useless text)
-  if (tx.intent) {
-    const intent = tx.intent;
-    const invalidPatterns = [
-      'Parsing',
-      'Loading',
-      'Processing',
-      'Contract interaction',
-      '...',
-      'undefined'
-    ];
-
-    // Check if intent is useful
-    const isUseful = !invalidPatterns.some(pattern =>
-      intent.toLowerCase().includes(pattern.toLowerCase())
-    );
-
-    if (isUseful && intent.length > 3) {
-      // Truncate if too long
-      if (intent.length > 50) {
-        return intent.slice(0, 47) + '...';
-      }
-      return intent;
-    }
   }
 
   // 3. Try function name from decoded result
@@ -151,10 +168,16 @@ function filterTransactions(txs) {
 
   const searchLower = currentSearch.toLowerCase();
   return txs.filter(tx => {
-    return (tx.intent || '').toLowerCase().includes(searchLower) ||
+    const decodedIntent = getDecodedIntent(tx);
+    return decodedIntent.toLowerCase().includes(searchLower) ||
+      (tx.intent || '').toLowerCase().includes(searchLower) ||
+      (tx.decodedResult?.intent || '').toLowerCase().includes(searchLower) ||
+      (tx.decodedResult?.wrapperIntent || '').toLowerCase().includes(searchLower) ||
       (tx.decodedResult?.error || '').toLowerCase().includes(searchLower) ||
       (tx.decodedResult?.statusTitle || '').toLowerCase().includes(searchLower) ||
       (tx.decodedResult?.statusDetail || '').toLowerCase().includes(searchLower) ||
+      (tx.decodedResult?.protocolName || '').toLowerCase().includes(searchLower) ||
+      (tx.decodedResult?.functionName || '').toLowerCase().includes(searchLower) ||
       (tx.to || '').toLowerCase().includes(searchLower) ||
       (tx.method || '').toLowerCase().includes(searchLower) ||
       (tx.data || '').toLowerCase().includes(searchLower);
@@ -191,16 +214,16 @@ function getTransactionStatus(tx) {
     return {
       label: 'Unverified',
       tone: 'warning',
-      useAsTitle: true,
+      useAsTitle: false,
       detail: verification.details || 'Backend did not provide Merkle sibling leaves.'
     };
   }
 
   if (verification?.source === 'root-unavailable') {
     return {
-      label: 'Missing Merkle root',
+      label: 'Unverified',
       tone: 'warning',
-      useAsTitle: true,
+      useAsTitle: false,
       detail: verification.details || 'Could not fetch the registry Merkle root.'
     };
   }
@@ -218,8 +241,8 @@ function getTransactionStatus(tx) {
     return {
       label: 'Unverified',
       tone: 'warning',
-      useAsTitle: true,
-      detail: verification.details || 'Unverified'
+      useAsTitle: false,
+      detail: verification.details || 'No current on-chain attestation for this metadata.'
     };
   }
 
@@ -666,8 +689,10 @@ function showTransactionDetails(tx) {
   `).join('');
 
   const summaryLines = [];
+  const summaryIntent = getDecodedIntent(tx);
   if (status?.label) summaryLines.push(`Status: ${status.label}`);
-  if (tx.intent) summaryLines.push(`Intent: ${tx.intent}`);
+  if (summaryIntent) summaryLines.push(`Intent: ${summaryIntent}`);
+  else if (tx.intent) summaryLines.push(`Intent: ${tx.intent}`);
   if (tx.decodedResult?.protocolName) summaryLines.push(`Protocol: ${tx.decodedResult.protocolName}`);
   if (tx.decodedResult?.functionName) summaryLines.push(`Function: ${tx.decodedResult.functionName}`);
   if (tx.decodedResult?.selector) summaryLines.push(`Selector: ${tx.decodedResult.selector}`);

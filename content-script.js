@@ -135,9 +135,13 @@ KAISIGN_DEBUG && console.log('[KaiSign] Content script initialized');
     .kaisign-modal-actions { display: flex; gap: 8px; }
     .kaisign-modal-content { padding: 16px 20px; }
     .kaisign-history-item { margin-bottom: 12px; padding: 14px; background: #0d1117; border-radius: 8px; border: 1px solid #30363d; }
-    .kaisign-history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .kaisign-history-intent { font-weight: 500; color: #3fb950; }
-    .kaisign-history-time { font-size: 10px; color: #6e7681; }
+    .kaisign-history-header { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .kaisign-history-intent { flex: 1; min-width: 0; font-weight: 500; color: #3fb950; overflow-wrap: anywhere; word-break: break-word; }
+    .kaisign-history-badge { flex: 0 0 auto; padding: 2px 6px; border-radius: 999px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .kaisign-history-badge.verified { color: #22c55e; background: rgba(34,197,94,0.14); }
+    .kaisign-history-badge.warning { color: #f59e0b; background: rgba(245,158,11,0.14); }
+    .kaisign-history-badge.error { color: #ef4444; background: rgba(239,68,68,0.14); }
+    .kaisign-history-time { flex: 0 0 auto; font-size: 10px; color: #6e7681; }
     .kaisign-history-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; margin-bottom: 8px; }
     .kaisign-history-detail { color: #8b949e; }
     .kaisign-history-detail strong { color: #e6edf3; }
@@ -3693,6 +3697,38 @@ window.showTransactionHistory = function() {
       return `<span class="kaisign-address" data-address="${addr}" title="${addr}">${truncated}</span>`;
     };
 
+    const getHistoryIntent = (tx) => {
+      const candidates = [
+        tx?.decodedResult?.intent,
+        tx?.decodedResult?.wrapperIntent,
+        tx?.intent,
+        Array.isArray(tx?.decodedResult?.nestedIntents) ? tx.decodedResult.nestedIntents.join(' + ') : null,
+        tx?.decodedResult?.functionName,
+        tx?.method
+      ];
+      const bad = ['Parsing', 'Loading', 'Processing', 'Contract interaction', 'Unknown function', 'Unknown call', 'undefined', 'null', '...'];
+      for (const candidate of candidates) {
+        if (typeof candidate !== 'string') continue;
+        const intent = candidate.trim();
+        if (intent.length <= 3) continue;
+        const lower = intent.toLowerCase();
+        if (bad.some(pattern => lower.includes(pattern.toLowerCase()))) continue;
+        return intent;
+      }
+      return tx?.decodedResult?.statusTitle || tx?.decodedResult?.error || 'Unknown';
+    };
+
+    const getHistoryVerification = (tx) => tx?.decodedResult?._verification || tx?.decodedResult?.metadata?._verification || null;
+
+    const getHistoryBadge = (tx) => {
+      const verification = getHistoryVerification(tx);
+      if (!verification) return '';
+      if (verification.verified) return '<span class="kaisign-history-badge verified">Verified</span>';
+      if (verification.source === 'revoked') return '<span class="kaisign-history-badge error">Revoked</span>';
+      if (verification.source === 'mismatch') return '<span class="kaisign-history-badge error">Hash mismatch</span>';
+      return '<span class="kaisign-history-badge warning">Unverified</span>';
+    };
+
     historyPopup.innerHTML = `
       <div class="kaisign-modal-header">
         <h2 class="kaisign-modal-title">Transaction History (${transactions.length})</h2>
@@ -3707,7 +3743,8 @@ window.showTransactionHistory = function() {
           transactions.map((tx, i) => `
             <div class="kaisign-history-item">
               <div class="kaisign-history-header">
-                <span class="kaisign-history-intent">#${i + 1} ${escapeHtml(tx.intent || 'Unknown')}</span>
+                <span class="kaisign-history-intent">#${i + 1} ${escapeHtml(getHistoryIntent(tx))}</span>
+                ${getHistoryBadge(tx)}
                 <span class="kaisign-history-time">${tx.time ? new Date(tx.time).toLocaleString() : 'N/A'}</span>
               </div>
               <div class="kaisign-history-details">
