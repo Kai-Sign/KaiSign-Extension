@@ -315,7 +315,7 @@
         ]
       },
       "setRoot(bytes32,(uint256,bytes))": {
-        "intent": "Set Root on contract",
+        "intent": "Review Set Root transaction",
         "fields": [
           {
             "path": "root",
@@ -330,7 +330,7 @@
         ]
       },
       "setRootWithContext(bytes32,(uint256,bytes),address,bytes)": {
-        "intent": "Set Root With Context on contract",
+        "intent": "Review Set Root With Context transaction",
         "fields": [
           {
             "path": "root",

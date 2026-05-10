@@ -180,7 +180,7 @@
   "display": {
     "formats": {
       "deprecate(address)": {
-        "intent": "Deprecate on contract",
+        "intent": "Review Deprecate transaction",
         "fields": [
           {
             "path": "_upgradedAddress",
@@ -190,7 +190,7 @@
         ]
       },
       "approve(address,uint256)": {
-        "intent": "Approve on contract",
+        "intent": "Review Approve transaction",
         "fields": [
           {
             "path": "_spender",
@@ -205,7 +205,7 @@
         ]
       },
       "addBlackList(address)": {
-        "intent": "Add Black List on contract",
+        "intent": "Review Add Black List transaction",
         "fields": [
           {
             "path": "_evilUser",
@@ -215,7 +215,7 @@
         ]
       },
       "transferFrom(address,address,uint256)": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "_from",
@@ -235,15 +235,15 @@
         ]
       },
       "unpause()": {
-        "intent": "Unpause on contract",
+        "intent": "Review Unpause transaction",
         "fields": []
       },
       "pause()": {
-        "intent": "Pause on contract",
+        "intent": "Review Pause transaction",
         "fields": []
       },
       "setParams(uint256,uint256)": {
-        "intent": "Set Params on contract",
+        "intent": "Review Set Params transaction",
         "fields": [
           {
             "path": "newBasisPoints",
@@ -258,7 +258,7 @@
         ]
       },
       "issue(uint256)": {
-        "intent": "Issue on contract",
+        "intent": "Review Issue transaction",
         "fields": [
           {
             "path": "amount",
@@ -268,7 +268,7 @@
         ]
       },
       "redeem(uint256)": {
-        "intent": "Redeem on contract",
+        "intent": "Review Redeem transaction",
         "fields": [
           {
             "path": "amount",
@@ -278,7 +278,7 @@
         ]
       },
       "removeBlackList(address)": {
-        "intent": "Remove Black List on contract",
+        "intent": "Review Remove Black List transaction",
         "fields": [
           {
             "path": "_clearedUser",
@@ -288,7 +288,7 @@
         ]
       },
       "transferOwnership(address)": {
-        "intent": "Transfer Ownership on contract",
+        "intent": "Review Transfer Ownership transaction",
         "fields": [
           {
             "path": "newOwner",
@@ -298,7 +298,7 @@
         ]
       },
       "destroyBlackFunds(address)": {
-        "intent": "Destroy Black Funds on contract",
+        "intent": "Review Destroy Black Funds transaction",
         "fields": [
           {
             "path": "_blackListedUser",
@@ -308,7 +308,7 @@
         ]
       },
       "transfer(address,uint256)": {
-        "intent": "Transfer on contract",
+        "intent": "Review Transfer transaction",
         "fields": [
           {
             "path": "_to",

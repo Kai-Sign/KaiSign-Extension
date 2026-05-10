@@ -317,7 +317,7 @@
         ]
       },
       "invalidateOrdersIgnoringNotAllowed((address,address,uint256,uint256,bytes32,uint256,uint32,bool,int64)[])": {
-        "intent": "Invalidate Orders Ignoring Not Allowed on contract",
+        "intent": "Review Invalidate Orders Ignoring Not Allowed transaction",
         "fields": [
           {
             "path": "orderArray",
@@ -327,7 +327,7 @@
         ]
       },
       "unwrap(uint256)": {
-        "intent": "Unwrap on contract",
+        "intent": "Review Unwrap transaction",
         "fields": [
           {
             "path": "amount",
@@ -337,7 +337,7 @@
         ]
       },
       "wrap(uint256)": {
-        "intent": "Wrap on contract",
+        "intent": "Review Wrap transaction",
         "fields": [
           {
             "path": "amount",
@@ -347,7 +347,7 @@
         ]
       },
       "wrapAll()": {
-        "intent": "Wrap All on contract",
+        "intent": "Review Wrap All transaction",
         "fields": []
       }
     }

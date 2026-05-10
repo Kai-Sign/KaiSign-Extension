@@ -433,7 +433,7 @@
         ]
       },
       "approveHash(bytes32)": {
-        "intent": "Approve Hash on contract",
+        "intent": "Review Approve Hash transaction",
         "fields": [
           {
             "path": "hashToApprove",
@@ -443,7 +443,7 @@
         ]
       },
       "changeThreshold(uint256)": {
-        "intent": "Change Threshold on contract",
+        "intent": "Review Change Threshold transaction",
         "fields": [
           {
             "path": "_threshold",
@@ -453,7 +453,7 @@
         ]
       },
       "disableModule(address,address)": {
-        "intent": "Disable Module on contract",
+        "intent": "Review Disable Module transaction",
         "fields": [
           {
             "path": "prevModule",
@@ -468,7 +468,7 @@
         ]
       },
       "enableModule(address)": {
-        "intent": "Enable Module on contract",
+        "intent": "Review Enable Module transaction",
         "fields": [
           {
             "path": "module",
@@ -478,7 +478,7 @@
         ]
       },
       "execTransactionFromModule(address,uint256,bytes,uint8)": {
-        "intent": "Exec Transaction From Module on contract",
+        "intent": "Review Exec Transaction From Module transaction",
         "fields": [
           {
             "path": "to",
@@ -503,7 +503,7 @@
         ]
       },
       "execTransactionFromModuleReturnData(address,uint256,bytes,uint8)": {
-        "intent": "Exec Transaction From Module Return Data on contract",
+        "intent": "Review Exec Transaction From Module Return Data transaction",
         "fields": [
           {
             "path": "to",
@@ -528,7 +528,7 @@
         ]
       },
       "requiredTxGas(address,uint256,bytes,uint8)": {
-        "intent": "Required Tx Gas on contract",
+        "intent": "Review Required Tx Gas transaction",
         "fields": [
           {
             "path": "to",
@@ -553,7 +553,7 @@
         ]
       },
       "setFallbackHandler(address)": {
-        "intent": "Set Fallback Handler on contract",
+        "intent": "Review Set Fallback Handler transaction",
         "fields": [
           {
             "path": "handler",
@@ -563,7 +563,7 @@
         ]
       },
       "setGuard(address)": {
-        "intent": "Set Guard on contract",
+        "intent": "Review Set Guard transaction",
         "fields": [
           {
             "path": "guard",
@@ -573,7 +573,7 @@
         ]
       },
       "simulateAndRevert(address,bytes)": {
-        "intent": "Simulate And Revert on contract",
+        "intent": "Review Simulate And Revert transaction",
         "fields": [
           {
             "path": "targetContract",
@@ -588,7 +588,7 @@
         ]
       },
       "swapOwner(address,address,address)": {
-        "intent": "Swap Owner on contract",
+        "intent": "Review Swap Owner transaction",
         "fields": [
           {
             "path": "prevOwner",

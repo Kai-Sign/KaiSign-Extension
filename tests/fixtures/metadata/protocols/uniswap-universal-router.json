@@ -268,7 +268,7 @@
         ]
       },
       "collectRewards(bytes)": {
-        "intent": "Collect Rewards on contract",
+        "intent": "Review Collect Rewards transaction",
         "fields": [
           {
             "path": "looksRareClaim",
@@ -278,7 +278,7 @@
         ]
       },
       "execute(bytes,bytes[])": {
-        "intent": "Execute on contract",
+        "intent": "Review Execute transaction",
         "fields": [
           {
             "path": "commands",
@@ -293,7 +293,7 @@
         ]
       },
       "uniswapV3SwapCallback(int256,int256,bytes)": {
-        "intent": "Uniswap V3 Swap Callback on contract",
+        "intent": "Review Uniswap V3 Swap Callback transaction",
         "fields": [
           {
             "path": "amount0Delta",

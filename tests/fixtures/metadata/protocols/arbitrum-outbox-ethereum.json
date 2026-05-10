@@ -268,11 +268,11 @@
         ]
       },
       "admin()": {
-        "intent": "Admin on contract",
+        "intent": "Review Admin transaction",
         "fields": []
       },
       "changeAdmin(address)": {
-        "intent": "Change Admin on contract",
+        "intent": "Review Change Admin transaction",
         "fields": [
           {
             "path": "newAdmin",
@@ -282,11 +282,11 @@
         ]
       },
       "implementation()": {
-        "intent": "Implementation on contract",
+        "intent": "Review Implementation transaction",
         "fields": []
       },
       "upgradeTo(address)": {
-        "intent": "Upgrade To on contract",
+        "intent": "Review Upgrade To transaction",
         "fields": [
           {
             "path": "newImplementation",
@@ -296,7 +296,7 @@
         ]
       },
       "upgradeToAndCall(address,bytes)": {
-        "intent": "Upgrade To And Call on contract",
+        "intent": "Review Upgrade To And Call transaction",
         "fields": [
           {
             "path": "newImplementation",
@@ -311,7 +311,7 @@
         ]
       },
       "executeTransactionSimulation(uint256,address,address,uint256,uint256,uint256,uint256,bytes)": {
-        "intent": "Execute Transaction Simulation on contract",
+        "intent": "Review Execute Transaction Simulation transaction",
         "fields": [
           {
             "path": "index",
@@ -356,7 +356,7 @@
         ]
       },
       "initialize(address)": {
-        "intent": "Initialize on contract",
+        "intent": "Review Initialize transaction",
         "fields": [
           {
             "path": "_bridge",
@@ -366,15 +366,15 @@
         ]
       },
       "postUpgradeInit()": {
-        "intent": "Post Upgrade Init on contract",
+        "intent": "Review Post Upgrade Init transaction",
         "fields": []
       },
       "updateRollupAddress()": {
-        "intent": "Update Rollup Address on contract",
+        "intent": "Review Update Rollup Address transaction",
         "fields": []
       },
       "updateSendRoot(bytes32,bytes32)": {
-        "intent": "Update Send Root on contract",
+        "intent": "Review Update Send Root transaction",
         "fields": [
           {
             "path": "root",

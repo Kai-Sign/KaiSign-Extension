@@ -190,7 +190,7 @@
         "fields": []
       },
       "quoteExactInput(bytes,uint256)": {
-        "intent": "Quote Exact Input on contract",
+        "intent": "Review Quote Exact Input transaction",
         "fields": [
           {
             "path": "path",
@@ -205,7 +205,7 @@
         ]
       },
       "quoteExactOutput(bytes,uint256)": {
-        "intent": "Quote Exact Output on contract",
+        "intent": "Review Quote Exact Output transaction",
         "fields": [
           {
             "path": "path",
@@ -220,7 +220,7 @@
         ]
       },
       "quoteExactOutputSingle((address,address,uint256,uint24,uint160))": {
-        "intent": "Quote Exact Output Single on contract",
+        "intent": "Review Quote Exact Output Single transaction",
         "fields": [
           {
             "path": "params",

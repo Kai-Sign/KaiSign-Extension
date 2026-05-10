@@ -81,7 +81,7 @@
         ]
       },
       "enableFeeAmount(uint24,int24)": {
-        "intent": "Enable Fee Amount on contract",
+        "intent": "Review Enable Fee Amount transaction",
         "fields": [
           {
             "path": "fee",
@@ -96,7 +96,7 @@
         ]
       },
       "setOwner(address)": {
-        "intent": "Set Owner on contract",
+        "intent": "Review Set Owner transaction",
         "fields": [
           {
             "path": "_owner",

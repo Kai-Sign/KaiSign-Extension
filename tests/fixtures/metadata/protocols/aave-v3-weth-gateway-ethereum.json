@@ -240,7 +240,7 @@
         ]
       },
       "borrowETH(address,uint256,uint16)": {
-        "intent": "Borrow ETH on contract",
+        "intent": "Review Borrow ETH transaction",
         "fields": [
           {
             "path": "param0",
@@ -260,7 +260,7 @@
         ]
       },
       "emergencyEtherTransfer(address,uint256)": {
-        "intent": "Emergency Ether Transfer on contract",
+        "intent": "Review Emergency Ether Transfer transaction",
         "fields": [
           {
             "path": "to",
@@ -275,7 +275,7 @@
         ]
       },
       "emergencyTokenTransfer(address,address,uint256)": {
-        "intent": "Emergency Token Transfer on contract",
+        "intent": "Review Emergency Token Transfer transaction",
         "fields": [
           {
             "path": "token",
@@ -295,11 +295,11 @@
         ]
       },
       "renounceOwnership()": {
-        "intent": "Renounce Ownership on contract",
+        "intent": "Review Renounce Ownership transaction",
         "fields": []
       },
       "transferOwnership(address)": {
-        "intent": "Transfer Ownership on contract",
+        "intent": "Review Transfer Ownership transaction",
         "fields": [
           {
             "path": "newOwner",
@@ -309,7 +309,7 @@
         ]
       },
       "withdrawETH(address,uint256,address)": {
-        "intent": "Withdraw ETH on contract",
+        "intent": "Review Withdraw ETH transaction",
         "fields": [
           {
             "path": "param0",
@@ -329,7 +329,7 @@
         ]
       },
       "withdrawETHWithPermit(address,uint256,address,uint256,uint8,bytes32,bytes32)": {
-        "intent": "Withdraw ETHWith Permit on contract",
+        "intent": "Review Withdraw ETHWith Permit transaction",
         "fields": [
           {
             "path": "param0",

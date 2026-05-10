@@ -349,11 +349,11 @@
         ]
       },
       "pause()": {
-        "intent": "Pause on contract",
+        "intent": "Review Pause transaction",
         "fields": []
       },
       "processRoute(address,uint256,address,uint256,address,bytes)": {
-        "intent": "Process Route on contract",
+        "intent": "Review Process Route transaction",
         "fields": [
           {
             "path": "tokenIn",
@@ -388,15 +388,15 @@
         ]
       },
       "renounceOwnership()": {
-        "intent": "Renounce Ownership on contract",
+        "intent": "Review Renounce Ownership transaction",
         "fields": []
       },
       "resume()": {
-        "intent": "Resume on contract",
+        "intent": "Review Resume transaction",
         "fields": []
       },
       "setPriviledge(address,bool)": {
-        "intent": "Set Priviledge on contract",
+        "intent": "Review Set Priviledge transaction",
         "fields": [
           {
             "path": "user",
@@ -411,7 +411,7 @@
         ]
       },
       "transferOwnership(address)": {
-        "intent": "Transfer Ownership on contract",
+        "intent": "Review Transfer Ownership transaction",
         "fields": [
           {
             "path": "newOwner",
@@ -421,7 +421,7 @@
         ]
       },
       "transferValueAndprocessRoute(address,uint256,address,uint256,address,uint256,address,bytes)": {
-        "intent": "Transfer Value Andprocess Route on contract",
+        "intent": "Review Transfer Value Andprocess Route transaction",
         "fields": [
           {
             "path": "transferValueTo",
@@ -466,7 +466,7 @@
         ]
       },
       "uniswapV3SwapCallback(int256,int256,bytes)": {
-        "intent": "Uniswap V3 Swap Callback on contract",
+        "intent": "Review Uniswap V3 Swap Callback transaction",
         "fields": [
           {
             "path": "amount0Delta",

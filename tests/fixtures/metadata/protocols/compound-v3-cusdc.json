@@ -499,11 +499,11 @@
         ]
       },
       "admin()": {
-        "intent": "Admin on contract",
+        "intent": "Review Admin transaction",
         "fields": []
       },
       "changeAdmin(address)": {
-        "intent": "Change Admin on contract",
+        "intent": "Review Change Admin transaction",
         "fields": [
           {
             "path": "newAdmin",
@@ -513,11 +513,11 @@
         ]
       },
       "implementation()": {
-        "intent": "Implementation on contract",
+        "intent": "Review Implementation transaction",
         "fields": []
       },
       "upgradeTo(address)": {
-        "intent": "Upgrade To on contract",
+        "intent": "Review Upgrade To transaction",
         "fields": [
           {
             "path": "newImplementation",
@@ -527,7 +527,7 @@
         ]
       },
       "upgradeToAndCall(address,bytes)": {
-        "intent": "Upgrade To And Call on contract",
+        "intent": "Review Upgrade To And Call transaction",
         "fields": [
           {
             "path": "newImplementation",
@@ -542,7 +542,7 @@
         ]
       },
       "absorb(address,address[])": {
-        "intent": "Absorb on contract",
+        "intent": "Review Absorb transaction",
         "fields": [
           {
             "path": "absorber",
@@ -557,7 +557,7 @@
         ]
       },
       "accrueAccount(address)": {
-        "intent": "Accrue Account on contract",
+        "intent": "Review Accrue Account transaction",
         "fields": [
           {
             "path": "account",
@@ -567,7 +567,7 @@
         ]
       },
       "approveThis(address,address,uint256)": {
-        "intent": "Approve This on contract",
+        "intent": "Review Approve This transaction",
         "fields": [
           {
             "path": "manager",
@@ -587,7 +587,7 @@
         ]
       },
       "buyCollateral(address,uint256,uint256,address)": {
-        "intent": "Buy Collateral on contract",
+        "intent": "Review Buy Collateral transaction",
         "fields": [
           {
             "path": "asset",
@@ -612,11 +612,11 @@
         ]
       },
       "initializeStorage()": {
-        "intent": "Initialize Storage on contract",
+        "intent": "Review Initialize Storage transaction",
         "fields": []
       },
       "pause(bool,bool,bool,bool,bool)": {
-        "intent": "Pause on contract",
+        "intent": "Review Pause transaction",
         "fields": [
           {
             "path": "supplyPaused",
@@ -646,7 +646,7 @@
         ]
       },
       "supplyFrom(address,address,address,uint256)": {
-        "intent": "Supply From on contract",
+        "intent": "Review Supply From transaction",
         "fields": [
           {
             "path": "from",
@@ -671,7 +671,7 @@
         ]
       },
       "supplyTo(address,address,uint256)": {
-        "intent": "Supply To on contract",
+        "intent": "Review Supply To transaction",
         "fields": [
           {
             "path": "dst",
@@ -691,7 +691,7 @@
         ]
       },
       "transfer(address,uint256)": {
-        "intent": "Transfer on contract",
+        "intent": "Review Transfer transaction",
         "fields": [
           {
             "path": "dst",
@@ -706,7 +706,7 @@
         ]
       },
       "transferAsset(address,address,uint256)": {
-        "intent": "Transfer Asset on contract",
+        "intent": "Review Transfer Asset transaction",
         "fields": [
           {
             "path": "dst",
@@ -726,7 +726,7 @@
         ]
       },
       "transferAssetFrom(address,address,address,uint256)": {
-        "intent": "Transfer Asset From on contract",
+        "intent": "Review Transfer Asset From transaction",
         "fields": [
           {
             "path": "src",
@@ -751,7 +751,7 @@
         ]
       },
       "transferFrom(address,address,uint256)": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "src",
@@ -771,7 +771,7 @@
         ]
       },
       "withdrawFrom(address,address,address,uint256)": {
-        "intent": "Withdraw From on contract",
+        "intent": "Review Withdraw From transaction",
         "fields": [
           {
             "path": "src",
@@ -796,7 +796,7 @@
         ]
       },
       "withdrawReserves(address,uint256)": {
-        "intent": "Withdraw Reserves on contract",
+        "intent": "Review Withdraw Reserves transaction",
         "fields": [
           {
             "path": "to",
@@ -811,7 +811,7 @@
         ]
       },
       "withdrawTo(address,address,uint256)": {
-        "intent": "Withdraw To on contract",
+        "intent": "Review Withdraw To transaction",
         "fields": [
           {
             "path": "to",

@@ -1105,7 +1105,7 @@
         ]
       },
       "approveMax(address)": {
-        "intent": "Approve Max on contract",
+        "intent": "Review Approve Max transaction",
         "fields": [
           {
             "path": "token",
@@ -1115,7 +1115,7 @@
         ]
       },
       "approveMaxMinusOne(address)": {
-        "intent": "Approve Max Minus One on contract",
+        "intent": "Review Approve Max Minus One transaction",
         "fields": [
           {
             "path": "token",
@@ -1125,7 +1125,7 @@
         ]
       },
       "approveZeroThenMax(address)": {
-        "intent": "Approve Zero Then Max on contract",
+        "intent": "Review Approve Zero Then Max transaction",
         "fields": [
           {
             "path": "token",
@@ -1135,7 +1135,7 @@
         ]
       },
       "approveZeroThenMaxMinusOne(address)": {
-        "intent": "Approve Zero Then Max Minus One on contract",
+        "intent": "Review Approve Zero Then Max Minus One transaction",
         "fields": [
           {
             "path": "token",
@@ -1145,7 +1145,7 @@
         ]
       },
       "callPositionManager(bytes)": {
-        "intent": "Call Position Manager on contract",
+        "intent": "Review Call Position Manager transaction",
         "fields": [
           {
             "path": "data",
@@ -1155,7 +1155,7 @@
         ]
       },
       "exactInputStableSwap(address[],uint256[],uint256,uint256,address)": {
-        "intent": "Exact Input Stable Swap on contract",
+        "intent": "Review Exact Input Stable Swap transaction",
         "fields": [
           {
             "path": "path",
@@ -1185,7 +1185,7 @@
         ]
       },
       "exactOutput((bytes,address,uint256,uint256))": {
-        "intent": "Exact Output on contract",
+        "intent": "Review Exact Output transaction",
         "fields": [
           {
             "path": "params",
@@ -1195,7 +1195,7 @@
         ]
       },
       "exactOutputSingle((address,address,uint24,address,uint256,uint256,uint160))": {
-        "intent": "Exact Output Single on contract",
+        "intent": "Review Exact Output Single transaction",
         "fields": [
           {
             "path": "params",
@@ -1205,7 +1205,7 @@
         ]
       },
       "exactOutputStableSwap(address[],uint256[],uint256,uint256,address)": {
-        "intent": "Exact Output Stable Swap on contract",
+        "intent": "Review Exact Output Stable Swap transaction",
         "fields": [
           {
             "path": "path",
@@ -1235,7 +1235,7 @@
         ]
       },
       "getApprovalType(address,uint256)": {
-        "intent": "Get Approval Type on contract",
+        "intent": "Review Get Approval Type transaction",
         "fields": [
           {
             "path": "token",
@@ -1250,7 +1250,7 @@
         ]
       },
       "increaseLiquidity((address,address,uint256,uint256,uint256))": {
-        "intent": "Increase Liquidity on contract",
+        "intent": "Review Increase Liquidity transaction",
         "fields": [
           {
             "path": "params",
@@ -1260,7 +1260,7 @@
         ]
       },
       "mint((address,address,uint24,int24,int24,uint256,uint256,address))": {
-        "intent": "Mint on contract",
+        "intent": "Review Mint transaction",
         "fields": [
           {
             "path": "params",
@@ -1270,7 +1270,7 @@
         ]
       },
       "multicall(bytes32,bytes[])": {
-        "intent": "Multicall on contract",
+        "intent": "Review Multicall transaction",
         "fields": [
           {
             "path": "previousBlockhash",
@@ -1285,7 +1285,7 @@
         ]
       },
       "multicall(bytes[])": {
-        "intent": "Multicall on contract",
+        "intent": "Review Multicall transaction",
         "fields": [
           {
             "path": "data",
@@ -1295,7 +1295,7 @@
         ]
       },
       "pancakeV3SwapCallback(int256,int256,bytes)": {
-        "intent": "Pancake V3 Swap Callback on contract",
+        "intent": "Review Pancake V3 Swap Callback transaction",
         "fields": [
           {
             "path": "amount0Delta",
@@ -1315,7 +1315,7 @@
         ]
       },
       "pull(address,uint256)": {
-        "intent": "Pull on contract",
+        "intent": "Review Pull transaction",
         "fields": [
           {
             "path": "token",
@@ -1330,15 +1330,15 @@
         ]
       },
       "refundETH()": {
-        "intent": "Refund ETH on contract",
+        "intent": "Review Refund ETH transaction",
         "fields": []
       },
       "renounceOwnership()": {
-        "intent": "Renounce Ownership on contract",
+        "intent": "Review Renounce Ownership transaction",
         "fields": []
       },
       "selfPermit(address,uint256,uint256,uint8,bytes32,bytes32)": {
-        "intent": "Self Permit on contract",
+        "intent": "Review Self Permit transaction",
         "fields": [
           {
             "path": "token",
@@ -1373,7 +1373,7 @@
         ]
       },
       "selfPermitAllowed(address,uint256,uint256,uint8,bytes32,bytes32)": {
-        "intent": "Self Permit Allowed on contract",
+        "intent": "Review Self Permit Allowed transaction",
         "fields": [
           {
             "path": "token",
@@ -1408,7 +1408,7 @@
         ]
       },
       "selfPermitAllowedIfNecessary(address,uint256,uint256,uint8,bytes32,bytes32)": {
-        "intent": "Self Permit Allowed If Necessary on contract",
+        "intent": "Review Self Permit Allowed If Necessary transaction",
         "fields": [
           {
             "path": "token",
@@ -1443,7 +1443,7 @@
         ]
       },
       "selfPermitIfNecessary(address,uint256,uint256,uint8,bytes32,bytes32)": {
-        "intent": "Self Permit If Necessary on contract",
+        "intent": "Review Self Permit If Necessary transaction",
         "fields": [
           {
             "path": "token",
@@ -1478,7 +1478,7 @@
         ]
       },
       "setStableSwap(address,address)": {
-        "intent": "Set Stable Swap on contract",
+        "intent": "Review Set Stable Swap transaction",
         "fields": [
           {
             "path": "_factory",
@@ -1493,7 +1493,7 @@
         ]
       },
       "swapExactTokensForTokens(uint256,uint256,address[],address)": {
-        "intent": "Swap Exact Tokens For Tokens on contract",
+        "intent": "Review Swap Exact Tokens For Tokens transaction",
         "fields": [
           {
             "path": "amountIn",
@@ -1518,7 +1518,7 @@
         ]
       },
       "swapTokensForExactTokens(uint256,uint256,address[],address)": {
-        "intent": "Swap Tokens For Exact Tokens on contract",
+        "intent": "Review Swap Tokens For Exact Tokens transaction",
         "fields": [
           {
             "path": "amountOut",
@@ -1543,7 +1543,7 @@
         ]
       },
       "sweepToken(address,uint256,address)": {
-        "intent": "Sweep Token on contract",
+        "intent": "Review Sweep Token transaction",
         "fields": [
           {
             "path": "token",
@@ -1563,7 +1563,7 @@
         ]
       },
       "sweepToken(address,uint256)": {
-        "intent": "Sweep Token on contract",
+        "intent": "Review Sweep Token transaction",
         "fields": [
           {
             "path": "token",
@@ -1578,7 +1578,7 @@
         ]
       },
       "sweepTokenWithFee(address,uint256,uint256,address)": {
-        "intent": "Sweep Token With Fee on contract",
+        "intent": "Review Sweep Token With Fee transaction",
         "fields": [
           {
             "path": "token",
@@ -1603,7 +1603,7 @@
         ]
       },
       "sweepTokenWithFee(address,uint256,address,uint256,address)": {
-        "intent": "Sweep Token With Fee on contract",
+        "intent": "Review Sweep Token With Fee transaction",
         "fields": [
           {
             "path": "token",
@@ -1633,7 +1633,7 @@
         ]
       },
       "transferOwnership(address)": {
-        "intent": "Transfer Ownership on contract",
+        "intent": "Review Transfer Ownership transaction",
         "fields": [
           {
             "path": "newOwner",
@@ -1643,7 +1643,7 @@
         ]
       },
       "unwrapWETH9(uint256,address)": {
-        "intent": "Unwrap WETH9 on contract",
+        "intent": "Review Unwrap WETH9 transaction",
         "fields": [
           {
             "path": "amountMinimum",
@@ -1658,7 +1658,7 @@
         ]
       },
       "unwrapWETH9WithFee(uint256,address,uint256,address)": {
-        "intent": "Unwrap WETH9 With Fee on contract",
+        "intent": "Review Unwrap WETH9 With Fee transaction",
         "fields": [
           {
             "path": "amountMinimum",
@@ -1683,7 +1683,7 @@
         ]
       },
       "unwrapWETH9WithFee(uint256,uint256,address)": {
-        "intent": "Unwrap WETH9 With Fee on contract",
+        "intent": "Review Unwrap WETH9 With Fee transaction",
         "fields": [
           {
             "path": "amountMinimum",
@@ -1703,7 +1703,7 @@
         ]
       },
       "wrapETH(uint256)": {
-        "intent": "Wrap ETH on contract",
+        "intent": "Review Wrap ETH transaction",
         "fields": [
           {
             "path": "value",

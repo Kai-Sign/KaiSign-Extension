@@ -874,7 +874,7 @@
         ]
       },
       "approve(address,uint256)": {
-        "intent": "Approve on contract",
+        "intent": "Review Approve transaction",
         "fields": [
           {
             "path": "spender",
@@ -889,7 +889,7 @@
         ]
       },
       "decreaseAllowance(address,uint256)": {
-        "intent": "Decrease Allowance on contract",
+        "intent": "Review Decrease Allowance transaction",
         "fields": [
           {
             "path": "spender",
@@ -904,7 +904,7 @@
         ]
       },
       "deposit(uint256,address,uint256)": {
-        "intent": "Deposit on contract",
+        "intent": "Review Deposit transaction",
         "fields": [
           {
             "path": "assets_",
@@ -924,7 +924,7 @@
         ]
       },
       "depositWithSignature(uint256,address,uint256,((address,uint160,uint48,uint48),address,uint256),bytes)": {
-        "intent": "Deposit With Signature on contract",
+        "intent": "Review Deposit With Signature transaction",
         "fields": [
           {
             "path": "assets_",
@@ -954,7 +954,7 @@
         ]
       },
       "depositWithSignatureEIP2612(uint256,address,uint256,uint256,bytes)": {
-        "intent": "Deposit With Signature EIP2612 on contract",
+        "intent": "Review Deposit With Signature EIP2612 transaction",
         "fields": [
           {
             "path": "assets_",
@@ -984,7 +984,7 @@
         ]
       },
       "increaseAllowance(address,uint256)": {
-        "intent": "Increase Allowance on contract",
+        "intent": "Review Increase Allowance transaction",
         "fields": [
           {
             "path": "spender",
@@ -999,7 +999,7 @@
         ]
       },
       "liquidityCallback(address,uint256,bytes)": {
-        "intent": "Liquidity Callback on contract",
+        "intent": "Review Liquidity Callback transaction",
         "fields": [
           {
             "path": "token_",
@@ -1019,7 +1019,7 @@
         ]
       },
       "mint(uint256,address,uint256)": {
-        "intent": "Mint on contract",
+        "intent": "Review Mint transaction",
         "fields": [
           {
             "path": "shares_",
@@ -1039,7 +1039,7 @@
         ]
       },
       "mint(uint256,address)": {
-        "intent": "Mint on contract",
+        "intent": "Review Mint transaction",
         "fields": [
           {
             "path": "shares_",
@@ -1054,7 +1054,7 @@
         ]
       },
       "mintWithSignature(uint256,address,uint256,((address,uint160,uint48,uint48),address,uint256),bytes)": {
-        "intent": "Mint With Signature on contract",
+        "intent": "Review Mint With Signature transaction",
         "fields": [
           {
             "path": "shares_",
@@ -1084,7 +1084,7 @@
         ]
       },
       "mintWithSignatureEIP2612(uint256,address,uint256,uint256,bytes)": {
-        "intent": "Mint With Signature EIP2612 on contract",
+        "intent": "Review Mint With Signature EIP2612 transaction",
         "fields": [
           {
             "path": "shares_",
@@ -1114,7 +1114,7 @@
         ]
       },
       "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)": {
-        "intent": "Permit on contract",
+        "intent": "Review Permit transaction",
         "fields": [
           {
             "path": "owner",
@@ -1154,11 +1154,11 @@
         ]
       },
       "rebalance()": {
-        "intent": "Rebalance on contract",
+        "intent": "Review Rebalance transaction",
         "fields": []
       },
       "redeem(uint256,address,address,uint256)": {
-        "intent": "Redeem on contract",
+        "intent": "Review Redeem transaction",
         "fields": [
           {
             "path": "shares_",
@@ -1183,7 +1183,7 @@
         ]
       },
       "redeem(uint256,address,address)": {
-        "intent": "Redeem on contract",
+        "intent": "Review Redeem transaction",
         "fields": [
           {
             "path": "shares_",
@@ -1203,7 +1203,7 @@
         ]
       },
       "redeemWithSignature(uint256,address,address,uint256,uint256,bytes)": {
-        "intent": "Redeem With Signature on contract",
+        "intent": "Review Redeem With Signature transaction",
         "fields": [
           {
             "path": "shares_",
@@ -1238,7 +1238,7 @@
         ]
       },
       "rescueFunds(address)": {
-        "intent": "Rescue Funds on contract",
+        "intent": "Review Rescue Funds transaction",
         "fields": [
           {
             "path": "token_",
@@ -1248,7 +1248,7 @@
         ]
       },
       "transfer(address,uint256)": {
-        "intent": "Transfer on contract",
+        "intent": "Review Transfer transaction",
         "fields": [
           {
             "path": "to",
@@ -1263,7 +1263,7 @@
         ]
       },
       "transferFrom(address,address,uint256)": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "from",
@@ -1283,11 +1283,11 @@
         ]
       },
       "updateRates()": {
-        "intent": "Update Rates on contract",
+        "intent": "Review Update Rates transaction",
         "fields": []
       },
       "updateRebalancer(address)": {
-        "intent": "Update Rebalancer on contract",
+        "intent": "Review Update Rebalancer transaction",
         "fields": [
           {
             "path": "newRebalancer_",
@@ -1297,7 +1297,7 @@
         ]
       },
       "updateRewards(address)": {
-        "intent": "Update Rewards on contract",
+        "intent": "Review Update Rewards transaction",
         "fields": [
           {
             "path": "rewardsRateModel_",
@@ -1307,7 +1307,7 @@
         ]
       },
       "withdraw(uint256,address,address,uint256)": {
-        "intent": "Withdraw on contract",
+        "intent": "Review Withdraw transaction",
         "fields": [
           {
             "path": "assets_",
@@ -1332,7 +1332,7 @@
         ]
       },
       "withdrawWithSignature(uint256,uint256,address,address,uint256,uint256,bytes)": {
-        "intent": "Withdraw With Signature on contract",
+        "intent": "Review Withdraw With Signature transaction",
         "fields": [
           {
             "path": "sharesToPermit_",

@@ -1407,7 +1407,7 @@
         ]
       },
       "advanceEpoch(uint96,uint256)": {
-        "intent": "Advance Epoch on contract",
+        "intent": "Review Advance Epoch transaction",
         "fields": [
           {
             "path": "series",
@@ -1422,7 +1422,7 @@
         ]
       },
       "bitsInvalidateForOrder(uint256,uint256)": {
-        "intent": "Bits Invalidate For Order on contract",
+        "intent": "Review Bits Invalidate For Order transaction",
         "fields": [
           {
             "path": "makerTraits",
@@ -1437,7 +1437,7 @@
         ]
       },
       "cancelOrder(uint256,bytes32)": {
-        "intent": "Cancel Order on contract",
+        "intent": "Review Cancel Order transaction",
         "fields": [
           {
             "path": "makerTraits",
@@ -1452,7 +1452,7 @@
         ]
       },
       "cancelOrders(uint256[],bytes32[])": {
-        "intent": "Cancel Orders on contract",
+        "intent": "Review Cancel Orders transaction",
         "fields": [
           {
             "path": "makerTraits",
@@ -1467,7 +1467,7 @@
         ]
       },
       "clipperSwap(address,uint256,address,uint256,uint256,uint256,bytes32,bytes32)": {
-        "intent": "Clipper Swap on contract",
+        "intent": "Review Clipper Swap transaction",
         "fields": [
           {
             "path": "clipperExchange",
@@ -1512,7 +1512,7 @@
         ]
       },
       "clipperSwapTo(address,address,uint256,address,uint256,uint256,uint256,bytes32,bytes32)": {
-        "intent": "Clipper Swap To on contract",
+        "intent": "Review Clipper Swap To transaction",
         "fields": [
           {
             "path": "clipperExchange",
@@ -1562,7 +1562,7 @@
         ]
       },
       "curveSwapCallback(address,address,address,uint256,uint256)": {
-        "intent": "Curve Swap Callback on contract",
+        "intent": "Review Curve Swap Callback transaction",
         "fields": [
           {
             "path": "param0",
@@ -1592,7 +1592,7 @@
         ]
       },
       "ethUnoswap(uint256,uint256)": {
-        "intent": "Eth Unoswap on contract",
+        "intent": "Review Eth Unoswap transaction",
         "fields": [
           {
             "path": "minReturn",
@@ -1607,7 +1607,7 @@
         ]
       },
       "ethUnoswap2(uint256,uint256,uint256)": {
-        "intent": "Eth Unoswap2 on contract",
+        "intent": "Review Eth Unoswap2 transaction",
         "fields": [
           {
             "path": "minReturn",
@@ -1627,7 +1627,7 @@
         ]
       },
       "ethUnoswap3(uint256,uint256,uint256,uint256)": {
-        "intent": "Eth Unoswap3 on contract",
+        "intent": "Review Eth Unoswap3 transaction",
         "fields": [
           {
             "path": "minReturn",
@@ -1652,7 +1652,7 @@
         ]
       },
       "ethUnoswapTo(uint256,uint256,uint256)": {
-        "intent": "Eth Unoswap To on contract",
+        "intent": "Review Eth Unoswap To transaction",
         "fields": [
           {
             "path": "to",
@@ -1672,7 +1672,7 @@
         ]
       },
       "ethUnoswapTo2(uint256,uint256,uint256,uint256)": {
-        "intent": "Eth Unoswap To2 on contract",
+        "intent": "Review Eth Unoswap To2 transaction",
         "fields": [
           {
             "path": "to",
@@ -1697,7 +1697,7 @@
         ]
       },
       "ethUnoswapTo3(uint256,uint256,uint256,uint256,uint256)": {
-        "intent": "Eth Unoswap To3 on contract",
+        "intent": "Review Eth Unoswap To3 transaction",
         "fields": [
           {
             "path": "to",
@@ -1727,7 +1727,7 @@
         ]
       },
       "fillContractOrder((uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),bytes,uint256,uint256)": {
-        "intent": "Fill Contract Order on contract",
+        "intent": "Review Fill Contract Order transaction",
         "fields": [
           {
             "path": "order",
@@ -1752,7 +1752,7 @@
         ]
       },
       "fillContractOrderArgs((uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),bytes,uint256,uint256,bytes)": {
-        "intent": "Fill Contract Order Args on contract",
+        "intent": "Review Fill Contract Order Args transaction",
         "fields": [
           {
             "path": "order",
@@ -1782,7 +1782,7 @@
         ]
       },
       "fillOrderArgs((uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),bytes32,bytes32,uint256,uint256,bytes)": {
-        "intent": "Fill Order Args on contract",
+        "intent": "Review Fill Order Args transaction",
         "fields": [
           {
             "path": "order",
@@ -1817,7 +1817,7 @@
         ]
       },
       "increaseEpoch(uint96)": {
-        "intent": "Increase Epoch on contract",
+        "intent": "Review Increase Epoch transaction",
         "fields": [
           {
             "path": "series",
@@ -1827,11 +1827,11 @@
         ]
       },
       "pause()": {
-        "intent": "Pause on contract",
+        "intent": "Review Pause transaction",
         "fields": []
       },
       "permitAndCall(bytes,bytes)": {
-        "intent": "Permit And Call on contract",
+        "intent": "Review Permit And Call transaction",
         "fields": [
           {
             "path": "permit",
@@ -1846,11 +1846,11 @@
         ]
       },
       "renounceOwnership()": {
-        "intent": "Renounce Ownership on contract",
+        "intent": "Review Renounce Ownership transaction",
         "fields": []
       },
       "rescueFunds(address,uint256)": {
-        "intent": "Rescue Funds on contract",
+        "intent": "Review Rescue Funds transaction",
         "fields": [
           {
             "path": "token",
@@ -1865,7 +1865,7 @@
         ]
       },
       "simulate(address,bytes)": {
-        "intent": "Simulate on contract",
+        "intent": "Review Simulate transaction",
         "fields": [
           {
             "path": "target",
@@ -1880,7 +1880,7 @@
         ]
       },
       "transferOwnership(address)": {
-        "intent": "Transfer Ownership on contract",
+        "intent": "Review Transfer Ownership transaction",
         "fields": [
           {
             "path": "newOwner",
@@ -1890,7 +1890,7 @@
         ]
       },
       "uniswapV3SwapCallback(int256,int256,bytes)": {
-        "intent": "Uniswap V3 Swap Callback on contract",
+        "intent": "Review Uniswap V3 Swap Callback transaction",
         "fields": [
           {
             "path": "amount0Delta",
@@ -1910,7 +1910,7 @@
         ]
       },
       "unoswap(uint256,uint256,uint256,uint256)": {
-        "intent": "Unoswap on contract",
+        "intent": "Review Unoswap transaction",
         "fields": [
           {
             "path": "token",
@@ -1935,7 +1935,7 @@
         ]
       },
       "unoswap2(uint256,uint256,uint256,uint256,uint256)": {
-        "intent": "Unoswap2 on contract",
+        "intent": "Review Unoswap2 transaction",
         "fields": [
           {
             "path": "token",
@@ -1965,7 +1965,7 @@
         ]
       },
       "unoswap3(uint256,uint256,uint256,uint256,uint256,uint256)": {
-        "intent": "Unoswap3 on contract",
+        "intent": "Review Unoswap3 transaction",
         "fields": [
           {
             "path": "token",
@@ -2000,7 +2000,7 @@
         ]
       },
       "unoswapTo(uint256,uint256,uint256,uint256,uint256)": {
-        "intent": "Unoswap To on contract",
+        "intent": "Review Unoswap To transaction",
         "fields": [
           {
             "path": "to",
@@ -2030,7 +2030,7 @@
         ]
       },
       "unoswapTo2(uint256,uint256,uint256,uint256,uint256,uint256)": {
-        "intent": "Unoswap To2 on contract",
+        "intent": "Review Unoswap To2 transaction",
         "fields": [
           {
             "path": "to",
@@ -2065,7 +2065,7 @@
         ]
       },
       "unoswapTo3(uint256,uint256,uint256,uint256,uint256,uint256,uint256)": {
-        "intent": "Unoswap To3 on contract",
+        "intent": "Review Unoswap To3 transaction",
         "fields": [
           {
             "path": "to",
@@ -2105,7 +2105,7 @@
         ]
       },
       "unpause()": {
-        "intent": "Unpause on contract",
+        "intent": "Review Unpause transaction",
         "fields": []
       }
     }

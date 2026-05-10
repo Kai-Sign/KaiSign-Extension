@@ -319,7 +319,7 @@
         "fields": []
       },
       "addExtraReward(address)": {
-        "intent": "Add Extra Reward on contract",
+        "intent": "Review Add Extra Reward transaction",
         "fields": [
           {
             "path": "_reward",
@@ -329,11 +329,11 @@
         ]
       },
       "clearExtraRewards()": {
-        "intent": "Clear Extra Rewards on contract",
+        "intent": "Review Clear Extra Rewards transaction",
         "fields": []
       },
       "donate(uint256)": {
-        "intent": "Donate on contract",
+        "intent": "Review Donate transaction",
         "fields": [
           {
             "path": "_amount",
@@ -343,11 +343,11 @@
         ]
       },
       "getReward()": {
-        "intent": "Get Reward on contract",
+        "intent": "Review Get Reward transaction",
         "fields": []
       },
       "getReward(address,bool)": {
-        "intent": "Get Reward on contract",
+        "intent": "Review Get Reward transaction",
         "fields": [
           {
             "path": "_account",
@@ -362,7 +362,7 @@
         ]
       },
       "queueNewRewards(uint256)": {
-        "intent": "Queue New Rewards on contract",
+        "intent": "Review Queue New Rewards transaction",
         "fields": [
           {
             "path": "_rewards",
@@ -372,7 +372,7 @@
         ]
       },
       "stakeFor(address,uint256)": {
-        "intent": "Stake For on contract",
+        "intent": "Review Stake For transaction",
         "fields": [
           {
             "path": "_for",
@@ -387,7 +387,7 @@
         ]
       },
       "withdraw(uint256,bool)": {
-        "intent": "Withdraw on contract",
+        "intent": "Review Withdraw transaction",
         "fields": [
           {
             "path": "amount",
@@ -402,7 +402,7 @@
         ]
       },
       "withdrawAll(bool)": {
-        "intent": "Withdraw All on contract",
+        "intent": "Review Withdraw All transaction",
         "fields": [
           {
             "path": "claim",
@@ -412,7 +412,7 @@
         ]
       },
       "withdrawAllAndUnwrap(bool)": {
-        "intent": "Withdraw All And Unwrap on contract",
+        "intent": "Review Withdraw All And Unwrap transaction",
         "fields": [
           {
             "path": "claim",
@@ -422,7 +422,7 @@
         ]
       },
       "withdrawAndUnwrap(uint256,bool)": {
-        "intent": "Withdraw And Unwrap on contract",
+        "intent": "Review Withdraw And Unwrap transaction",
         "fields": [
           {
             "path": "amount",

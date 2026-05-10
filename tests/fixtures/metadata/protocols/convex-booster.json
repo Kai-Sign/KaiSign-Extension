@@ -544,7 +544,7 @@
         ]
       },
       "addPool(address,address,uint256)": {
-        "intent": "Add Pool on contract",
+        "intent": "Review Add Pool transaction",
         "fields": [
           {
             "path": "_lptoken",
@@ -564,7 +564,7 @@
         ]
       },
       "claimRewards(uint256,address)": {
-        "intent": "Claim Rewards on contract",
+        "intent": "Review Claim Rewards transaction",
         "fields": [
           {
             "path": "_pid",
@@ -579,11 +579,11 @@
         ]
       },
       "earmarkFees()": {
-        "intent": "Earmark Fees on contract",
+        "intent": "Review Earmark Fees transaction",
         "fields": []
       },
       "earmarkRewards(uint256)": {
-        "intent": "Earmark Rewards on contract",
+        "intent": "Review Earmark Rewards transaction",
         "fields": [
           {
             "path": "_pid",
@@ -593,7 +593,7 @@
         ]
       },
       "rewardClaimed(uint256,address,uint256)": {
-        "intent": "Reward Claimed on contract",
+        "intent": "Review Reward Claimed transaction",
         "fields": [
           {
             "path": "_pid",
@@ -613,7 +613,7 @@
         ]
       },
       "setArbitrator(address)": {
-        "intent": "Set Arbitrator on contract",
+        "intent": "Review Set Arbitrator transaction",
         "fields": [
           {
             "path": "_arb",
@@ -623,7 +623,7 @@
         ]
       },
       "setFactories(address,address,address)": {
-        "intent": "Set Factories on contract",
+        "intent": "Review Set Factories transaction",
         "fields": [
           {
             "path": "_rfactory",
@@ -643,11 +643,11 @@
         ]
       },
       "setFeeInfo()": {
-        "intent": "Set Fee Info on contract",
+        "intent": "Review Set Fee Info transaction",
         "fields": []
       },
       "setFeeManager(address)": {
-        "intent": "Set Fee Manager on contract",
+        "intent": "Review Set Fee Manager transaction",
         "fields": [
           {
             "path": "_feeM",
@@ -657,7 +657,7 @@
         ]
       },
       "setFees(uint256,uint256,uint256,uint256)": {
-        "intent": "Set Fees on contract",
+        "intent": "Review Set Fees transaction",
         "fields": [
           {
             "path": "_lockFees",
@@ -682,7 +682,7 @@
         ]
       },
       "setGaugeRedirect(uint256)": {
-        "intent": "Set Gauge Redirect on contract",
+        "intent": "Review Set Gauge Redirect transaction",
         "fields": [
           {
             "path": "_pid",
@@ -692,7 +692,7 @@
         ]
       },
       "setOwner(address)": {
-        "intent": "Set Owner on contract",
+        "intent": "Review Set Owner transaction",
         "fields": [
           {
             "path": "_owner",
@@ -702,7 +702,7 @@
         ]
       },
       "setPoolManager(address)": {
-        "intent": "Set Pool Manager on contract",
+        "intent": "Review Set Pool Manager transaction",
         "fields": [
           {
             "path": "_poolM",
@@ -712,7 +712,7 @@
         ]
       },
       "setRewardContracts(address,address)": {
-        "intent": "Set Reward Contracts on contract",
+        "intent": "Review Set Reward Contracts transaction",
         "fields": [
           {
             "path": "_rewards",
@@ -727,7 +727,7 @@
         ]
       },
       "setTreasury(address)": {
-        "intent": "Set Treasury on contract",
+        "intent": "Review Set Treasury transaction",
         "fields": [
           {
             "path": "_treasury",
@@ -737,7 +737,7 @@
         ]
       },
       "setVoteDelegate(address)": {
-        "intent": "Set Vote Delegate on contract",
+        "intent": "Review Set Vote Delegate transaction",
         "fields": [
           {
             "path": "_voteDelegate",
@@ -747,7 +747,7 @@
         ]
       },
       "shutdownPool(uint256)": {
-        "intent": "Shutdown Pool on contract",
+        "intent": "Review Shutdown Pool transaction",
         "fields": [
           {
             "path": "_pid",
@@ -757,11 +757,11 @@
         ]
       },
       "shutdownSystem()": {
-        "intent": "Shutdown System on contract",
+        "intent": "Review Shutdown System transaction",
         "fields": []
       },
       "vote(uint256,address,bool)": {
-        "intent": "Vote on contract",
+        "intent": "Review Vote transaction",
         "fields": [
           {
             "path": "_voteId",
@@ -781,7 +781,7 @@
         ]
       },
       "voteGaugeWeight(address[],uint256[])": {
-        "intent": "Vote Gauge Weight on contract",
+        "intent": "Review Vote Gauge Weight transaction",
         "fields": [
           {
             "path": "_gauge",
@@ -796,7 +796,7 @@
         ]
       },
       "withdrawTo(uint256,uint256,address)": {
-        "intent": "Withdraw To on contract",
+        "intent": "Review Withdraw To transaction",
         "fields": [
           {
             "path": "_pid",

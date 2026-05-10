@@ -573,7 +573,7 @@
         "fields": []
       },
       "approve(address,address,uint160,uint48)": {
-        "intent": "Approve on contract",
+        "intent": "Review Approve transaction",
         "fields": [
           {
             "path": "token",
@@ -598,7 +598,7 @@
         ]
       },
       "invalidateNonces(address,address,uint48)": {
-        "intent": "Invalidate Nonces on contract",
+        "intent": "Review Invalidate Nonces transaction",
         "fields": [
           {
             "path": "token",
@@ -618,7 +618,7 @@
         ]
       },
       "invalidateUnorderedNonces(uint256,uint256)": {
-        "intent": "Invalidate Unordered Nonces on contract",
+        "intent": "Review Invalidate Unordered Nonces transaction",
         "fields": [
           {
             "path": "wordPos",
@@ -633,7 +633,7 @@
         ]
       },
       "lockdown((address,address)[])": {
-        "intent": "Lockdown on contract",
+        "intent": "Review Lockdown transaction",
         "fields": [
           {
             "path": "approvals",
@@ -643,7 +643,7 @@
         ]
       },
       "permit(address,((address,uint160,uint48,uint48)[],address,uint256),bytes)": {
-        "intent": "Permit on contract",
+        "intent": "Review Permit transaction",
         "fields": [
           {
             "path": "owner",
@@ -663,7 +663,7 @@
         ]
       },
       "permitTransferFrom(((address,uint256)[],uint256,uint256),(address,uint256)[],address,bytes)": {
-        "intent": "Permit Transfer From on contract",
+        "intent": "Review Permit Transfer From transaction",
         "fields": [
           {
             "path": "permit",
@@ -688,7 +688,7 @@
         ]
       },
       "permitWitnessTransferFrom(((address,uint256),uint256,uint256),(address,uint256),address,bytes32,string,bytes)": {
-        "intent": "Permit Witness Transfer From on contract",
+        "intent": "Review Permit Witness Transfer From transaction",
         "fields": [
           {
             "path": "permit",
@@ -723,7 +723,7 @@
         ]
       },
       "permitWitnessTransferFrom(((address,uint256)[],uint256,uint256),(address,uint256)[],address,bytes32,string,bytes)": {
-        "intent": "Permit Witness Transfer From on contract",
+        "intent": "Review Permit Witness Transfer From transaction",
         "fields": [
           {
             "path": "permit",
@@ -758,7 +758,7 @@
         ]
       },
       "transferFrom((address,address,uint160,address)[])": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "transferDetails",
@@ -768,7 +768,7 @@
         ]
       },
       "transferFrom(address,address,uint160,address)": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "from",

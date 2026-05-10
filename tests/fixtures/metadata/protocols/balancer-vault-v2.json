@@ -680,7 +680,7 @@
         ]
       },
       "batchSwap(uint8,(bytes32,uint256,uint256,uint256,bytes)[],address[],(address,bool,address,bool),int256[],uint256)": {
-        "intent": "Batch Swap on contract",
+        "intent": "Review Batch Swap transaction",
         "fields": [
           {
             "path": "kind",
@@ -715,7 +715,7 @@
         ]
       },
       "deregisterTokens(bytes32,address[])": {
-        "intent": "Deregister Tokens on contract",
+        "intent": "Review Deregister Tokens transaction",
         "fields": [
           {
             "path": "poolId",
@@ -730,7 +730,7 @@
         ]
       },
       "flashLoan(address,address[],uint256[],bytes)": {
-        "intent": "Flash Loan on contract",
+        "intent": "Review Flash Loan transaction",
         "fields": [
           {
             "path": "recipient",
@@ -755,7 +755,7 @@
         ]
       },
       "managePoolBalance((uint8,bytes32,address,uint256)[])": {
-        "intent": "Manage Pool Balance on contract",
+        "intent": "Review Manage Pool Balance transaction",
         "fields": [
           {
             "path": "ops",
@@ -765,7 +765,7 @@
         ]
       },
       "manageUserBalance((uint8,address,uint256,address,address)[])": {
-        "intent": "Manage User Balance on contract",
+        "intent": "Review Manage User Balance transaction",
         "fields": [
           {
             "path": "ops",
@@ -775,7 +775,7 @@
         ]
       },
       "queryBatchSwap(uint8,(bytes32,uint256,uint256,uint256,bytes)[],address[],(address,bool,address,bool))": {
-        "intent": "Query Batch Swap on contract",
+        "intent": "Review Query Batch Swap transaction",
         "fields": [
           {
             "path": "kind",
@@ -800,7 +800,7 @@
         ]
       },
       "registerPool(uint8)": {
-        "intent": "Register Pool on contract",
+        "intent": "Review Register Pool transaction",
         "fields": [
           {
             "path": "specialization",
@@ -810,7 +810,7 @@
         ]
       },
       "registerTokens(bytes32,address[],address[])": {
-        "intent": "Register Tokens on contract",
+        "intent": "Review Register Tokens transaction",
         "fields": [
           {
             "path": "poolId",
@@ -830,7 +830,7 @@
         ]
       },
       "setAuthorizer(address)": {
-        "intent": "Set Authorizer on contract",
+        "intent": "Review Set Authorizer transaction",
         "fields": [
           {
             "path": "newAuthorizer",
@@ -840,7 +840,7 @@
         ]
       },
       "setPaused(bool)": {
-        "intent": "Set Paused on contract",
+        "intent": "Review Set Paused transaction",
         "fields": [
           {
             "path": "paused",
@@ -850,7 +850,7 @@
         ]
       },
       "setRelayerApproval(address,address,bool)": {
-        "intent": "Set Relayer Approval on contract",
+        "intent": "Review Set Relayer Approval transaction",
         "fields": [
           {
             "path": "sender",

@@ -406,7 +406,7 @@
         ]
       },
       "freeFilledAmountStorage(bytes[])": {
-        "intent": "Free Filled Amount Storage on contract",
+        "intent": "Review Free Filled Amount Storage transaction",
         "fields": [
           {
             "path": "orderUids",
@@ -416,7 +416,7 @@
         ]
       },
       "freePreSignatureStorage(bytes[])": {
-        "intent": "Free Pre Signature Storage on contract",
+        "intent": "Review Free Pre Signature Storage transaction",
         "fields": [
           {
             "path": "orderUids",
@@ -426,7 +426,7 @@
         ]
       },
       "simulateDelegatecall(address,bytes)": {
-        "intent": "Simulate Delegatecall on contract",
+        "intent": "Review Simulate Delegatecall transaction",
         "fields": [
           {
             "path": "targetContract",
@@ -441,7 +441,7 @@
         ]
       },
       "simulateDelegatecallInternal(address,bytes)": {
-        "intent": "Simulate Delegatecall Internal on contract",
+        "intent": "Review Simulate Delegatecall Internal transaction",
         "fields": [
           {
             "path": "targetContract",
@@ -456,7 +456,7 @@
         ]
       },
       "swap((bytes32,uint256,uint256,uint256,bytes)[],address[],(uint256,uint256,address,uint256,uint256,uint32,bytes32,uint256,uint256,uint256,bytes))": {
-        "intent": "Swap on contract",
+        "intent": "Review Swap transaction",
         "fields": [
           {
             "path": "swaps",

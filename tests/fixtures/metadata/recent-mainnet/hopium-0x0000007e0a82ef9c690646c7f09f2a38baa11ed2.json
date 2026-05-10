@@ -326,7 +326,7 @@
         ]
       },
       "changeTaxBuySell(uint256,uint256)": {
-        "intent": "Change Tax Buy Sell on contract",
+        "intent": "Review Change Tax Buy Sell transaction",
         "fields": [
           {
             "path": "newBuyT",
@@ -341,7 +341,7 @@
         ]
       },
       "decreaseAllowance(address,uint256)": {
-        "intent": "Decrease Allowance on contract",
+        "intent": "Review Decrease Allowance transaction",
         "fields": [
           {
             "path": "spender",
@@ -356,15 +356,15 @@
         ]
       },
       "enableLaunch()": {
-        "intent": "Enable Launch on contract",
+        "intent": "Review Enable Launch transaction",
         "fields": []
       },
       "ethWith()": {
-        "intent": "Eth With on contract",
+        "intent": "Review Eth With transaction",
         "fields": []
       },
       "exmptFee(address,bool)": {
-        "intent": "Exmpt Fee on contract",
+        "intent": "Review Exmpt Fee transaction",
         "fields": [
           {
             "path": "targ",
@@ -379,7 +379,7 @@
         ]
       },
       "increaseAllowance(address,uint256)": {
-        "intent": "Increase Allowance on contract",
+        "intent": "Review Increase Allowance transaction",
         "fields": [
           {
             "path": "spender",
@@ -394,11 +394,11 @@
         ]
       },
       "modeC()": {
-        "intent": "Mode C on contract",
+        "intent": "Review Mode C transaction",
         "fields": []
       },
       "newlimit_maxtx(uint256)": {
-        "intent": "Newlimit maxtx on contract",
+        "intent": "Review Newlimit maxtx transaction",
         "fields": [
           {
             "path": "maxtxnew",
@@ -408,7 +408,7 @@
         ]
       },
       "newlimit_maxwlt(uint256)": {
-        "intent": "Newlimit maxwlt on contract",
+        "intent": "Review Newlimit maxwlt transaction",
         "fields": [
           {
             "path": "maxwltnew",
@@ -418,7 +418,7 @@
         ]
       },
       "newvalsSwapb(uint256,uint256)": {
-        "intent": "Newvals Swapb on contract",
+        "intent": "Review Newvals Swapb transaction",
         "fields": [
           {
             "path": "newmin",
@@ -433,15 +433,15 @@
         ]
       },
       "noLim()": {
-        "intent": "No Lim on contract",
+        "intent": "Review No Lim transaction",
         "fields": []
       },
       "renounceOwnership()": {
-        "intent": "Renounce Ownership on contract",
+        "intent": "Review Renounce Ownership transaction",
         "fields": []
       },
       "setlt(address[],bool)": {
-        "intent": "Setlt on contract",
+        "intent": "Review Setlt transaction",
         "fields": [
           {
             "path": "newadd",
@@ -456,7 +456,7 @@
         ]
       },
       "setnwMktRec(address)": {
-        "intent": "Setnw Mkt Rec on contract",
+        "intent": "Review Setnw Mkt Rec transaction",
         "fields": [
           {
             "path": "mktwWalletNew",
@@ -466,7 +466,7 @@
         ]
       },
       "transfer(address,uint256)": {
-        "intent": "Transfer on contract",
+        "intent": "Review Transfer transaction",
         "fields": [
           {
             "path": "recipient",
@@ -481,7 +481,7 @@
         ]
       },
       "transferFrom(address,address,uint256)": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "sender",
@@ -501,7 +501,7 @@
         ]
       },
       "transferOwnership(address)": {
-        "intent": "Transfer Ownership on contract",
+        "intent": "Review Transfer Ownership transaction",
         "fields": [
           {
             "path": "newOwner",
@@ -511,7 +511,7 @@
         ]
       },
       "triggerSwap()": {
-        "intent": "Trigger Swap on contract",
+        "intent": "Review Trigger Swap transaction",
         "fields": []
       }
     }

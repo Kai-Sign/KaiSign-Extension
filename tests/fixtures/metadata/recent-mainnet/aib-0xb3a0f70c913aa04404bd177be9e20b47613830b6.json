@@ -191,7 +191,7 @@
         ]
       },
       "addBots(address[])": {
-        "intent": "Add Bots on contract",
+        "intent": "Review Add Bots transaction",
         "fields": [
           {
             "path": "bots_",
@@ -201,7 +201,7 @@
         ]
       },
       "delBots(address[])": {
-        "intent": "Del Bots on contract",
+        "intent": "Review Del Bots transaction",
         "fields": [
           {
             "path": "notbot",
@@ -211,19 +211,19 @@
         ]
       },
       "manualSwap()": {
-        "intent": "Manual Swap on contract",
+        "intent": "Review Manual Swap transaction",
         "fields": []
       },
       "manualsend()": {
-        "intent": "Manualsend on contract",
+        "intent": "Review Manualsend transaction",
         "fields": []
       },
       "openTrading()": {
-        "intent": "Open Trading on contract",
+        "intent": "Review Open Trading transaction",
         "fields": []
       },
       "reduceFee(uint256)": {
-        "intent": "Reduce Fee on contract",
+        "intent": "Review Reduce Fee transaction",
         "fields": [
           {
             "path": "_newFee",
@@ -233,19 +233,19 @@
         ]
       },
       "removeLimits()": {
-        "intent": "Remove Limits on contract",
+        "intent": "Review Remove Limits transaction",
         "fields": []
       },
       "removeTransferTax()": {
-        "intent": "Remove Transfer Tax on contract",
+        "intent": "Review Remove Transfer Tax transaction",
         "fields": []
       },
       "renounceOwnership()": {
-        "intent": "Renounce Ownership on contract",
+        "intent": "Review Renounce Ownership transaction",
         "fields": []
       },
       "transfer(address,uint256)": {
-        "intent": "Transfer on contract",
+        "intent": "Review Transfer transaction",
         "fields": [
           {
             "path": "recipient",
@@ -260,7 +260,7 @@
         ]
       },
       "transferFrom(address,address,uint256)": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "sender",

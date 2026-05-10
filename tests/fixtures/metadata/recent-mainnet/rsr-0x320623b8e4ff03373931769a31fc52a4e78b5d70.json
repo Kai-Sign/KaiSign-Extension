@@ -323,7 +323,7 @@
         ]
       },
       "approve(address,uint256)": {
-        "intent": "Approve on contract",
+        "intent": "Review Approve transaction",
         "fields": [
           {
             "path": "spender",
@@ -338,7 +338,7 @@
         ]
       },
       "castSpell(address)": {
-        "intent": "Cast Spell on contract",
+        "intent": "Review Cast Spell transaction",
         "fields": [
           {
             "path": "spell",
@@ -348,7 +348,7 @@
         ]
       },
       "changePauser(address)": {
-        "intent": "Change Pauser on contract",
+        "intent": "Review Change Pauser transaction",
         "fields": [
           {
             "path": "newPauser",
@@ -358,7 +358,7 @@
         ]
       },
       "decreaseAllowance(address,uint256)": {
-        "intent": "Decrease Allowance on contract",
+        "intent": "Review Decrease Allowance transaction",
         "fields": [
           {
             "path": "spender",
@@ -373,7 +373,7 @@
         ]
       },
       "increaseAllowance(address,uint256)": {
-        "intent": "Increase Allowance on contract",
+        "intent": "Review Increase Allowance transaction",
         "fields": [
           {
             "path": "spender",
@@ -388,11 +388,11 @@
         ]
       },
       "moveToWorking()": {
-        "intent": "Move To Working on contract",
+        "intent": "Review Move To Working transaction",
         "fields": []
       },
       "partiallyCross(address,uint256)": {
-        "intent": "Partially Cross on contract",
+        "intent": "Review Partially Cross transaction",
         "fields": [
           {
             "path": "to",
@@ -407,11 +407,11 @@
         ]
       },
       "pause()": {
-        "intent": "Pause on contract",
+        "intent": "Review Pause transaction",
         "fields": []
       },
       "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)": {
-        "intent": "Permit on contract",
+        "intent": "Review Permit transaction",
         "fields": [
           {
             "path": "owner",
@@ -451,15 +451,15 @@
         ]
       },
       "renounceOwnership()": {
-        "intent": "Renounce Ownership on contract",
+        "intent": "Review Renounce Ownership transaction",
         "fields": []
       },
       "renouncePauser()": {
-        "intent": "Renounce Pauser on contract",
+        "intent": "Review Renounce Pauser transaction",
         "fields": []
       },
       "siphon(address,address,address,uint64)": {
-        "intent": "Siphon on contract",
+        "intent": "Review Siphon transaction",
         "fields": [
           {
             "path": "from",
@@ -484,7 +484,7 @@
         ]
       },
       "transferFrom(address,address,uint256)": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "sender",
@@ -504,7 +504,7 @@
         ]
       },
       "transferOwnership(address)": {
-        "intent": "Transfer Ownership on contract",
+        "intent": "Review Transfer Ownership transaction",
         "fields": [
           {
             "path": "newOwner",
@@ -514,7 +514,7 @@
         ]
       },
       "unpause()": {
-        "intent": "Unpause on contract",
+        "intent": "Review Unpause transaction",
         "fields": []
       }
     }

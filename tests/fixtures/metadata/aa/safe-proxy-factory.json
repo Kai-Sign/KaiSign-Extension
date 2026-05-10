@@ -134,7 +134,7 @@
         ]
       },
       "createChainSpecificProxyWithNonce(address,bytes,uint256)": {
-        "intent": "Create Chain Specific Proxy With Nonce on contract",
+        "intent": "Review Create Chain Specific Proxy With Nonce transaction",
         "fields": [
           {
             "path": "_singleton",

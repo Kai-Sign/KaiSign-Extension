@@ -160,7 +160,7 @@
         ]
       },
       "depositETHToLyra(address,bool,uint256,address)": {
-        "intent": "Deposit ETHTo Lyra on contract",
+        "intent": "Review Deposit ETHTo Lyra transaction",
         "fields": [
           {
             "path": "socketVault",
@@ -185,7 +185,7 @@
         ]
       },
       "recoverERC20(address,uint256)": {
-        "intent": "Recover ERC20 on contract",
+        "intent": "Review Recover ERC20 transaction",
         "fields": [
           {
             "path": "token",
@@ -200,7 +200,7 @@
         ]
       },
       "recoverETH(uint256)": {
-        "intent": "Recover ETH on contract",
+        "intent": "Review Recover ETH transaction",
         "fields": [
           {
             "path": "amount",
@@ -210,11 +210,11 @@
         ]
       },
       "renounceOwnership()": {
-        "intent": "Renounce Ownership on contract",
+        "intent": "Review Renounce Ownership transaction",
         "fields": []
       },
       "transferOwnership(address)": {
-        "intent": "Transfer Ownership on contract",
+        "intent": "Review Transfer Ownership transaction",
         "fields": [
           {
             "path": "newOwner",

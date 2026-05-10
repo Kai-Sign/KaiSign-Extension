@@ -533,7 +533,7 @@
         ]
       },
       "addStake(uint32)": {
-        "intent": "Add Stake on contract",
+        "intent": "Review Add Stake transaction",
         "fields": [
           {
             "path": "unstakeDelaySec",
@@ -543,7 +543,7 @@
         ]
       },
       "getSenderAddress(bytes)": {
-        "intent": "Get Sender Address on contract",
+        "intent": "Review Get Sender Address transaction",
         "fields": [
           {
             "path": "initCode",
@@ -553,7 +553,7 @@
         ]
       },
       "handleAggregatedOps(((address,uint256,bytes,bytes,uint256,uint256,uint256,uint256,uint256,bytes,bytes)[],address,bytes)[],address)": {
-        "intent": "Handle Aggregated Ops on contract",
+        "intent": "Review Handle Aggregated Ops transaction",
         "fields": [
           {
             "path": "opsPerAggregator",
@@ -568,7 +568,7 @@
         ]
       },
       "incrementNonce(uint192)": {
-        "intent": "Increment Nonce on contract",
+        "intent": "Review Increment Nonce transaction",
         "fields": [
           {
             "path": "key",
@@ -578,7 +578,7 @@
         ]
       },
       "innerHandleOp(bytes,((address,uint256,uint256,uint256,uint256,address,uint256,uint256),bytes32,uint256,uint256,uint256),bytes)": {
-        "intent": "Inner Handle Op on contract",
+        "intent": "Review Inner Handle Op transaction",
         "fields": [
           {
             "path": "callData",
@@ -598,7 +598,7 @@
         ]
       },
       "simulateHandleOp((address,uint256,bytes,bytes,uint256,uint256,uint256,uint256,uint256,bytes,bytes),address,bytes)": {
-        "intent": "Simulate Handle Op on contract",
+        "intent": "Review Simulate Handle Op transaction",
         "fields": [
           {
             "path": "op",
@@ -618,7 +618,7 @@
         ]
       },
       "simulateValidation((address,uint256,bytes,bytes,uint256,uint256,uint256,uint256,uint256,bytes,bytes))": {
-        "intent": "Simulate Validation on contract",
+        "intent": "Review Simulate Validation transaction",
         "fields": [
           {
             "path": "userOp",
@@ -628,11 +628,11 @@
         ]
       },
       "unlockStake()": {
-        "intent": "Unlock Stake on contract",
+        "intent": "Review Unlock Stake transaction",
         "fields": []
       },
       "withdrawStake(address)": {
-        "intent": "Withdraw Stake on contract",
+        "intent": "Review Withdraw Stake transaction",
         "fields": [
           {
             "path": "withdrawAddress",
@@ -642,7 +642,7 @@
         ]
       },
       "withdrawTo(address,uint256)": {
-        "intent": "Withdraw To on contract",
+        "intent": "Review Withdraw To transaction",
         "fields": [
           {
             "path": "withdrawAddress",

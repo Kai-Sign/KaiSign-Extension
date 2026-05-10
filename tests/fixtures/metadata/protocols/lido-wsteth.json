@@ -236,7 +236,7 @@
         ]
       },
       "approve(address,uint256)": {
-        "intent": "Approve on contract",
+        "intent": "Review Approve transaction",
         "fields": [
           {
             "path": "spender",
@@ -251,7 +251,7 @@
         ]
       },
       "decreaseAllowance(address,uint256)": {
-        "intent": "Decrease Allowance on contract",
+        "intent": "Review Decrease Allowance transaction",
         "fields": [
           {
             "path": "spender",
@@ -266,7 +266,7 @@
         ]
       },
       "increaseAllowance(address,uint256)": {
-        "intent": "Increase Allowance on contract",
+        "intent": "Review Increase Allowance transaction",
         "fields": [
           {
             "path": "spender",
@@ -281,7 +281,7 @@
         ]
       },
       "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)": {
-        "intent": "Permit on contract",
+        "intent": "Review Permit transaction",
         "fields": [
           {
             "path": "owner",
@@ -321,7 +321,7 @@
         ]
       },
       "transfer(address,uint256)": {
-        "intent": "Transfer on contract",
+        "intent": "Review Transfer transaction",
         "fields": [
           {
             "path": "recipient",
@@ -336,7 +336,7 @@
         ]
       },
       "transferFrom(address,address,uint256)": {
-        "intent": "Transfer From on contract",
+        "intent": "Review Transfer From transaction",
         "fields": [
           {
             "path": "sender",

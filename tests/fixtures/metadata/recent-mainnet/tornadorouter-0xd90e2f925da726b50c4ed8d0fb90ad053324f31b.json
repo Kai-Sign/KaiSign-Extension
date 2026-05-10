@@ -159,7 +159,7 @@
         ]
       },
       "approveExactToken(address,address,uint256)": {
-        "intent": "Approve Exact Token on contract",
+        "intent": "Review Approve Exact Token transaction",
         "fields": [
           {
             "path": "_token",
@@ -179,7 +179,7 @@
         ]
       },
       "backupNotes(bytes[])": {
-        "intent": "Backup Notes on contract",
+        "intent": "Review Backup Notes transaction",
         "fields": [
           {
             "path": "_encryptedNotes",
@@ -189,7 +189,7 @@
         ]
       },
       "rescueTokens(address,address,uint256)": {
-        "intent": "Rescue Tokens on contract",
+        "intent": "Review Rescue Tokens transaction",
         "fields": [
           {
             "path": "_token",
@@ -209,7 +209,7 @@
         ]
       },
       "withdraw(address,bytes,bytes32,bytes32,address,address,uint256,uint256)": {
-        "intent": "Withdraw on contract",
+        "intent": "Review Withdraw transaction",
         "fields": [
           {
             "path": "_tornado",
